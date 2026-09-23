@@ -174,7 +174,39 @@
    * ปิดโหมด Agent — ภาพต้องมาจากช่องพิมพ์ปกติทีละรูป
    * project ใหม่ของ Flow (ก.ย. 2026) เปิด Agent ไว้ให้เป็นค่าเริ่มต้น (เห็นกับหน้าจริง)
    */
+  /**
+   * project ใหม่ของ Flow เปิดแผงแชต Agent ค้างไว้ทางขวา ("เซสชันที่ไม่มีชื่อ") และซ่อนช่องพิมพ์ปกติ
+   * ซึ่งมีปุ่ม Agent กับปุ่มตั้งค่าโมเดลที่เราต้องใช้ — ต้องปิดแผงนี้ก่อนทุกอย่าง
+   * (โปรเจกต์ Youtube เจอก่อนแล้ว และเล่มจริงของผู้ใช้เจอซ้ำ: หาปุ่มตั้งค่าไม่เจอจนสร้างภาพไม่ได้สักรูป)
+   */
+  const chatPanel = () =>
+    $$('flow-agent-panel').find(visible) ||
+    $$('aside, [role="complementary"], section, div').find(
+      (el) =>
+        visible(el) &&
+        el.getBoundingClientRect().left > innerWidth * 0.55 &&
+        el.getBoundingClientRect().height > innerHeight * 0.5 &&
+        /เซสชัน|session|คุณต้องการสร้างอะไร|what do you want to create/i.test(text(el).slice(0, 200)) &&
+        $$('button', el).some((b) => text(b) === 'close'),
+    );
+
+  async function closeAgentChat() {
+    for (let i = 0; i < 3; i++) {
+      if (SEL.settingsTrigger() && SEL.agentChip()) return; // ช่องพิมพ์ปกติโผล่แล้ว
+      const panel = chatPanel();
+      if (!panel) return;
+      const close =
+        $$('button', panel).find((b) => visible(b) && /^(close|ปิด)$/i.test(b.getAttribute('aria-label') || '')) ||
+        $$('button', panel).find((b) => visible(b) && text(b) === 'close');
+      if (!close) return;
+      realClick(close);
+      await waitFor(() => (SEL.settingsTrigger() && SEL.agentChip()) || !chatPanel(), { timeout: 8000, label: 'ช่องพิมพ์หลังปิดแชต Agent' }).catch(() => null);
+      await sleep(500);
+    }
+  }
+
   async function agentOff() {
+    await closeAgentChat();
     for (let i = 0; i < 6 && agentOn(); i++) {
       const chip = await waitFor(SEL.agentChip, { label: 'ปุ่ม Agent' });
       i % 2 === 0 ? chip.click() : realClick(chip);
@@ -235,7 +267,14 @@
 
   async function openPane() {
     if (settingsPane()) return;
-    realClick(await waitFor(SEL.settingsTrigger, { label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }));
+    if (!SEL.settingsTrigger()) await closeAgentChat();
+    const trigger = await waitFor(SEL.settingsTrigger, { timeout: 15000, label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }).catch(() => null);
+    if (!trigger) {
+      throw new Error(
+        'ไม่พบปุ่มตั้งค่าโมเดลของช่องพิมพ์ใน Flow — ถ้ามีแผงแชต Agent เปิดอยู่ทางขวา ให้กด ✕ ปิดแผงนั้นเองหนึ่งครั้ง แล้วกดทำต่อ',
+      );
+    }
+    realClick(trigger);
     await waitFor(settingsPane, { label: 'แผงตั้งค่าโมเดล' });
     await sleep(400);
   }

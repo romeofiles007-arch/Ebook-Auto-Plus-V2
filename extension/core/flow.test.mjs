@@ -235,3 +235,9 @@ test('กดทำต่อเองนับตามจุดที่ติ�
   assert.match(machine, /const MAX_DRAFT_ATTEMPTS = 4;/);
   assert.match(machine, /const oneByOne = attempt >= 2;/);
 });
+
+/** เล่มจริง: project ใหม่เปิดแผงแชต Agent ค้างไว้ ช่องพิมพ์ปกติถูกซ่อน สร้างภาพไม่ได้สักรูป */
+test('ปิดแผงแชต Agent ก่อนตั้งค่าโมเดล', () => {
+  assert.match(adapter, /async function agentOff\(\) \{\n    await closeAgentChat\(\);/);
+  assert.match(adapter, /if \(!SEL\.settingsTrigger\(\)\) await closeAgentChat\(\);/);
+});
