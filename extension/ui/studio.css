@@ -440,12 +440,14 @@ button.reviewIssue:hover{border-color:#6f8cff}
 
 /* ตัวละครหลักของนิยาย */
 .castSeeds{margin-top:12px;display:flex;flex-direction:column;gap:6px}
-.castRow{display:grid;grid-template-columns:max-content minmax(110px,1fr) minmax(180px,2fr) auto 40px;gap:8px;align-items:center;padding:4px;border-radius:10px;border:1px solid transparent}
+.castRow{display:grid;grid-template-columns:max-content minmax(110px,1fr) minmax(180px,2fr) auto 40px auto;gap:8px;align-items:center;padding:4px;border-radius:10px;border:1px solid transparent}
 .castRow .castLabel{white-space:nowrap;font-size:13px;min-width:92px}
 .castRow input{min-width:0;font-size:14px;padding:10px 12px}
 .castRow button{padding:9px 12px;font-size:13px;white-space:nowrap}
 .castRow .authorRefThumb{width:40px;height:40px;object-fit:cover;border-radius:6px}
 .castRow.aimed{border-color:#8bd7aa;box-shadow:0 0 0 3px #8bd7aa22}
+.castRow .castClear{width:30px;height:30px;padding:0;border-radius:50%;background:#642f3a;font-size:13px;line-height:30px}
+.castRow .castClear.hidden{display:none}
 @media (max-width:720px){.castRow{grid-template-columns:1fr 1fr}.castRow .castLabel{grid-column:1/-1}}
 
 /* กล่องที่ซ่อนไว้ต้องซ่อนจริง: .projectDetail/.resumeBar ประกาศ display ทีหลัง .hidden จึงชนะ แล้วโผล่เป็นกรอบว่างใต้ชั้นหนังสือ */

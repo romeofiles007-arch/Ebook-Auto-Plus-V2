@@ -6613,6 +6613,7 @@ function renderCastSeeds() {
       <input data-cast="appearance" placeholder="รูปลักษณ์ — ว่างได้ · วางรูปได้" autocomplete="off">
       <button type="button" data-cast-pick>แนบรูป</button>
       <img class="authorRefThumb hidden" alt="">
+      <button type="button" class="castClear hidden" data-cast-clear title="เอารูปออก" aria-label="เอารูปออก">✕</button>
       <input type="file" accept="image/*" hidden data-cast-file>
     </div>`,
   ).join('');
@@ -6620,6 +6621,7 @@ function renderCastSeeds() {
     const slot = row.dataset.slot;
     const file = row.querySelector('[data-cast-file]');
     row.querySelector('[data-cast-pick]').onclick = () => file.click();
+    row.querySelector('[data-cast-clear]').onclick = () => clearCastPhoto(slot);
     file.onchange = (e) => {
       const f = e.target.files?.[0];
       e.target.value = '';
@@ -6665,7 +6667,22 @@ function setCastPhoto(slot, f) {
   img.src = URL.createObjectURL(f);
   img.classList.remove('hidden');
   row.querySelector('[data-cast-pick]').textContent = 'เปลี่ยนรูป';
+  row.querySelector('[data-cast-clear]').classList.remove('hidden');
   status(`แนบรูป${CAST_SLOTS.find((c) => c.slot === slot)?.label || 'ตัวละคร'}แล้ว — จะถูกบันทึกตอนเริ่มสร้างเล่ม`);
+}
+
+/** เอารูปที่แนบไว้ออก — แถวกลับเป็น "ไม่แนบรูป" (ChatGPT คิดรูปลักษณ์ · Flow วาดต้นแบบให้) */
+function clearCastPhoto(slot) {
+  const row = document.querySelector(`.castRow[data-slot="${slot}"]`);
+  if (!row) return;
+  delete setupCastPhotos[slot];
+  const img = row.querySelector('img');
+  if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  img.removeAttribute('src');
+  img.classList.add('hidden');
+  row.querySelector('[data-cast-clear]').classList.add('hidden');
+  row.querySelector('[data-cast-pick]').textContent = 'แนบรูป';
+  status(`เอารูป${CAST_SLOTS.find((c) => c.slot === slot)?.label || 'ตัวละคร'}ออกแล้ว`);
 }
 
 function readCastSeeds() {
