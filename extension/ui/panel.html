@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ebook Auto</title>
+  <link rel="icon" type="image/png" href="../icons/icon-32.png">
+  <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="crew.css">
+  <link rel="stylesheet" href="run-status.css">
+  <link rel="stylesheet" href="ceo-panel.css">
+</head>
+<body><main>
+  <div class="brand"><img class="brand-logo" src="../icons/icon-48.png" alt=""> <span>Ebook Auto</span></div>
+  <p>ติดตามงานที่นี่ · สร้างและจัดการหนังสือใน Studio</p>
+  <button id="studio">เปิด Studio</button>
+  <button id="chat">เปิด ChatGPT</button>
+  <div class="runControls">
+    <button id="jobStop" class="danger">⏸ หยุดงาน</button>
+    <button id="jobResume">▶ ทำต่อ</button>
+  </div>
+  <section id="ceoPanel" class="ceo-panel awake" aria-label="ผู้คุมกระบวนการ CEO">
+    <div class="ceo-scene" aria-hidden="true"><span class="ceo-portrait"></span><span class="ceo-sleep">z Z</span><span class="ceo-scan"></span></div>
+    <div><strong>CEO · ตื่นและพร้อมรับงาน</strong><span class="ceo-detail" role="status">ยังไม่มีงานที่ต้องกำกับ · พร้อมรับการเรียกครั้งถัดไป</span></div>
+  </section>
+  <section aria-label="ทีมงานและสถานะล่าสุด">
+    <div id="panelCrew" class="crew-stage" data-room="research"><div class="crew-active-art"><span class="crew-sprite crew-art" aria-hidden="true"><img class="crew-strip" src="crew/research-work.png" alt=""></span></div><div class="crew-description"><strong>ทีมงานพร้อมเริ่ม</strong><span>สถานะจะอัปเดตเมื่อ Studio เริ่มทำงาน</span></div><span class="crew-sprite crew-backdrop" aria-hidden="true"><img class="crew-strip" src="crew/research-work.png" alt=""></span></div>
+    <div id="crewRoster" class="crew-roster"></div>
+    <div id="live" class="live" role="status">พร้อมเริ่มงาน</div>
+  </section>
+  <section class="terminal" aria-label="บันทึกการทำงาน">
+    <div class="terminal-head"><b>EBOOK AUTO · LOG</b><div class="terminal-tools"><button id="logExpand" aria-pressed="false" title="ขยายบันทึกให้เต็มแผง (Esc เพื่อย่อลง)">⤢ เต็มจอ</button><button id="logFollow" aria-pressed="true">ตามล่าสุด</button></div></div>
+    <div id="panelLog" role="log" aria-live="off" tabindex="0"></div>
+    <div class="terminal-foot" id="logUpdated">รอข้อมูลจาก Studio<span aria-hidden="true"> ▋</span></div>
+  </section>
+</main><script type="module" src="panel.js"></script></body>
+</html>

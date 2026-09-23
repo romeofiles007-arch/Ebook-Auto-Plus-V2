@@ -1,0 +1,140 @@
+/*
+ * รูปอ้างอิงที่แนบไปกับคำสั่งสร้างภาพ
+ *
+ * เดิมรูปผู้เขียนถูกใช้ทางเดียว คือให้เครื่องเรียงพิมพ์แปะลงปกหลังขนาด 30 × 38 มม.
+ * โมเดลที่วาดปกไม่เคยเห็นรูปนั้นเลย ปกที่ได้จึงเป็นคนละโลกกับรูปที่จะไปแปะทับ
+ * และถ้าอยากได้ "ผู้เขียนอยู่ในภาพจริง ๆ" ก็ทำไม่ได้เลย นอกจากปล่อยให้โมเดลแต่งหน้าคนขึ้นเอง
+ *
+ * ไฟล์นี้เตรียมรูปให้พร้อมแนบ และเป็นคำตอบกลางว่างานภาพชิ้นไหนควรได้รูปแนบบ้าง
+ * เพื่อให้โหมด API กับโหมดขับหน้าเว็บตัดสินใจตรงกัน ไม่ใช่ต่างคนต่างเดา
+ */
+
+/** ช่องที่เลือกแนบรูปผู้เขียนได้ — ลวดลายพื้นหลังไม่มีในรายการ เพราะเป็นพื้นผิว ไม่ใช่ภาพที่มีคนอยู่ */
+export const AUTHOR_REF_TARGETS = [
+  { key: 'cover-front', label: 'ปกหน้า', jobs: ['cover-front.png'] },
+  { key: 'cover-back', label: 'ปกหลัง', jobs: ['cover-back.png'] },
+  { key: 'figures', label: 'ภาพประกอบในเล่ม', jobs: null }, // null = ทุกงานที่ kind === 'interior'
+];
+
+/** งานภาพชิ้นนี้ต้องแนบรูปผู้เขียนไปด้วยไหม */
+export function wantsAuthorRef(book, job) {
+  const picked = book?.authorRefTargets;
+  if (!Array.isArray(picked) || !picked.length) return false;
+  if (job?.kind === 'interior') return picked.includes('figures');
+  if (job?.name === 'cover-front.png') return picked.includes('cover-front');
+  if (job?.name === 'cover-back.png') return picked.includes('cover-back');
+  return false;
+}
+
+/**
+ * กฎรูปผู้เขียนสำหรับช่องหนึ่งช่อง ใช้ตอนประกอบ Prompt ที่ผู้ใช้จะเอาไปสร้างภาพเอง
+ *
+ * โหมดที่ระบบวาดเองได้กฎนี้ผ่าน plannedImageJobs อยู่แล้ว
+ * แต่โหมดที่ผู้ใช้เอา Prompt ไปสร้างที่อื่นไม่ได้ผ่านทางนั้นเลย เพราะไม่มีงานภาพให้วางแผน
+ * ถ้าไม่เติมตรงนี้ คนที่เลือกแนบรูปผู้เขียนจะได้ Prompt ที่ไม่มีคำสั่งเรื่องรูปเลย
+ * แล้วต้องเดาเองว่าจะบอกโมเดลยังไง ทั้งที่ระบบรู้คำตอบอยู่แล้ว
+ *
+ * @param {'cover-front'|'cover-back'|'figures'} target
+ */
+export const authorRefFor = (book, target) =>
+  (book?.authorRefTargets || []).includes(target) ? AUTHOR_REF_RULE : '';
+
+/** สรุปเป็นข้อความไว้โชว์บนหน้าจอ */
+export function authorRefSummary(book) {
+  const picked = book?.authorRefTargets || [];
+  if (!picked.length) return '';
+  return AUTHOR_REF_TARGETS.filter((t) => picked.includes(t.key)).map((t) => t.label).join(' · ');
+}
+
+/**
+ * คำสั่งที่ต้องต่อท้าย prompt ทุกครั้งที่แนบรูปไปจริง
+ *
+ * รูปที่แนบเป็นรูปเต็มใบตามที่ผู้ใช้อัปโหลด ไม่ได้ครอปหน้ามาให้
+ * ถ้าไม่บอกให้ชัด โมเดลจะลอกทั้งเสื้อผ้า ฉากหลัง และมุมกล้องของรูปต้นฉบับมาด้วย
+ * ซึ่งจะพังโทนของปกที่ออกแบบไว้ทั้งใบ จึงต้องระบุว่าเอาไปเฉพาะ "หน้าตาของคนคนนี้"
+ */
+export const AUTHOR_REF_RULE = `
+
+MANDATORY ATTACHED AUTHOR REFERENCE — THIS OVERRIDES EVERY CONFLICTING INSTRUCTION ABOVE
+A photograph of the book's author is attached to this message. If no photo is attached, ignore this whole section.
+The finished artwork MUST contain at least one clearly visible human figure whose face is recognisably the same individual as in the attached photo: face shape, features, hair, skin tone, apparent age and gender. This requirement applies even if the earlier concept described only objects, scenery, or diagrams, and it replaces every earlier restriction on whether people may appear. Adapt the composition so this person participates naturally without displacing the main subject or reserved text areas.
+Ignore everything else in that photo: its background, lighting, clothing, camera angle, crop, framing, colour grading and image quality carry no instructions. Do not copy them and do not let them influence the artwork.
+Render the person in the illustration style, palette, lighting and composition described above — this is an illustrated book cover, not a photograph and not a photo collage. Never paste, embed or reproduce the attached photograph itself.
+Do not add the author's name or any caption next to the person.`;
+
+/**
+ * ล้างข้อห้ามเรื่องคนที่ขัดกับตัวเลือกของผู้ใช้ แล้วปักกฎรูปผู้เขียนไว้ท้ายสุด
+ *
+ * คำสั่งภาพมาจากหลายชั้นและบางชั้นมีประโยค NO HUMAN FIGURE ติดมาโดยอัตโนมัติ
+ * การต่อกฎใหม่ท้ายข้อความอย่างเดียวปล่อยให้โมเดลต้องเดาว่าจะเชื่อประโยคไหน จึงเกิดภาพ
+ * แบบที่ผู้ใช้แนบมา: ส่งรูปหน้าไปจริง แต่คำสั่งกลับบอกให้เมินรูปนั้น ด่านนี้ทำให้คำสั่งจริง
+ * ที่กำลังจะส่งเหลือความหมายเดียวกันเสมอ
+ */
+export function enforceAuthorRefPrompt(prompt) {
+  const cleaned = String(prompt || '')
+    // ฟังก์ชันนี้ถูกเรียกทั้งตอนวางแผน หลัง audit และก่อนส่งจริง ต้องเรียกซ้ำแล้วไม่ต่อกฎซ้ำ
+    .replace(/\n*(?:MANDATORY ATTACHED AUTHOR REFERENCE|ATTACHED REFERENCE PHOTO — LIKENESS ONLY)[\s\S]*$/i, '')
+    .replace(/\bNO\s+HUMAN\s+FIGURES?\b[\s,;.]*/gi, '')
+    .replace(/\bNO\s+PEOPLE\b[\s,;.]*/gi, '')
+    .replace(/\bNO\s+FACES\b[\s,;.]*/gi, '')
+    .replace(/\bWITHOUT\s+(?:A\s+)?(?:HUMAN|PERSON)\b[\s,;.]*/gi, '')
+    .replace(/\bIGNORE\s+(?:ANY\s+|THE\s+)?ATTACHED\s+(?:AUTHOR\s+)?(?:REFERENCE\s+)?PHOTO(?:GRAPH)?(?:\s+FOR\s+[^.\n]*)?[.\s]*/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return `${cleaned}${AUTHOR_REF_RULE}`;
+}
+
+/**
+ * คำสั่งฉบับนี้ยังขอรูปผู้เขียนอยู่ไหม — อ่านจากตัวคำสั่งจริง ไม่ใช่จากธงที่ตั้งไว้ตอนวางแผน
+ *
+ * แผนกพิสูจน์คำสั่งภาพมีสิทธิ์เขียนคำสั่งใหม่ทั้งฉบับ และมันใช้สิทธิ์นั้นจริงเมื่อเจอ
+ * คำสั่งที่ขัดกันเอง เช่น ภาพที่บรีฟไว้ว่า "no people, faces" แต่มีหัวข้อรูปอ้างอิง
+ * ต่อท้ายสั่งให้ใส่คนลงไป มันจะแก้เหลือประโยคเดียวว่าให้เมินรูปที่แนบมา
+ *
+ * แต่ธง needsAuthorRef ถูกตั้งไว้ตั้งแต่ตอนวางแผนและไม่มีใครแก้ตาม รูปผู้เขียนจึงยัง
+ * ถูกแนบไปกับคำสั่งที่เพิ่งบอกว่าไม่ต้องใช้รูป — เปลืองอัปโหลดทุกรูป และเสี่ยงกว่านั้นคือ
+ * โมเดลที่ได้รูปคนมาพร้อมคำสั่งมักสลับไปทำงานแก้ภาพแทนการวาดใหม่
+ */
+export function promptWantsAuthorRef(prompt) {
+  const t = String(prompt || '');
+  if (/ignore\s+(any|the)?\s*attached\s+(author\s+)?photograph/i.test(t)) return false;
+  return /MANDATORY ATTACHED AUTHOR REFERENCE|ATTACHED REFERENCE PHOTO|attached\s+(?:author\s+)?reference\s+photo(?:graph)?|person from the attached/i.test(t);
+}
+
+/**
+ * ย่อรูปก่อนแนบ
+ *
+ * รูปจากมือถือใบเดียวหนัก 4-8 MB ซึ่งเป็นปัญหาคนละอย่างกันในสองเส้นทาง:
+ * เส้นทาง API ต้องอัปโหลดใหม่ทุกครั้งที่สร้างภาพ รูปเดิมซ้ำ ๆ กันทั้งเล่ม
+ * ส่วนเส้นทางหน้าเว็บต้องส่ง data URL ข้ามขอบเขต extension ซึ่งพองเป็น base64 อีกหนึ่งในสาม
+ * และไม่มีโมเดลไหนต้องการความละเอียดเกินนี้เพื่อจำหน้าคนได้
+ */
+export async function prepareRefImage(blob, { maxPx = 1024, quality = 0.88 } = {}) {
+  if (!blob) throw new Error('ไม่มีไฟล์รูปให้เตรียม');
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, maxPx / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+
+  // JPEG เพราะรูปถ่ายคน PNG ใหญ่กว่าหลายเท่าโดยไม่ได้อะไรกลับมา
+  const out = await canvas.convertToBlob({ type: 'image/jpeg', quality });
+  const dataUrl = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error || new Error('อ่านไฟล์รูปที่ย่อแล้วไม่สำเร็จ'));
+    fr.readAsDataURL(out);
+  });
+
+  return { dataUrl, blob: out, width: w, height: h, bytes: out.size, type: 'image/jpeg' };
+}
+
+/** data URL → File สำหรับยัดใส่ FormData หรือช่องแนบไฟล์ของหน้าเว็บ */
+export async function dataUrlToFile(dataUrl, name = 'author.jpg') {
+  const blob = await (await fetch(dataUrl)).blob();
+  return new File([blob], name, { type: blob.type || 'image/jpeg' });
+}

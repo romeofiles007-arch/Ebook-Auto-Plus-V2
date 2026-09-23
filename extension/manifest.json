@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "Ebook Auto",
+  "version": "0.1.0",
+  "version_name": "0.1.0 build 20260912-0100",
+  "description": "ให้หัวข้อ แล้วสร้างหนังสือทั้งเล่มผ่านหน้าเว็บ ChatGPT เรียงพิมพ์ด้วย Typst ในเบราว์เซอร์ คุมจำนวนหน้าได้จริง",
+  "minimum_chrome_version": "114",
+
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "downloads",
+    "tabs",
+    "scripting",
+    "alarms",
+    "sidePanel",
+    "clipboardRead",
+    "clipboardWrite",
+    "debugger"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://api.crossref.org/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://*.oaiusercontent.com/*",
+    "https://api.openai.com/*"
+  ],
+
+  "background": { "service_worker": "sw.js", "type": "module" },
+
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Ebook Auto",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "side_panel": { "default_path": "ui/panel.html" },
+
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["adapter/chatgpt.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "sandbox": { "pages": ["typeset/sandbox.html"] },
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' blob:; object-src 'self'"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*"],
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"]
+    }
+  ]
+}

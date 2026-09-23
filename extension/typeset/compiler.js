@@ -1,0 +1,276 @@
+/**
+ * ชั้นเรียงพิมพ์ — Typst ทั้งตัวรันเป็น WASM ในแท็บ ไม่มีเซิร์ฟเวอร์
+ *
+ * นี่คือสิ่งที่ทำให้ลูปนับหน้าเป็นไปได้จริง: วัดจำนวนหน้าจากเอกสารจริงแล้ววนแก้
+ * ไม่ใช่การเดาจากจำนวนอักษร ซึ่งเป็นจุดที่ทำให้ระบบนี้ต่างจากโปรเจกต์อื่น
+ *
+ * ความเร็วที่วัดได้จริงในเบราว์เซอร์ (ไม่ใช่ตัวเลขที่คาดไว้):
+ *   40 หน้า ≈ 0.9 วินาที · 200 หน้า ≈ 3.6 วินาที · 300 หน้า ≈ 5.3 วินาที
+ * เร็วพอสำหรับลูปนับหน้า (ใช้ 2-6 ครั้งต่อเล่ม) แต่ไม่พอสำหรับพรีวิวสดทุกครั้งที่พิมพ์
+ * โหมดแก้ไขจึงใช้ปุ่มนับหน้าใหม่ ไม่ใช่คอมไพล์อัตโนมัติทุก 400 มิลลิวินาที
+ *
+ * ทำไมต้องผ่าน iframe:
+ *   typst.ts มีบรรทัด new Function('m','return import(m)') อยู่ในเส้นทางโหลดฟอนต์
+ *   CSP ของหน้า extension ปกติห้าม new Function (wasm-unsafe-eval อนุญาตแค่ WebAssembly)
+ *   หน้าที่ประกาศไว้ใน manifest.sandbox จะได้ CSP ที่ผ่อนคลายกว่า จึงรันได้
+ *   ไฟล์นี้ทำหน้าที่เป็นตัวแทน คุยกับห้องนั้นผ่าน postMessage
+ *
+ * อีกสองอย่างที่ต้องรู้
+ *   - คอมไพเลอร์ในเบราว์เซอร์ไม่เห็นฟอนต์ของระบบ ต้องป้อนไฟล์ฟอนต์เข้าไปเอง
+ *   - ไฟล์ wasm ราว 28 MB โหลดครั้งแรกใช้เวลาสักหน่อย จากนั้นค้างในหน่วยความจำ
+ */
+
+import { buildDocument, buildItemsDocument, buildCalibrationDoc } from './template.js';
+
+const url = (p) => chrome.runtime.getURL(p);
+
+export const BUNDLED_FONTS = [
+  'fonts/Sarabun-Regular.ttf',
+  'fonts/Sarabun-Bold.ttf',
+  'fonts/Sarabun-Italic.ttf',
+  'fonts/Sarabun-BoldItalic.ttf',
+  'fonts/IBMPlexSansThai-Regular.ttf',
+  'fonts/IBMPlexSansThai-SemiBold.ttf',
+];
+
+export const FONT_FAMILIES = ['Sarabun', 'IBM Plex Sans Thai'];
+
+let ready = null;
+let frame = null;
+let seq = 0;
+const pending = new Map();
+
+function onMessage(e) {
+  const m = e.data;
+  if (!m) return;
+  if (m.ready) return; // สัญญาณว่าห้องพร้อมรับคำสั่ง จัดการใน init()
+  const p = pending.get(m.id);
+  if (!p) return;
+  pending.delete(m.id);
+  m.ok ? p.resolve(m.result) : p.reject(new Error(m.error));
+}
+
+function call(op, payload = {}, transfer = []) {
+  const id = ++seq;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    frame.contentWindow.postMessage({ id, op, ...payload }, '*', transfer);
+  }).catch((e) => {
+    // ห้องที่ชน CSP กลางทางถือว่าใช้ต่อไม่ได้ทั้งห้อง ล้างทิ้งเพื่อให้ครั้งหน้าสร้างใหม่จริง
+    if (isCspError(e)) {
+      teardown();
+      throw new Error(SANDBOX_BROKEN);
+    }
+    throw e;
+  });
+}
+
+async function bytes(path) {
+  const res = await fetch(url(path));
+  if (!res.ok) throw new Error(`โหลดไฟล์ไม่ได้: ${path}`);
+  return res.arrayBuffer();
+}
+
+/** ข้อความที่บอกทางออกจริง ไม่ใช่คำบ่นของเบราว์เซอร์ที่ผู้ใช้ทำอะไรกับมันไม่ได้ */
+const SANDBOX_BROKEN =
+  'ห้องเรียงพิมพ์ไม่ได้ทำงานในโหมด sandbox หน้านี้จึงคอมไพล์เอกสารไม่ได้ — ' +
+  'ให้ปิดหน้า Studio แล้วเปิดใหม่จากไอคอนส่วนขยาย ' +
+  '(อาการนี้เกิดเมื่อส่วนขยายถูกรีโหลดหรืออัปเดตขณะที่หน้านี้เปิดค้างอยู่ หน้าเก่าจะยังผูกกับสิทธิ์ชุดเดิมที่หมดอายุแล้ว) ' +
+  'ถ้าเปิดใหม่แล้วยังไม่หาย ให้เข้า chrome://extensions แล้วกดรีโหลดส่วนขยาย';
+
+const isCspError = (e) => /unsafe-eval|Content Security Policy/i.test(String(e?.message || e));
+
+/** ล้างห้องเรียงพิมพ์ทิ้งเพื่อให้ครั้งหน้าเริ่มใหม่จริง ๆ ไม่ใช่คืนความล้มเหลวเดิมที่ค้างอยู่ */
+function teardown() {
+  try { window.removeEventListener('message', onMessage); } catch {}
+  try { frame?.remove(); } catch {}
+  frame = null;
+  ready = null;
+  for (const [, p] of pending) p.reject(new Error('ห้องเรียงพิมพ์ถูกปิดระหว่างรอผลลัพธ์'));
+  pending.clear();
+}
+
+export function init() {
+  if (ready) return ready;
+
+  ready = (async () => {
+    window.addEventListener('message', onMessage);
+
+    frame = document.createElement('iframe');
+    frame.src = url('typeset/sandbox.html');
+    frame.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden';
+    const opened = new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('ห้องเรียงพิมพ์ไม่ตอบสนอง')), 20000);
+      const onReady = (e) => {
+        if (e.source !== frame.contentWindow || !e.data?.ready) return;
+        clearTimeout(t);
+        window.removeEventListener('message', onReady);
+        resolve(e.data);
+      };
+      window.addEventListener('message', onReady);
+    });
+    document.body.appendChild(frame);
+    const hello = await opened;
+
+    /**
+     * ตรวจว่าห้องนี้ "เป็น sandbox จริง" ก่อนจะทำอะไรต่อ
+     *
+     * เดิมห้องรายงานแค่ว่าโหลดเสร็จแล้ว หน้าแม่จึงเดินหน้าโหลด wasm 28 MB ต่อไป
+     * แล้วไปพังกลางทางด้วยข้อความ CSP ดิบ ๆ ที่ผู้ใช้อ่านแล้วทำอะไรไม่ถูก
+     * ตรวจตั้งแต่ตอนจับมือจะได้รู้ทันทีก่อนเสียเวลาและก่อนเผลอไปเผาเทิร์น ChatGPT
+     */
+    if (hello?.evalOk === false) throw new Error(SANDBOX_BROKEN);
+
+    // หน้าแม่เป็นฝ่ายอ่านไฟล์ทั้งหมด เพราะในห้องแยกอ่านไฟล์ของส่วนขยายไม่ได้
+    const [librarySource, compilerWasm, rendererWasm] = await Promise.all([
+      fetch(url('vendor/typst/typst.mjs')).then((r) => r.text()),
+      bytes('vendor/typst/compiler.wasm'),
+      bytes('vendor/typst/renderer.wasm').catch(() => null),
+    ]);
+    const fonts = await Promise.all(
+      BUNDLED_FONTS.map(async (f) => ({ name: url(f), bytes: await bytes(f) })),
+    );
+
+    const transfer = [compilerWasm, ...fonts.map((f) => f.bytes)];
+    if (rendererWasm) transfer.push(rendererWasm);
+
+    await call('init', { librarySource, compilerWasm, rendererWasm, fonts }, transfer);
+    return true;
+  })();
+
+  /**
+   * ความล้มเหลวห้ามถูกจำไว้
+   *
+   * ของเดิม `ready` เก็บ promise ไว้ตลอด รวมทั้ง promise ที่ reject ไปแล้ว
+   * ครั้งถัดไปที่กด "ทำต่อจากที่ค้าง" จึงได้ error ตัวเดิมกลับมาทันทีโดยไม่ลองใหม่เลยสักครั้ง
+   * ผู้ใช้เห็นเป็น "โหมดนี้ไม่เคยใช้ได้" ทั้งที่ลองใหม่จริง ๆ อาจผ่านตั้งแต่ครั้งที่สอง
+   * ต้องรีเซ็ตให้ครั้งหน้าเริ่มนับหนึ่งใหม่จริง
+   */
+  return ready.catch((e) => {
+    teardown();
+    throw isCspError(e) ? new Error(SANDBOX_BROKEN) : e;
+  });
+}
+
+/** จำนวนหน้าจริงที่โรงพิมพ์ต้องพิมพ์ — อ่านจากเอกสาร ไม่ใช่จากการประมาณ */
+export async function pageCount(mainContent, files = []) {
+  await init();
+  return call('pagecount', { src: mainContent, files });
+}
+
+export async function toPdf(mainContent, files = []) {
+  await init();
+  const { pdf } = await call('pdf', { src: mainContent, files });
+  return new Blob([pdf], { type: 'application/pdf' });
+}
+
+/** SVG ใช้ตอนพรีวิว — คอมไพเลอร์ตัวเดียวกับที่ออก PDF ผลจึงตรงกันเสมอ */
+export async function toSvg(mainContent, files = []) {
+  await init();
+  return call('svg', { src: mainContent, files });
+}
+
+/**
+ * แปลงภาพที่เก็บใน IndexedDB ให้อยู่ในรูปที่ป้อนเข้าคอมไพเลอร์ได้
+ * ชื่อไฟล์ในระบบไฟล์เสมือนคือ /img/<ชื่อภาพ> ตรงกับที่ template อ้างถึง
+ */
+export async function packAssets(assets = []) {
+  const files = [];
+  for (const a of assets) {
+    if (!a?.blob) continue;
+    files.push({ path: `/img/${a.name}`, bytes: await a.blob.arrayBuffer() });
+  }
+  return files;
+}
+
+// ---------- ระดับเล่ม ----------
+
+export async function compileBook({ book, outline, sections, assets = [], withBleed = false }) {
+  /**
+   * ลวดลายพื้นหลังต้องผ่านด่านนี้ด้วย ไม่ใช่แค่ภาพในเล่ม
+   *
+   * ตัวกรองเดิมรับเฉพาะชื่อที่ขึ้นต้นด้วย fig- ส่วนลายชื่อ page-pattern.png จึงตกทุกครั้ง
+   * ผลคือ assetNames ที่ส่งให้ buildDocument ไม่เคยมีลายอยู่เลย pageBackground() จึงคืนค่าว่างเสมอ
+   * และไฟล์ลายก็ไม่ถูกแพ็กเข้าไปด้วย — เท่ากับโค้ดวางพื้นหลังใน template.js เป็นโค้ดที่ไม่มีวันทำงาน
+   * ฝั่ง export.js แก้เรื่องนี้ไปแล้ว (interiorAsset) แต่ฝั่งคอมไพล์ตกหล่น เกณฑ์สองที่จึงต้องตรงกัน
+   */
+  const usable = assets.filter(
+    (a) => a?.blob && (a.name?.startsWith('fig-') || a.name === 'page-pattern.png'),
+  );
+
+  // โหมดรายชิ้นใช้เอกสารคนละแบบทั้งหมด ไม่ใช่แค่ปรับค่า
+  if (book.contentMode === 'items' || (outline?.themes?.length && !outline?.chapters?.length)) {
+    const items = sections
+      .filter((s) => s.kind === 'item' && s.text)
+      .sort((a, b) => cmpItemId(a.id, b.id));
+    const isrc = buildItemsDocument({
+      book,
+      outline,
+      items,
+      // ลายพื้นหลังต้องมาถึงเอกสารรายชิ้นด้วย เดิมไม่ได้ส่งรายชื่อไฟล์เข้าไป
+      // pageBackground() จึงคืนค่าว่างเสมอ และเล่มรายชิ้นไม่เคยมีพื้นหลังเลยสักเล่ม
+      opts: { withBleed, padPages: book.padPages || 0, assetNames: usable.map((a) => a.name) },
+    });
+    // ต้องแพ็กไฟล์ไปด้วย ไม่ใช่แค่บอกชื่อ ไม่งั้นคอมไพเลอร์หาไฟล์ลายไม่เจอแล้วล้มทั้งเล่ม
+    const ifiles = await packAssets(usable);
+    const t1 = performance.now();
+    const p = await withSource(isrc, ifiles, () => pageCount(isrc, ifiles));
+    return { src: isrc, pages: p, files: ifiles, items: items.length, ms: Math.round(performance.now() - t1) };
+  }
+
+  const src = buildDocument({
+    book,
+    outline,
+    sections,
+    opts: {
+      withBleed,
+      padPages: book.padPages || 0,
+      assetNames: usable.map((a) => a.name),
+    },
+  });
+  const files = await packAssets(usable);
+  const t0 = performance.now();
+  const pages = await withSource(src, files, () => pageCount(src, files));
+  return { src, pages, files, ms: Math.round(performance.now() - t0) };
+}
+
+/**
+ * คอมไพล์ล้มต้องพกต้นฉบับติดมากับ error ด้วย
+ *
+ * ฝั่ง Typst ตอบกลับมาเป็นข้อความเดียวสั้น ๆ เช่น "document is not compiled, with []"
+ * ซึ่งไม่มีเลขบรรทัด ไม่มีบริบท และบางครั้ง diagnostics ก็ว่างเปล่าอย่างที่เห็น
+ * เมื่อเป็นแบบนั้น ต้นฉบับที่ส่งเข้าไปคือหลักฐานชิ้นเดียวที่เหลืออยู่
+ * ถ้าไม่เก็บไว้ตรงนี้ มันหายไปพร้อมกับ stack แล้วต้องเดากันต่อว่าอะไรพัง
+ */
+async function withSource(src, files, run) {
+  try {
+    return await run();
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    err.typstSrc = src;
+    err.typstFiles = (files || []).map((f) => f.path);
+    throw err;
+  }
+}
+
+/**
+ * Calibration — ทำครั้งเดียวต่อโปรไฟล์
+ * เรียงพิมพ์ข้อความที่รู้จำนวนอักษรแน่นอน แล้วหารด้วยจำนวนหน้าที่ได้จริง
+ * ต้องใช้ข้อความแนวเดียวกับหนังสือจริง ไม่ใช่ lorem ละติน เพราะความยาวคำมีผล
+ */
+export async function calibrate({ book, sampleText, sampleChars }) {
+  const src = buildCalibrationDoc({ book, sampleText });
+  const { physical } = await pageCount(src);
+  if (!physical) throw new Error('calibration ได้ศูนย์หน้า');
+  return { charsPerPage: Math.round(sampleChars / physical), pages: physical };
+}
+
+function cmpItemId(a, b) {
+  const [a1, a2] = String(a).split('.').map(Number);
+  const [b1, b2] = String(b).split('.').map(Number);
+  return a1 - b1 || a2 - b2;
+}
+
+export async function fontAvailable(family) {
+  return FONT_FAMILIES.includes(family);
+}
