@@ -11,8 +11,11 @@
  */
 export const FLOW_RATIOS = { '16:9': 16 / 9, '4:3': 4 / 3, '1:1': 1, '3:4': 3 / 4, '9:16': 9 / 16 };
 
-/** โมเดลที่ลองตามลำดับ — ตัวขับหยุดที่ตัวแรกที่หน้า Flow บอกว่า "0 เครดิต" เท่านั้น */
-export const FLOW_MODELS = ['Nano Banana 2', 'Nano Banana 2 Lite'];
+/**
+ * ผู้ใช้กำหนด: Nano Banana 2 Lite ก่อน หรือรุ่นไหนก็ได้ที่ Flow บอกว่า "0 เครดิต"
+ * ตัวขับลองตามลำดับนี้และหยุดที่รุ่นแรกที่เป็น 0 เครดิต — รุ่นที่ต้องใช้เครดิตจะไม่ถูกกดสร้างเด็ดขาด
+ */
+export const FLOW_MODELS = ['Nano Banana 2 Lite', 'Nano Banana 2', 'Nano Banana Pro'];
 
 /** สัดส่วนของ Flow ที่ใกล้ช่องภาพที่สุด (เทียบแบบ log ให้แนวตั้งกับแนวนอนมีน้ำหนักเท่ากัน) */
 export function nearestFlowRatio(ratio) {

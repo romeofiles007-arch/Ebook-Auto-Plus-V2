@@ -1507,6 +1507,12 @@ export function figurePlanPrompt(book, outline, chapters, style) {
    * ทุกตอนต้องมีอย่างน้อยหนึ่งรูป และทุกจุดที่วาดเป็นภาพได้โดยไม่ต้องมีตัวอักษรให้เป็นภาพ
    */
   const maxMode = book.illustrationLevel === 'max' && !boxOnly;
+  /**
+   * ภาพจาก Google Flow ต้อง "สอน" ไม่ใช่แค่ประดับ (ผู้ใช้ขอ: แสดงวิธีทำ เป็นประโยชน์ ไม่ใช่เก็กท่าเฉย ๆ)
+   * Flow วาดเลขลำดับ ลูกศร และเครื่องหมาย ✓ ✗ ได้ จึงเปิดให้ภาพแบบเรียงขั้นเป็นแผงได้
+   * ส่วนคำและประโยคยังห้ามเหมือนเดิม — คำอธิบายอยู่ในคำบรรยายใต้ภาพที่ระบบเรียงพิมพ์เอง
+   */
+  const teach = book.imageSource === 'flow' && !boxOnly;
   const perSections = { light: 3, rich: 1.5, max: 1 }[book.illustrationLevel] || 3;
   // ขั้นต่ำต้องเลื่อนตามขนาดเล่ม เล่มทดสอบ 20 หน้าที่มีไม่กี่ตอน ถ้าบังคับ 3 รูป
   // ภาพจะกินพื้นที่จนเนื้อหาดูโล่ง — เอาสัดส่วนอย่างเดียว ไม่ต้องมีพื้นตายตัว
@@ -1541,9 +1547,17 @@ ${maxMode
     : '- ใส่เฉพาะที่ภาพช่วยให้เข้าใจได้เร็วกว่าข้อความจริง ๆ ไม่ใช่ใส่ให้ครบจำนวน'}
 - เลือกตำแหน่งตามจังหวะเนื้อหา: วางหลังข้อความที่ทำให้ผู้อ่านเข้าใจบริบทของภาพแล้ว และก่อนย่อหน้าที่นำผลจากภาพไปใช้
 - subject ต้องบอกฉาก วัตถุ การกระทำ มุมมอง และองค์ประกอบสำคัญให้ครบ โดยอ้างอิงสาระของตอนนั้นจริง ห้ามเสนอภาพตกแต่งกว้าง ๆ
-- subject ต้องวาดได้โดยไม่มีตัวอักษรในภาพเลย เพราะระบบสั่งห้ามตัวหนังสือ ตัวเลข และป้ายกำกับทุกชนิด
+${teach
+    ? `- ภาพทุกรูปต้อง "สอน" ผู้อ่านได้จริง: ดูภาพแล้วรู้ว่าต้องทำอะไร ทำอย่างไร หรือผลต่างกันอย่างไร
+  แบบที่ใช้ได้: ขั้นตอนวิธีทำ (มือกำลังทำขั้นนั้นจริง เห็นอุปกรณ์และวัสดุ) · ก่อน/หลัง · วิธีที่ถูกเทียบวิธีที่ผิด ·
+  การจัดวาง/ตั้งค่าที่ถูกต้อง · เหตุและผลที่เห็นเป็นภาพ · ตัวอย่างผลงานที่ทำเสร็จตามวิธีในตอนนั้น
+- ห้ามภาพคนยืนหรือนั่งโพสท่า มองกล้อง ยิ้ม ถือของเฉย ๆ ภาพบรรยากาศลอย ๆ หรือภาพที่ดูแล้วไม่ได้ความรู้อะไรเพิ่ม
+  ถ้ามีคนอยู่ในภาพ ต้องกำลังทำขั้นตอนนั้นอยู่ เห็นมือ อุปกรณ์ และสิ่งที่กำลังเปลี่ยน
+- เนื้อหาที่เป็นขั้นตอน ให้เป็น image แบบแผงเรียงขั้น 2–4 ช่อง ใส่เลข 1 2 3 ลูกศร และเครื่องหมาย ✓ ✗ ได้ แต่ห้ามมีคำหรือประโยค
+- subject ต้องเขียนให้ชัดว่า "ผู้อ่านจะเรียนรู้อะไรจากภาพนี้" และ "ในแต่ละช่อง/ในภาพเห็นการกระทำอะไร"`
+    : `- subject ต้องวาดได้โดยไม่มีตัวอักษรในภาพเลย เพราะระบบสั่งห้ามตัวหนังสือ ตัวเลข และป้ายกำกับทุกชนิด
   ถ้าภาพจะเข้าใจได้ต่อเมื่อมีคำกำกับ เช่น ป้ายชื่อ หัวคอลัมน์ เลขลำดับ หรือคำบนวัตถุ แปลว่าอันนั้นต้องเป็น box ไม่ใช่ image
-- ห้าม subject แบบแบ่งช่องเทียบหลายเวอร์ชัน (สองช่อง สี่ช่อง ก่อน/หลัง ถูก/ผิด) เพราะผู้อ่านแยกแต่ละช่องไม่ออกถ้าไม่มีคำกำกับ ให้ใช้ box แทน
+- ห้าม subject แบบแบ่งช่องเทียบหลายเวอร์ชัน (สองช่อง สี่ช่อง ก่อน/หลัง ถูก/ผิด) เพราะผู้อ่านแยกแต่ละช่องไม่ออกถ้าไม่มีคำกำกับ ให้ใช้ box แทน`}
 - subject ยาวไม่เกินสองประโยค บอกสิ่งที่ตาเห็นจริง ไม่ใช่อธิบายตรรกะหรือเงื่อนไขของเนื้อหา
 - subject ต้องหยิบของที่ "ตอนนั้นบรรยายไว้จริง" มาใช้ — สถานที่ วัตถุ การกระทำ หรือตัวอย่างที่เนื้อหาตรงนั้นพูดถึง
   ห้ามใช้ภาพจำมาตรฐานของหัวข้อเล่ม ถ้าเอา subject ไปวางกับตอนอื่นแล้วยังใช้ได้พอดี แปลว่ายังไม่ได้มาจากตอนนั้นจริง
@@ -1551,9 +1565,12 @@ ${maxMode
   ห้ามให้ทั้งเล่มวนอยู่กับฉากเดิมซ้ำ ๆ (คนนั่งหน้าแล็ปท็อป · มือถือในมือ · ของวางบนโต๊ะทำงานมองจากด้านบน · กราฟลอยข้างคน)
   ทดสอบก่อนตอบ: ถ้าสรุปสองรูปด้วยประโยคเดียวกันได้ แปลว่ามันคือรูปเดียวกัน ให้เปลี่ยนรูปหนึ่งเป็นฉากอื่นหรือทิ้งไป
 - เลือก placement ตามหน้าที่ของภาพ: "after_intro" สำหรับปูความเข้าใจ, "middle" สำหรับอธิบายสาระที่กำลังเล่า, หรือ "before_conclusion" สำหรับรวบยอดก่อนนำไปใช้
-- ถ้าเนื้อหาตอนไหนเป็นขั้นตอน ตารางเปรียบเทียบ หรือข้อควรระวัง ให้เลือกชนิด "box"
+${teach
+    ? `- ขั้นตอนหรือวิธีทำที่ "ทำด้วยมือ/ทำให้เห็นได้" ให้เป็น image แบบแผงเรียงขั้น
+  เหลือเป็น box เฉพาะตารางตัวเลข รายการข้อความยาว หรือเนื้อหาที่ต้องอ่านเป็นคำเท่านั้น (box ใส่คู่กับภาพในตอนเดียวกันได้)`
+    : `- ถ้าเนื้อหาตอนไหนเป็นขั้นตอน ตารางเปรียบเทียบ หรือข้อควรระวัง ให้เลือกชนิด "box"
   เพราะจัดเป็นกล่องสรุปอ่านง่ายกว่าและคมกว่าภาพวาด
-- เลือกชนิด "image" เฉพาะเมื่อต้องเห็นของจริง เห็นรูปทรง หรือเห็นความสัมพันธ์เชิงพื้นที่
+- เลือกชนิด "image" เฉพาะเมื่อต้องเห็นของจริง เห็นรูปทรง หรือเห็นความสัมพันธ์เชิงพื้นที่`}
 - ภาพชนิด image ต้องเลือก aspect เป็นอย่างใดอย่างหนึ่งเท่านั้น: "4:3", "3:2", "16:9" เพื่อให้ระบบล็อกขนาดช่องตั้งแต่ก่อนสร้างภาพ
 - ${per} — กล่องสรุป (box) ไม่นับรวมในโควตานี้ และห้ามใช้กล่องแทนภาพเพื่อเลี่ยงการเสนอภาพ
 - ถ้าเนื้อหาตอนไหนบรรยายฉาก สถานการณ์ ลำดับเหตุการณ์ ความสัมพันธ์เชิงพื้นที่ หรือเปรียบเทียบรูปทรง ให้เลือก "image" ไม่ใช่ box
@@ -1784,8 +1801,15 @@ export function interiorFigurePrompt(styleKey, subject, widthMm, heightMm = 45, 
   const pxW = Math.round((widthMm / 25.4) * 300);
   const pxH = Math.round((heightMm / 25.4) * 300);
   const orientation = pxW > pxH * 1.15 ? 'LANDSCAPE / horizontal' : pxH > pxW * 1.15 ? 'PORTRAIT / vertical' : 'near-square';
+  /**
+   * ภาพสอน (Ebook Plus + Google Flow): ต้องแสดงวิธีทำ ไม่ใช่คนโพสท่า
+   * อนุญาตเลขลำดับ ลูกศร และ ✓ ✗ เพื่อบอกลำดับและถูก/ผิด — คำและประโยคยังห้ามเหมือนเดิม
+   */
+  const teach = opts.instructive
+    ? `\nTHIS IS A TEACHING FIGURE, NOT DECORATION. A reader who only looks at the picture must learn how to do something: show the concrete action, technique, sequence, correct setup, before/after, or right-vs-wrong that the passage describes. Show hands actually doing the step, with the real tools, materials and the visible result. If a person appears they are mid-task, focused on the work — never posing, never looking at the camera, never just smiling or holding an object. A portrait, a pose, or a mood shot is a failed output. For a process, use 2–4 clearly separated panels in reading order, each marked with a large step number (1, 2, 3, 4). You MAY use step numbers, arrows, a green check mark ✓ for the right way and a red cross ✗ for the wrong way, and simple pictograms. Still NO words, NO sentences and NO labels in any language — the caption under the figure carries the explanation.`
+    : '';
   return `Interior book illustration. ${brief}.
-Subject: ${subject}.
+Subject: ${subject}.${teach}
 CANVAS IS ${orientation}. Use the entire ${aspect} frame as the composition; do not place a portrait page, phone screen, dashboard, poster, or small diagram in the middle of a larger blank canvas.
 Composition: the subject must fill roughly 75-90% of the frame in the requested orientation, with only practical print margins. If the subject is an interface or process, redesign its information architecture horizontally to fit the landscape frame instead of showing a tall page mockup. No border, picture frame, floating sheet, or unused outer canvas.
 Output target: exactly ${Math.round(widthMm)} × ${Math.round(heightMm)} mm at print size, ${pxW} × ${pxH} px, aspect ${aspect}. A different orientation is a failed output. Important content must stay inside the central 90%.
@@ -1796,7 +1820,9 @@ ${opts.color
         .join(', ') || 'The cover colours'} are colours sampled from the cover, given here so this figure sits beside it without clashing: echo that colour world, do not paste those hex values in as flat brand fills. No candy-bright unrelated hues, no corporate gradient, no rainbow of icon colours. Meaning must still read if the colour is removed.`
     : 'Must remain legible when printed in grayscale at 300 dpi on uncoated paper — rely on shape and contrast, not colour.'}
 Line weight heavy enough to survive printing at ${Math.round(widthMm)} mm wide.
-Negative: no text, no letters, no numbers, no labels, no captions, no watermark, no thin hairlines.${fromBook}${variety}${coverEcho}${distinct}`;
+${opts.instructive
+    ? 'Negative: no words, no letters, no sentences, no labels, no captions, no watermark, no thin hairlines (step numbers, arrows and ✓ ✗ marks are allowed).'
+    : 'Negative: no text, no letters, no numbers, no labels, no captions, no watermark, no thin hairlines.'}${fromBook}${variety}${coverEcho}${distinct}`;
 }
 
 // ---------- 8. prompt ภาพ ----------

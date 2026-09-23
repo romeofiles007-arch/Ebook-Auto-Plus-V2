@@ -254,7 +254,7 @@
    * ลองโมเดลตามลำดับที่ส่งมา แล้วหยุดที่ตัวแรกที่ Flow บอกว่า "0 เครดิต"
    * ถ้าไม่มีตัวไหนฟรีเลย → หยุดทันที ไม่กดสร้าง (ห้ามเผาเครดิตของผู้ใช้เงียบ ๆ)
    */
-  async function configure({ ratio = '3:4', models = ['Nano Banana 2', 'Nano Banana 2 Lite'] } = {}) {
+  async function configure({ ratio = '3:4', models = ['Nano Banana 2 Lite', 'Nano Banana 2', 'Nano Banana Pro'] } = {}) {
     await agentOff();
     await openPane();
     let last = null;
@@ -333,7 +333,13 @@
     const start = chips().length;
     const upload = [];
     for (const r of refs) {
+      /**
+       * รูปที่อัปโหลดแล้วกลายเป็น tile ชื่อเดียวกับไฟล์ (เช่น author-photo.jpg) — ตรวจกับหน้าจริงแล้ว
+       * เดิมวางไฟล์ใหม่ทุกรูปทุกรอบ project หนึ่งเล่มจึงมีรูปผู้เขียนซ้ำสิบกว่าใบ
+       * ตอนนี้หา tile เดิมก่อนเสมอ อัปโหลดเฉพาะครั้งแรกที่ยังไม่มี
+       */
       if (r.tile && (await attachFromTile(r.tile).catch(() => false))) continue;
+      if (r.name && r.name !== r.tile && (await attachFromTile(r.name).catch(() => false))) continue;
       if (r.dataUrl) upload.push(r);
     }
     if (!upload.length) return chips().length - start;
@@ -413,14 +419,31 @@
    * สำเร็จ = มี tile ที่ media id ไม่เคยเห็นมาก่อน และภาพโหลดเสร็จแล้ว
    * ล้ม = tile ใหม่ที่ไม่มีภาพแต่มีข้อความบอกความผิดพลาด หรือกล่องแจ้งเตือนของหน้า
    */
-  async function waitNewTile(before, beforeEls, { timeout = 5 * 60000 } = {}) {
+  const RATIO = { '16:9': 16 / 9, '4:3': 4 / 3, '1:1': 1, '3:4': 3 / 4, '9:16': 9 / 16 };
+  const ratioOk = (w, h, ratio) => !RATIO[ratio] || (w > 0 && h > 0 && Math.abs(Math.log(w / h / RATIO[ratio])) < 0.04);
+
+  /**
+   * tile ใหม่ที่ "ใช่" ต้องผ่านสามข้อ: media id ไม่เคยเห็น · ไม่ใช่ไฟล์ที่เราอัปโหลดเป็นรูปอ้างอิง ·
+   * ภาพตรงสัดส่วนที่สั่ง — เดิมเช็คแค่ข้อแรก รูปผู้เขียนที่เพิ่งอัปโหลดโผล่ช้ากว่าการจดรายการ
+   * จึงถูกหยิบไปเป็น "ภาพที่วาดได้" แล้วระบบสั่งวาดซ้ำจนภาพซ้ำเต็ม project
+   */
+  async function waitNewTile(before, beforeEls, { timeout = 5 * 60000, ratio = '', skipNames = [] } = {}) {
+    const skip = new Set(skipNames.filter(Boolean));
     return waitFor(
       () => {
         scrollGridTop();
         for (const tile of SEL.tiles()) {
           const id = tileId(tile);
           const img = tileImg(tile);
-          if (id && !before.has(id) && img.complete && img.naturalWidth > 0) return { tile, id };
+          if (
+            id &&
+            !before.has(id) &&
+            img.complete &&
+            img.naturalWidth > 0 &&
+            !skip.has(tile.getAttribute('aria-label') || '') &&
+            ratioOk(img.naturalWidth, img.naturalHeight, ratio)
+          )
+            return { tile, id };
           if (!id && !beforeEls.has(tile) && FAIL_TEXT.test(text(tile))) {
             const e = new Error(`Flow สร้างภาพไม่สำเร็จ: ${text(tile).slice(0, 200)}`);
             e.code = 'generation_failed';
@@ -493,6 +516,21 @@
       fr.onerror = () => reject(fr.error || new Error('อ่านไฟล์ภาพไม่สำเร็จ'));
       fr.readAsDataURL(blob);
     });
+
+  /** ลายนิ้วมือภาพ 8×8 ระดับเทา — ทนการย่อ/บีบอัด ใช้บอกว่า "ภาพเดียวกันไหม" */
+  async function aHash(blob) {
+    const bmp = await createImageBitmap(blob);
+    const c = new OffscreenCanvas(8, 8);
+    const x = c.getContext('2d');
+    x.drawImage(bmp, 0, 0, 8, 8);
+    bmp.close?.();
+    const d = x.getImageData(0, 0, 8, 8).data;
+    const g = [];
+    for (let i = 0; i < d.length; i += 4) g.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    const avg = g.reduce((m, v) => m + v, 0) / g.length;
+    return g.map((v) => (v > avg ? 1 : 0));
+  }
+  const hamming = (a, b) => a.reduce((n, v, i) => n + (v !== b[i] ? 1 : 0), 0);
 
   async function imageSize(blob) {
     const bmp = await createImageBitmap(blob);
@@ -571,6 +609,17 @@
   async function opGenerate(args = {}) {
     at('เปิด project');
     await openProject();
+
+    /**
+     * รอบก่อนวาดเสร็จและตั้งชื่อไว้แล้ว แต่ขั้นหลังจากนั้นพลาด (เช่นดึงไฟล์ไม่สำเร็จ)
+     * ห้ามสั่งวาดใหม่ — ใช้ภาพเดิมที่อยู่ใน project ต่อเลย ไม่ให้เกิดภาพซ้ำ
+     */
+    const done = SEL.tiles().find((t) => t.getAttribute('aria-label') === args.name && tileId(t));
+    if (done && args.reuse !== false) {
+      at('ใช้ภาพเดิมที่ตั้งชื่อไว้แล้ว');
+      return finishTile(tileId(done), args, { reused: true });
+    }
+
     at(`ตั้งค่า ${args.ratio || ''}`);
     const cfg = await configure({ ratio: args.ratio, models: args.models });
     at('ล้างรูปอ้างอิงเก่า');
@@ -599,16 +648,31 @@
      * เห็นกับหน้าจริง: คลิกแรกหลังหน้าต่างเพิ่งถูกดึงขึ้นมาบางครั้งเป็นแค่การโฟกัส คลิกที่สองจึงส่งจริง
      * กดซ้ำได้ปลอดภัยเพราะเช็คก่อนทุกครั้งว่าข้อความยังค้างอยู่ (ถ้ารับไปแล้วจะไม่มีอะไรให้ส่งซ้ำ)
      */
+    // รับงานแล้ว = มี tile ใหม่โผล่ (กล่องเทากำลังวาด) หรือช่องพิมพ์ถูกล้าง — ข้อไหนก่อนก็ได้
+    const accepted = () => text(SEL.editor()).length < 5 || SEL.tiles().some((t) => !beforeEls.has(t));
     let taken = false;
     for (let attempt = 0; attempt < 3 && !taken; attempt++) {
+      if (attempt > 0 && accepted()) {
+        taken = true;
+        break;
+      }
       const btn = attempt === 0 ? send : SEL.send();
       if (btn && !btn.disabled) await trustedClick(btn);
-      taken = !!(await waitFor(() => text(SEL.editor()).length < 5, { timeout: 7000, label: 'Flow รับ prompt' }).catch(() => false));
+      taken = !!(await waitFor(accepted, { timeout: 12000, label: 'Flow รับ prompt' }).catch(() => false));
     }
     if (!taken) throw new Error('กดปุ่มสร้างของ Flow แล้วแต่ Flow ไม่รับ prompt (ข้อความยังค้างในช่องพิมพ์)');
     at('รอภาพใหม่');
-    const { id } = await waitNewTile(before, beforeEls, { timeout: args.timeoutMs || 5 * 60000 });
+    const { id } = await waitNewTile(before, beforeEls, {
+      timeout: args.timeoutMs || 5 * 60000,
+      ratio: args.ratio,
+      skipNames: (args.refs || []).flatMap((r) => [r.name, r.tile]),
+    });
+    return finishTile(id, { ...args, cfg, attached, attachError });
+  }
 
+  /** ตั้งชื่อ · ดึงไฟล์ 2K ที่ตรวจแล้วว่าเป็นภาพของ tile นี้จริง · ถอยไป 1K ถ้าไม่ใช่ */
+  async function finishTile(id, args, { reused = false } = {}) {
+    const { cfg = {}, attached = 0, attachError = '' } = args;
     at('เปลี่ยนชื่อภาพ');
     const renamed = await renameTile(id, args.name).catch(() => false);
 
@@ -619,7 +683,17 @@
       at('ดาวน์โหลด 2K');
       try {
         blob = await download2k(id, '2K');
+        /**
+         * ไฟล์ 2K ของรูปก่อนหน้าที่มาช้าอาจหลุดเข้ามาตอนที่เรากำลังรอรูปนี้ (เจอจริง: ลวดลายพื้นหลังได้ภาพปก)
+         * เทียบกับภาพบน tile ที่รู้แน่ว่าเป็นของรูปนี้ ทั้งสัดส่วนและหน้าตา ไม่ผ่านข้อใดข้อหนึ่ง = ไม่รับ
+         */
+        const thumb = await fetchTileImage(id);
+        const [a, b] = await Promise.all([imageSize(blob), imageSize(thumb)]);
+        if (Math.abs(Math.log(a.width / a.height / (b.width / b.height))) > 0.03) throw new Error('ไฟล์ 2K ที่ได้สัดส่วนไม่ตรงกับภาพนี้');
+        const dist = hamming(await aHash(blob), await aHash(thumb));
+        if (dist > 12) throw new Error(`ไฟล์ 2K ที่ได้ไม่ใช่ภาพเดียวกับ tile นี้ (ต่างกัน ${dist}/64)`);
       } catch (e) {
+        blob = null;
         hiresError = e?.message || String(e);
       }
     }
@@ -631,6 +705,7 @@
     const size = await imageSize(blob);
     return {
       ...cfg,
+      reused,
       mediaId: id,
       renamed,
       via,

@@ -111,3 +111,44 @@ test('ระดับภาพ max: ทุกตอนอย่างน้อ�
   assert.match(studio, /flow: \{ textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' \}/);
   assert.match(machine, /this\.book\.illustrationLevel === 'max' && style !== 'box'/);
 });
+
+/** เจอจริงในเล่มแรก: รูปผู้เขียนถูกอัปโหลดซ้ำ 15 ใบ · ภาพซ้ำ 2–3 ชุด · ลวดลายได้ไฟล์ 2K ของปก */
+test('รูปอ้างอิงอัปโหลดครั้งเดียว แล้วใช้ tile เดิมตลอด', () => {
+  assert.match(adapter, /r\.name && r\.name !== r\.tile && \(await attachFromTile\(r\.name\)/);
+});
+
+test('tile ใหม่ต้องไม่ใช่ไฟล์ที่อัปโหลด และต้องตรงสัดส่วนที่สั่ง', () => {
+  assert.match(adapter, /!skip\.has\(tile\.getAttribute\('aria-label'\) \|\| ''\)/);
+  assert.match(adapter, /ratioOk\(img\.naturalWidth, img\.naturalHeight, ratio\)/);
+});
+
+test('ไม่สั่งวาดซ้ำ: รอบลองใหม่ใช้ภาพที่ตั้งชื่อไว้แล้ว และนับว่ารับงานเมื่อมี tile ใหม่โผล่', () => {
+  assert.match(adapter, /if \(done && args\.reuse !== false\)/);
+  assert.match(machine, /reuse: attempt > 1/);
+  assert.match(adapter, /SEL\.tiles\(\)\.some\(\(t\) => !beforeEls\.has\(t\)\)/);
+});
+
+test('ไฟล์ 2K ต้องเป็นภาพเดียวกับ tile (สัดส่วน + ลายนิ้วมือภาพ) ไม่งั้นใช้ 1K ของ tile นั้นแทน', () => {
+  assert.match(adapter, /hamming\(await aHash\(blob\), await aHash\(thumb\)\)/);
+  assert.match(adapter, /if \(dist > 12\)/);
+});
+
+test('โมเดล: Nano Banana 2 Lite ก่อน แล้วรุ่นไหนก็ได้ที่ 0 เครดิต', async () => {
+  const { FLOW_MODELS } = await import('./flow.js');
+  assert.equal(FLOW_MODELS[0], 'Nano Banana 2 Lite');
+  assert.match(adapter, /last\.credits === 0/);
+});
+
+/** ผู้ใช้ขอ: ภาพประกอบต้องมีสาระ แสดงวิธีทำ ไม่ใช่เก็กท่าเฉย ๆ */
+test('ภาพในโหมด Flow เป็นภาพสอนวิธีทำ ส่วนโหมดอื่นคงกติกาเดิม', async () => {
+  const P = await import('./prompts.js');
+  const outline = { title: 't', chapters: [{ n: 1, title: 'a', sections: [{ id: '1.1', title: 'x' }] }] };
+  const flow = P.figurePlanPrompt({ audience: 'x', illustrationLevel: 'max', imageSource: 'flow', outline }, outline, outline.chapters, 'line');
+  assert.match(flow, /ต้อง "สอน"/);
+  assert.match(flow, /ห้ามภาพคนยืนหรือนั่งโพสท่า/);
+  const web = P.figurePlanPrompt({ audience: 'x', illustrationLevel: 'light', imageSource: 'web', outline }, outline, outline.chapters, 'line');
+  assert.doesNotMatch(web, /ต้อง "สอน"/);
+  const fig = P.interiorFigurePrompt('line', 'hands folding paper', 90, 67.5, '4:3', { instructive: true });
+  assert.match(fig, /TEACHING FIGURE/);
+  assert.match(fig, /never posing/);
+});

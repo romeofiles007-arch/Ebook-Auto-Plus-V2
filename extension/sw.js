@@ -261,8 +261,21 @@ async function ensureFlowTab() {
     tab = tabs.find((t) => /\/project\//.test(t.url || '')) || tabs.find((t) => !t.discarded) || tabs[0] || null;
   }
   if (!tab) {
-    const win = await chrome.windows.create({ url: 'https://flow.google.com/', focused: false, width: 1280, height: 900 });
-    tab = win.tabs[0];
+    /**
+     * เปิดเป็นแท็บในหน้าต่างเดิม ไม่ใช่หน้าต่างใหม่ (ผู้ใช้ไม่อยากให้มีหน้าต่างเด้งขึ้นมา)
+     * เลือกหน้าต่างของแท็บ ChatGPT ก่อน เพราะตอนสร้างภาพแท็บนั้นว่างอยู่ สลับไปมาได้ไม่เสียงาน
+     */
+    let windowId;
+    try {
+      const chatId = await S.get('chatTabId');
+      if (chatId != null) windowId = (await chrome.tabs.get(chatId)).windowId;
+    } catch {}
+    if (windowId == null) {
+      try {
+        windowId = (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
+      } catch {}
+    }
+    tab = await chrome.tabs.create({ url: 'https://flow.google.com/', active: false, ...(windowId != null ? { windowId } : {}) });
   }
   try {
     let fresh = await chrome.tabs.get(tab.id);
@@ -372,9 +385,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             flow = (await waitForComplete(flow.id).catch(() => null)) || flow;
           }
         }
-        // แท็บต้องมองเห็นได้ — Chrome ชะลอ timer ของแท็บเบื้องหลังจนขั้นตอนบนหน้า Flow ช้าลงเป็นนาที
+        // ให้แท็บ Flow เป็นแท็บที่เปิดอยู่ในหน้าต่างของมัน (แท็บเบื้องหลังถูก Chrome ชะลอ timer)
+        // แต่ไม่ดึงหน้าต่างขึ้นมาทับงานที่ผู้ใช้ทำอยู่ — ตัวขับรอด้วย MutationObserver ซึ่งไม่ถูกชะลออยู่แล้ว
         await chrome.tabs.update(flow.id, { active: true });
-        if (flow.windowId != null) await chrome.windows.update(flow.windowId, { focused: true }).catch(() => {});
         if (!(await ensureFlowAdapter(flow.id))) return sendResponse({ ok: false, error: 'ติดตั้งตัวขับของ Google Flow ในแท็บไม่สำเร็จ' });
         const accepted = await chrome.tabs
           .sendMessage(flow.id, { type: 'flow.run', jobId: msg.jobId, op: msg.op, args: msg.args || {} })

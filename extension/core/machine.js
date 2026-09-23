@@ -1416,6 +1416,7 @@ ${P.NO_CITATION_RULE}
               cover: this.book.style || null,
               // บอกให้รู้ว่ารูปอื่นในเล่มวาดอะไรไปแล้ว จะได้ไม่วาดซ้ำแนวเดิม
               otherSubjects: figures.filter((x) => x.kind === 'image').map((x) => x.subject || x.caption),
+              instructive: this.book.imageSource === 'flow' && this.book.contentMode !== 'fiction',
               // ลำดับจริงของรูปนี้ในเล่ม ใช้หมุนมุมกล้องและจังหวะให้รูปที่อยู่ติดกันไม่ซ้ำแบบกัน
               figureIndex: figures.filter((x) => x.kind === 'image').length,
               // เนื้อหาจริงตรงบริเวณที่ภาพนี้จะไปวางอยู่ — บ่อความหลากหลายที่มีอยู่ในเล่มแล้ว
@@ -3473,7 +3474,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
 
         const res = await flowCall(
           'generate',
-          { name: j.name, prompt, ratio: ratio.label, refs, models: FLOW_MODELS, hires: true },
+          { name: j.name, prompt, ratio: ratio.label, refs, models: FLOW_MODELS, hires: true, reuse: attempt > 1 },
           { timeoutMs: 9 * 60000 },
         );
         if (!res.ok) {
