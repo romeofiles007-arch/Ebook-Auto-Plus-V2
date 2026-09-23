@@ -6608,9 +6608,9 @@ function renderCastSeeds() {
   if (!box) return;
   box.innerHTML = CAST_SLOTS.map(
     (c) => `<div class="castRow" data-slot="${c.slot}">
-      <b>${esc(c.label)}</b>
-      <input data-cast="name" placeholder="ชื่อ (ว่าง = ChatGPT ตั้งให้)" autocomplete="off">
-      <input data-cast="appearance" placeholder="รูปลักษณ์ (ว่าง = ChatGPT คิด/อ่านจากรูป)" autocomplete="off">
+      <b class="castLabel">${esc(c.label)}</b>
+      <input data-cast="name" placeholder="ชื่อ — ว่างไว้ได้" autocomplete="off">
+      <input data-cast="appearance" placeholder="รูปลักษณ์ — ว่างได้ · วางรูปได้" autocomplete="off">
       <button type="button" data-cast-pick>แนบรูป</button>
       <img class="authorRefThumb hidden" alt="">
       <input type="file" accept="image/*" hidden data-cast-file>
@@ -6623,14 +6623,49 @@ function renderCastSeeds() {
     file.onchange = (e) => {
       const f = e.target.files?.[0];
       e.target.value = '';
-      if (!f) return;
-      setupCastPhotos[slot] = f;
-      const img = row.querySelector('img');
-      img.src = URL.createObjectURL(f);
-      img.classList.remove('hidden');
-      row.querySelector('[data-cast-pick]').textContent = 'เปลี่ยนรูป';
+      if (f) setCastPhoto(slot, f);
     };
+    /**
+     * วางรูปได้สามทาง: คลิกขวาในช่องพิมพ์ › วาง · Ctrl+V ในช่องพิมพ์ · ลากรูปมาปล่อยบนแถว
+     * วางข้อความยังพิมพ์ลงช่องตามปกติ — ดักเฉพาะตอนที่คลิปบอร์ดมีรูป
+     */
+    row.querySelectorAll('input[data-cast]').forEach((inp) =>
+      inp.addEventListener('paste', (e) => {
+        const img = [...(e.clipboardData?.items || [])].find((i) => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile();
+        if (!img) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setCastPhoto(slot, img);
+      }),
+    );
+    row.addEventListener('dragover', (e) => {
+      if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) e.preventDefault();
+    });
+    row.addEventListener('drop', (e) => {
+      const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith('image/'));
+      if (!f) return;
+      e.preventDefault();
+      setCastPhoto(slot, f);
+    });
+    // คลิกที่แถว (ไม่ใช่ช่องพิมพ์/ปุ่ม) = เล็งแถวนี้ไว้ แล้ว Ctrl+V ที่ไหนก็ได้ในหน้า รูปจะมาลงแถวนี้ ไม่ไปลงรูปผู้เขียน
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('input, button')) return;
+      document.querySelectorAll('.aimed').forEach((x) => x.classList.remove('aimed'));
+      row.classList.add('aimed');
+      status(`เล็งช่องรูป${CAST_SLOTS.find((c) => c.slot === slot)?.label || ''}ไว้แล้ว — กด Ctrl+V วางรูปได้เลย`);
+    });
   });
+}
+
+function setCastPhoto(slot, f) {
+  const row = document.querySelector(`.castRow[data-slot="${slot}"]`);
+  if (!row || !f) return;
+  setupCastPhotos[slot] = f;
+  const img = row.querySelector('img');
+  img.src = URL.createObjectURL(f);
+  img.classList.remove('hidden');
+  row.querySelector('[data-cast-pick]').textContent = 'เปลี่ยนรูป';
+  status(`แนบรูป${CAST_SLOTS.find((c) => c.slot === slot)?.label || 'ตัวละคร'}แล้ว — จะถูกบันทึกตอนเริ่มสร้างเล่ม`);
 }
 
 function readCastSeeds() {
@@ -6813,6 +6848,11 @@ async function pasteImageFromClipboard(e) {
    * และเล่มยังไม่มี id ให้บันทึกไฟล์ ต้องอุ้มไว้ก่อนเหมือนการเลือกไฟล์ด้วยมือ
    */
   if (onSetup) {
+    const castAim = document.querySelector('.castRow.aimed');
+    if (castAim) {
+      setCastPhoto(castAim.dataset.slot, file);
+      return;
+    }
     setSetupAuthorPhoto(file);
     status('วางรูปผู้เขียนแล้ว — จะถูกบันทึกตอนเริ่มสร้างเล่ม');
     return;
