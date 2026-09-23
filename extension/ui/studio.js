@@ -64,6 +64,7 @@ import {
   contentDraftPrompt,
   contentDraftKey,
   composeBatchPrompt,
+  CAST_SLOTS,
 } from '../core/prompts.js';
 import { parseContentDraft, recoverContentDraft, contentInputRequests } from '../core/content-readiness.js';
 import { parseJson, extractSection, citationGutted } from '../core/extract.js';
@@ -2071,6 +2072,7 @@ function readForm() {
     fictionPov: val('fictionPov', 'third-limited'),
     fictionEnding: val('fictionEnding', 'auto'),
     fictionRomance: val('fictionRomance', 'subplot'),
+    castSeeds: contentMode === 'fiction' ? readCastSeeds() : [],
     sectionLength: secLen,
     targetPages,
     pageTolerance: 2,
@@ -2786,6 +2788,7 @@ async function create() {
   await db.saveBook(book);
   // เล่มเพิ่งมี id — บันทึกรูปผู้เขียนที่อุ้มมาจากหน้าตั้งค่าเดี๋ยวนี้ ก่อนที่ขั้นสร้างภาพจะไปหามัน
   await saveSetupAuthorPhoto();
+  await saveSetupCastPhotos();
   await syncSharedProject(book.id);
   addEvent('system', 'เริ่มงาน', `${book.topic}\n${book.targetPages} หน้า · ${TRIM_PRESETS[book.trim.preset].label}`);
   status('กำลังเริ่มงาน');
@@ -6593,6 +6596,65 @@ async function saveSetupAuthorPhoto() {
     addEvent('system', 'บันทึกรูปผู้เขียนไม่สำเร็จ', `${e?.message || e} — อัปโหลดซ้ำได้ที่หน้าตรวจงานหรือประตู Phase 2`);
   }
 }
+
+// ---------- ตัวละครหลักของนิยาย (พระเอก · นางเอก · ตัวละครอื่น) ----------
+/**
+ * ทุกช่องไม่บังคับ: ว่าง = ChatGPT คิดให้ตอนวางโครงเรื่อง · แนบรูป = ChatGPT อ่านรูปเขียนรูปลักษณ์
+ * และรูปนั้นเป็นต้นแบบหน้าตาของตัวละครในทุกภาพของเล่ม (ส่งให้ Google Flow)
+ */
+const setupCastPhotos = {}; // slot → File
+
+function renderCastSeeds() {
+  const box = $('castSeeds');
+  if (!box) return;
+  box.innerHTML = CAST_SLOTS.map(
+    (c) => `<div class="castRow" data-slot="${c.slot}">
+      <b>${esc(c.label)}</b>
+      <input data-cast="name" placeholder="ชื่อ (ว่าง = ChatGPT ตั้งให้)" autocomplete="off">
+      <input data-cast="appearance" placeholder="รูปลักษณ์ (ว่าง = ChatGPT คิด/อ่านจากรูป)" autocomplete="off">
+      <button type="button" data-cast-pick>แนบรูป</button>
+      <img class="authorRefThumb hidden" alt="">
+      <input type="file" accept="image/*" hidden data-cast-file>
+    </div>`,
+  ).join('');
+  box.querySelectorAll('.castRow').forEach((row) => {
+    const slot = row.dataset.slot;
+    const file = row.querySelector('[data-cast-file]');
+    row.querySelector('[data-cast-pick]').onclick = () => file.click();
+    file.onchange = (e) => {
+      const f = e.target.files?.[0];
+      e.target.value = '';
+      if (!f) return;
+      setupCastPhotos[slot] = f;
+      const img = row.querySelector('img');
+      img.src = URL.createObjectURL(f);
+      img.classList.remove('hidden');
+      row.querySelector('[data-cast-pick]').textContent = 'เปลี่ยนรูป';
+    };
+  });
+}
+
+function readCastSeeds() {
+  return CAST_SLOTS.map((c) => {
+    const row = document.querySelector(`.castRow[data-slot="${c.slot}"]`);
+    const get = (k) => String(row?.querySelector(`[data-cast="${k}"]`)?.value || '').trim();
+    return { slot: c.slot, label: c.label, name: get('name'), appearance: get('appearance'), photo: !!setupCastPhotos[c.slot], use: true };
+  });
+}
+
+async function saveSetupCastPhotos() {
+  if (!book?.id) return;
+  for (const [slot, file] of Object.entries(setupCastPhotos)) {
+    try {
+      const { blob, w, h } = await normalizeImage(file, { grayscale: false });
+      await db.saveAsset(book.id, `cast-${slot}.png`, blob, { w, h, kind: 'cast-photo', slot, from: file.name || 'upload' });
+      addEvent('system', 'บันทึกรูปตัวละคร', `cast-${slot}.png · ${w}×${h}`);
+    } catch (e) {
+      addEvent('system', 'บันทึกรูปตัวละครไม่สำเร็จ', `${slot}: ${e?.message || e}`);
+    }
+  }
+}
+renderCastSeeds();
 
 $('authorPhotoSetupPick').onclick = () => $('authorPhotoSetupFile').click();
 $('authorPhotoSetupFile').onchange = (e) => {

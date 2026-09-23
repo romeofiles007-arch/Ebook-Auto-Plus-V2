@@ -89,8 +89,21 @@ export function fictionCast(book, max = 6) {
     if (!name) continue;
     seen.set(name, { ...(seen.get(name) || {}), ...c, name });
   }
-  return [...seen.values()].sort((a, b) => (b.appearance ? 1 : 0) - (a.appearance ? 1 : 0)).slice(0, max);
+  /**
+   * ผูกกับช่องตัวละครที่ผู้ใช้กำหนด (พระเอก · นางเอก · ตัวละครอื่น) ด้วย seed ที่ ChatGPT ใส่มา หรือชื่อที่ตรงกัน
+   * ช่องที่แนบรูปไว้ → ใช้รูปนั้นเป็นต้นแบบ ไม่ต้องวาดใหม่ · ตัวละครจากช่องของผู้ใช้มาก่อนเสมอ
+   */
+  const seeds = book?.castSeeds || [];
+  const list = [...seen.values()].map((c) => {
+    const s = seeds.find((x) => (c.seed && x.slot === c.seed) || (x.name && x.name === c.name));
+    return s ? { ...c, seedSlot: s.slot, photo: !!s.photo } : c;
+  });
+  const rank = (c) => (c.seedSlot ? 2 : 0) + (c.appearance ? 1 : 0);
+  return list.sort((a, b) => rank(b) - rank(a)).slice(0, max);
 }
+
+/** ชื่อไฟล์รูปตัวละครที่ผู้ใช้แนบไว้ในหน้าตั้งค่า */
+export const castPhotoName = (slot) => `cast-${slot}.png`;
 
 /** ชื่อไฟล์/ชื่อภาพใน Flow ของภาพต้นแบบตัวละครลำดับที่ i */
 export const charRefName = (i) => `char-${String(i + 1).padStart(2, '0')}.png`;

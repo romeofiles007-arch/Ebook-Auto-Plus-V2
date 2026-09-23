@@ -268,3 +268,24 @@ test('โหมด Flow: ปกเป็นภาพล้วน ชื่อเ
   const { flowPrompt } = await import('./flow.js');
   assert.match(flowPrompt({ kind: 'cover', prompt: 'x' }, { label: '3:4' }), /ARTWORK ONLY: absolutely no title/);
 });
+
+/** ผู้ใช้ขอ: นิยายแนบตัวละครได้ — พระเอก นางเอก และคนอื่น ๆ · แนบหรือไม่แนบ ChatGPT กรอกส่วนที่ว่างให้ */
+test('ช่องตัวละครของผู้ใช้: ใส่ในโครงเรื่อง · แนบรูปใช้รูปนั้นเป็นต้นแบบ', async () => {
+  const P = await import('./prompts.js');
+  assert.deepEqual(P.CAST_SLOTS.map((s) => s.slot), ['hero', 'heroine', 'other1', 'other2']);
+  const book = { topic: 't', contentMode: 'fiction', language: 'th', targetPages: 80,
+    castSeeds: [{ slot: 'hero', label: 'พระเอก', use: true }, { slot: 'heroine', label: 'นางเอก', name: 'เอมมี่', photo: true, appearance: 'ผมยาว', use: true }] };
+  const outline = P.outlinePrompt(book);
+  assert.match(outline, /seed="hero" · บทบาท: พระเอก · ชื่อ: \(คิดให้\)/);
+  assert.match(outline, /ห้ามเปลี่ยน/);
+  const { fictionCast, castPhotoName } = await import('./flow.js');
+  const cast = fictionCast({ ...book, outline: { cast: [{ name: 'ต้น', seed: 'hero' }, { name: 'เอมมี่', seed: 'heroine' }, { name: 'ป้า' }] } });
+  assert.deepEqual(cast.slice(0, 2).map((c) => c.seedSlot).sort(), ['hero', 'heroine']);
+  assert.equal(cast.find((c) => c.name === 'เอมมี่').photo, true);
+  assert.equal(castPhotoName('heroine'), 'cast-heroine.png');
+  assert.match(machine, /if \(c\.photo && c\.seedSlot\)/);
+  assert.match(machine, /if \(this\.book\.contentMode === 'fiction'\) await this\.describeCastPhotos\(\);/);
+  const studio = await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8');
+  assert.match(studio, /castSeeds: contentMode === 'fiction' \? readCastSeeds\(\) : \[\]/);
+  assert.match(studio, /await saveSetupCastPhotos\(\);/);
+});

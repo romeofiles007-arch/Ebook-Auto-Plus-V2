@@ -31,7 +31,7 @@ import { turnDelay } from './production-mode.js';
 import { noteTrouble } from './dispatch.js';
 import { generateImage, DEFAULT_IMAGE_MODEL } from './imageApi.js';
 import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, enforceAuthorRefPrompt } from './imageRef.js';
-import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText } from './flow.js';
+import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText, castPhotoName } from './flow.js';
 
 export const STEPS = [
   'health',
@@ -794,8 +794,43 @@ ${P.NO_CITATION_RULE}
   }
 
   // 3) สารบัญ หรือโครงหมวดของโหมดรายชิ้น
+  /**
+   * นิยาย: รูปตัวละครที่ผู้ใช้แนบไว้ → ให้ ChatGPT อ่านรูปแล้วเขียนรูปลักษณ์ก่อนวางโครงเรื่อง
+   * โครงเรื่องจะได้ใช้รูปลักษณ์นี้ตรงกับรูปจริง แทนการแต่งหน้าตาขึ้นใหม่ที่ไม่ตรงกับรูปที่แนบ
+   * อ่านไม่สำเร็จไม่หยุดงาน — รูปยังใช้เป็นต้นแบบตอนสร้างภาพได้ตามเดิม
+   */
+  async describeCastPhotos() {
+    // ทาง API ไม่ได้ส่งรูปแนบไปด้วย ถ้าถามตรงนี้โมเดลจะแต่งรูปลักษณ์จากรูปที่ไม่เคยเห็น — ข้าม ให้คิดรูปลักษณ์ตอนวางโครงแทน
+    if ((this.book.textSource || 'web') === 'api') return;
+    const seeds = this.book.castSeeds || [];
+    let changed = false;
+    for (const s of seeds) {
+      if (!s?.photo || s.appearance) continue;
+      try {
+        const asset = await db.loadAsset(this.book.id, castPhotoName(s.slot));
+        if (!asset?.blob) continue;
+        const ready = await prepareRefImage(asset.blob);
+        const res = await this.turnWithRetry(P.castPhotoPrompt(s, this.book), {
+          label: `อ่านรูปตัวละคร · ${s.label || s.slot}`,
+          newThread: true,
+          attachments: [{ name: castPhotoName(s.slot).replace(/.png$/, '.jpg'), dataUrl: ready.dataUrl }],
+        });
+        const appearance = String(X.parseJson(res.text || '')?.appearance || '').trim();
+        if (appearance) {
+          s.appearance = appearance;
+          changed = true;
+          this.log('ok', `รูปลักษณ์${s.label || s.slot}จากรูปที่แนบ: ${appearance}`);
+        }
+      } catch (e) {
+        this.log('warn', `อ่านรูป${s.label || s.slot}ไม่สำเร็จ (${e?.message || e}) — ให้ ChatGPT คิดรูปลักษณ์เอง แต่ยังใช้รูปเป็นต้นแบบตอนสร้างภาพ`);
+      }
+    }
+    if (changed) await this.save();
+  }
+
   async outline() {
     if (this.book.contentMode === 'items') return this.outlineItems();
+    if (this.book.contentMode === 'fiction') await this.describeCastPhotos();
     let errs = null;
     let lastRaw = '';
     for (let i = 0; i < OUTLINE_ATTEMPTS; i++) {
@@ -3431,6 +3466,15 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     for (let i = 0; i < cast.length; i++) {
       if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
       const c = cast[i];
+      // ผู้ใช้แนบรูปตัวละครนี้ไว้ = ใช้รูปนั้นเป็นต้นแบบเลย อัปโหลดเข้า Flow ครั้งเดียวแล้วเลือกจากชื่อไฟล์
+      if (c.photo && c.seedSlot) {
+        const photo = await db.loadAsset(this.book.id, castPhotoName(c.seedSlot)).catch(() => null);
+        const ready = photo?.blob ? await prepareRefImage(photo.blob).catch(() => null) : null;
+        if (ready) {
+          out.push({ ...c, ref: { name: castPhotoName(c.seedSlot), dataUrl: ready.dataUrl, upload: true } });
+          continue;
+        }
+      }
       const name = charRefName(i);
       let asset = await db.loadAsset(this.book.id, name).catch(() => null);
       if (asset?.blob && asset.meta?.character !== c.name) asset = null; // ตัวละครเปลี่ยนไปแล้ว วาดใหม่
@@ -3538,7 +3582,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           if (fiction) {
             // ตัวละครที่ถูกเอ่ยถึงในฉากนี้ + ภาพต้นแบบของแต่ละคน (เรียงตามลำดับที่แนบ)
             const people = castInText(castRefs, `${fig.subject || ''} ${fig.caption || ''} ${passage}`).filter((c) => c.ref);
-            for (const c of people) refs.push({ tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
+            for (const c of people) refs.push(c.ref.upload ? { name: c.ref.name, dataUrl: c.ref.dataUrl } : { tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
             prompt = P.flowFictionFigurePrompt({
               book: this.book,
               fig,
@@ -3567,7 +3611,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       // ปกของนิยาย: ตัวละครที่ปกเอ่ยถึงต้องหน้าตาเดียวกับภาพต้นแบบ
       if (fiction && j.kind === 'cover' && !authorRef) {
         const onCover = castInText(castRefs, j.prompt, 2).filter((c) => c.ref);
-        for (const c of onCover) refs.push({ tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
+        for (const c of onCover) refs.push(c.ref.upload ? { name: c.ref.name, dataUrl: c.ref.dataUrl } : { tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
         if (onCover.length) {
           prompt += `
 

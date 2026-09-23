@@ -452,6 +452,41 @@ ${retryErrors ? `\nคำตอบก่อนหน้าไม่ผ่าน�
 \`\`\``;
 }
 
+/**
+ * ตัวละครที่ผู้ใช้กำหนดไว้ในหน้าตั้งค่านิยาย (พระเอก · นางเอก · ตัวละครอื่น) — ช่องไหนว่าง ChatGPT กรอกเอง
+ * ถ้าแนบรูปไว้ รูปลักษณ์มาจากการให้ ChatGPT อ่านรูปก่อนวางโครง (describeCastPhotos) จึงต้องยึดตามนั้นเป๊ะ
+ */
+export const CAST_SLOTS = [
+  { slot: 'hero', label: 'พระเอก' },
+  { slot: 'heroine', label: 'นางเอก' },
+  { slot: 'other1', label: 'ตัวละครอื่น 1' },
+  { slot: 'other2', label: 'ตัวละครอื่น 2' },
+];
+
+function castSeedBlock(book) {
+  const seeds = (book.castSeeds || []).filter((s) => s && (s.use || s.name || s.appearance || s.photo));
+  if (!seeds.length) return '';
+  return `
+
+ตัวละครที่ผู้ใช้กำหนดไว้ — ต้องมีอยู่ใน cast ทุกคน ใส่ "seed" ให้ตรงกับช่องนี้ ช่องไหนว่างให้คิดให้เหมาะกับเรื่อง
+${seeds
+  .map(
+    (s) =>
+      `- seed="${s.slot}" · บทบาท: ${s.label || s.slot} · ชื่อ: ${s.name || '(คิดให้)'} · รูปลักษณ์: ${
+        s.appearance ? `${s.appearance}${s.photo ? ' (มาจากรูปจริงที่ผู้ใช้แนบ — ห้ามเปลี่ยน)' : ''}` : '(คิดให้ ต้องเห็นภาพชัด: อายุ ผม ใบหน้า รูปร่าง การแต่งกายประจำตัว)'
+      }`,
+  )
+  .join('\n')}`;
+}
+
+/** ให้ ChatGPT อ่านรูปตัวละครที่ผู้ใช้แนบ แล้วเขียนรูปลักษณ์ที่คนวาดภาพใช้ต่อได้ */
+export function castPhotoPrompt(seed, book) {
+  return `รูปที่แนบคือต้นแบบหน้าตาของตัวละคร "${seed.label || seed.slot}"${seed.name ? ` ชื่อ ${seed.name}` : ''} ในนิยายเรื่อง ${book.topic || ''}
+บรรยายรูปลักษณ์ที่มองเห็นได้จากรูปนี้ เพื่อใช้วาดตัวละครนี้ให้เหมือนเดิมทุกภาพในเล่ม: อายุโดยประมาณ ทรงผมและสีผม ลักษณะใบหน้า รูปร่าง การแต่งกาย และจุดเด่นที่จำได้
+ห้ามเดาชื่อจริงหรือตัวตนของคนในรูป ห้ามบรรยายสิ่งที่มองไม่เห็น
+ตอบเป็น JSON ในบล็อกโค้ดเดียว: {"appearance": "ภาษาไทย 1–3 ประโยค"}`;
+}
+
 function fictionOutlinePrompt(book, retryErrors = null) {
   const u = unitName(book.language);
   const pov = FICTION_POV[book.fictionPov] || 'บุคคลที่ 3 จำกัดมุมมอง';
@@ -469,7 +504,7 @@ function fictionOutlinePrompt(book, retryErrors = null) {
 ความยาวประมาณ: ${book.targetPages} หน้า
 มุมมอง: ${pov}
 ตอนจบ: ${ending}
-เส้นความรัก: ${romance}${planningSeed(book)}
+เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}
 
 หลักการวางเรื่อง
 1. สร้าง dramatic premise และ theme ชัด แต่ห้ามให้ตัวละครพูดธีมตรง ๆ
@@ -507,7 +542,8 @@ ${retryErrors ? `\nคำตอบก่อนหน้าไม่ผ่าน 
       "fear": "สิ่งที่กลัว",
       "flaw": "ข้อบกพร่อง",
       "secret": "ความลับหรือเว้นว่าง",
-      "appearance": "ลักษณะที่มองเห็นได้ซึ่งต้องคงเดิม"
+      "appearance": "ลักษณะที่มองเห็นได้ซึ่งต้องคงเดิม",
+      "seed": "hero | heroine | other1 | other2 ถ้าตรงกับตัวละครที่ผู้ใช้กำหนด ไม่งั้นเว้นว่าง"
     }
   ],
   "chapters": [
