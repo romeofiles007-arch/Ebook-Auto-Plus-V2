@@ -78,7 +78,7 @@ test('ตัวดัก 2K ทำงานเฉพาะตอนง้าง 
 
 test('ภาพใหม่ถูกตั้งชื่อใน Flow ตามชื่อไฟล์ที่วางแผนไว้', () => {
   assert.match(adapter, /renameTile\(id, args\.name\)/);
-  assert.match(machine, /name: j\.name, prompt, ratio: ratio\.label/);
+  assert.match(machine, /name: j\.name,\s+prompt,\s+ratio: ratio\.label/);
 });
 
 test('โหมด flow ข้ามลูปของ ChatGPT ทั้งลูป ไม่มีการสั่งวาดซ้ำสองที่', () => {
@@ -114,7 +114,7 @@ test('ระดับภาพ max: ทุกตอนอย่างน้อ�
 
 /** เจอจริงในเล่มแรก: รูปผู้เขียนถูกอัปโหลดซ้ำ 15 ใบ · ภาพซ้ำ 2–3 ชุด · ลวดลายได้ไฟล์ 2K ของปก */
 test('รูปอ้างอิงอัปโหลดครั้งเดียว แล้วใช้ tile เดิมตลอด', () => {
-  assert.match(adapter, /r\.name && r\.name !== r\.tile && \(await attachFromTile\(r\.name\)/);
+  assert.match(adapter, /r\.name && r\.name !== r\.tile && \(await attachFromPicker\(r\.name\)/);
 });
 
 test('tile ใหม่ต้องไม่ใช่ไฟล์ที่อัปโหลด และต้องตรงสัดส่วนที่สั่ง', () => {
@@ -151,4 +151,19 @@ test('ภาพในโหมด Flow เป็นภาพสอนวิธ�
   const fig = P.interiorFigurePrompt('line', 'hands folding paper', 90, 67.5, '4:3', { instructive: true });
   assert.match(fig, /TEACHING FIGURE/);
   assert.match(fig, /never posing/);
+});
+
+/** ผู้ใช้ขอ: สร้างโฟลเดอร์ใน project ของ Flow ให้เป็นสัดส่วน ค้นหาง่าย ไม่ใช่สร้างมั่ว */
+test('ภาพแต่ละใบไปอยู่ในคอลเล็กชันตามตำแหน่งในเล่ม', async () => {
+  const { flowCollectionFor, FLOW_REF_COLLECTION } = await import('./flow.js');
+  const b = { outline: { chapters: [{ n: 1, title: 'เริ่ม', sections: [{ id: '1.1' }] }, { n: 2, title: 'ลงมือ', sections: [{ id: '2.1' }] }] } };
+  assert.equal(flowCollectionFor(b, { kind: 'cover', name: 'cover-front.png' }), '01 ปก');
+  assert.equal(flowCollectionFor(b, { kind: 'pattern', name: 'page-pattern.png' }), '02 ลวดลายพื้นหลัง');
+  assert.equal(flowCollectionFor(b, { kind: 'interior', name: 'fig-2.1-1.png' }), '04 บทที่ 2 · ลงมือ');
+  assert.equal(FLOW_REF_COLLECTION, '00 รูปอ้างอิง');
+  assert.match(machine, /collection: flowCollectionFor\(this\.book, j\)/);
+  assert.match(adapter, /await openCollection\(args\.collection\)/);
+  // รูปอ้างอิงเลือกจากตัวเลือกสื่อของทั้ง project ไม่อัปโหลดซ้ำเข้าคอลเล็กชันของบท
+  assert.match(adapter, /attachFromPicker\(r\.tile\)/);
+  assert.match(adapter, /ensureRefUploaded\(r, args\.refCollection\)/);
 });

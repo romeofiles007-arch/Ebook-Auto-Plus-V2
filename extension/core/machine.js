@@ -31,7 +31,7 @@ import { turnDelay } from './production-mode.js';
 import { noteTrouble } from './dispatch.js';
 import { generateImage, DEFAULT_IMAGE_MODEL } from './imageApi.js';
 import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, enforceAuthorRefPrompt } from './imageRef.js';
-import { flowCall, flowRatioFor, flowPrompt, FLOW_MODELS, FLOW_RATIOS } from './flow.js';
+import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION } from './flow.js';
 
 export const STEPS = [
   'health',
@@ -3474,7 +3474,17 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
 
         const res = await flowCall(
           'generate',
-          { name: j.name, prompt, ratio: ratio.label, refs, models: FLOW_MODELS, hires: true, reuse: attempt > 1 },
+          {
+            name: j.name,
+            prompt,
+            ratio: ratio.label,
+            refs,
+            models: FLOW_MODELS,
+            hires: true,
+            reuse: attempt > 1,
+            collection: flowCollectionFor(this.book, j),
+            refCollection: FLOW_REF_COLLECTION,
+          },
           { timeoutMs: 9 * 60000 },
         );
         if (!res.ok) {

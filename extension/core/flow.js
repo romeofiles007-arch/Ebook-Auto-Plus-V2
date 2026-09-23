@@ -65,6 +65,31 @@ export function flowPrompt(job, ratio) {
   return parts.filter(Boolean).join('\n\n');
 }
 
+/** คอลเล็กชันสำหรับรูปที่อัปโหลดไปเป็นตัวอ้างอิง (เช่นรูปผู้เขียน) */
+export const FLOW_REF_COLLECTION = '00 รูปอ้างอิง';
+
+/**
+ * คอลเล็กชัน (โฟลเดอร์) ใน project ของ Flow ที่ภาพนี้ต้องไปอยู่ — จัดตามตำแหน่งในเล่ม ค้นหาง่าย
+ *   01 ปก · 02 ลวดลายพื้นหลัง · 03 บทที่ 1 · <ชื่อบท> · 04 บทที่ 2 · … · 99 ภาพอื่น ๆ
+ * เลขนำหน้าทำให้เรียงตามลำดับเล่มเมื่อเรียงตามชื่อ และเห็นทันทีว่าเป็นหมวดไหน
+ */
+export function flowCollectionFor(book, job) {
+  if (job?.kind === 'cover') return '01 ปก';
+  if (job?.kind === 'pattern') return '02 ลวดลายพื้นหลัง';
+  const m = /^fig-(.+)-\d+\.png$/i.exec(String(job?.name || ''));
+  const chapters = book?.outline?.chapters || [];
+  if (m) {
+    const section = m[1];
+    const idx = chapters.findIndex((c) => (c.sections || []).some((s) => String(s.id) === section));
+    if (idx >= 0) {
+      const c = chapters[idx];
+      const title = String(c.title || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+      return `${String(idx + 3).padStart(2, '0')} บทที่ ${c.n ?? idx + 1}${title ? ` · ${title}` : ''}`;
+    }
+  }
+  return '99 ภาพอื่น ๆ';
+}
+
 let seq = 0;
 const waiting = new Map(); // jobId → { resolve, timer }
 let listening = false;

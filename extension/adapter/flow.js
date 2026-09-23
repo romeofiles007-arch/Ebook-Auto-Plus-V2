@@ -327,6 +327,144 @@
     return true;
   }
 
+  // ── คอลเล็กชัน (โฟลเดอร์ใน project ของ Flow) ──
+  /**
+   * ภาพของเล่มแยกเป็นคอลเล็กชันตามตำแหน่งในเล่ม: 00 รูปอ้างอิง · 01 ปก · 02 ลวดลายพื้นหลัง · 03 บทที่ 1 …
+   * ภาพที่สร้างขณะเปิดคอลเล็กชันอยู่จะไปอยู่ในคอลเล็กชันนั้นเลย ไม่โผล่ปนที่หน้าหลักของ project (ตรวจกับหน้าจริงแล้ว)
+   * หน้าหลักจึงเหลือแค่แฟ้มเรียงเลข เปิดดูทีละหมวดได้ และค้นด้วยชื่อไฟล์ได้จากช่องค้นหาของ Flow
+   */
+  const inCollection = () => /\/collection\//.test(location.pathname);
+  const nameInput = () =>
+    $$('input.editable-text-input, input[aria-label="Editable text"], input[aria-label="ข้อความที่แก้ไขได้"]').find(visible);
+  const collectionTiles = () => SEL.tiles().filter((t) => t.querySelector('flow-collection-tile'));
+  const UNTITLED = /ไม่มีชื่อ|untitled/i;
+
+  async function goRoot() {
+    if (!inCollection()) return;
+    const back = iconButton('arrow_back');
+    if (back) realClick(back);
+    else history.back();
+    await waitFor(() => !inCollection() && SEL.editor(), { timeout: 15000, label: 'หน้าหลักของ project' });
+    await sleep(600);
+  }
+
+  async function openCollection(name) {
+    if (!name) return goRoot();
+    if (inCollection() && nameInput()?.value === name) return;
+    await goRoot();
+    scrollGridTop();
+    await sleep(400);
+    let tile = collectionTiles().find((t) => t.getAttribute('aria-label') === name);
+    if (!tile) {
+      const untitledBefore = collectionTiles().filter((t) => UNTITLED.test(t.getAttribute('aria-label') || '')).length;
+      const editorTop = SEL.editor()?.getBoundingClientRect().top ?? Infinity;
+      // ปุ่ม + มุมขวาบน (เพิ่มสื่อ) — คนละตัวกับ + ในช่องพิมพ์ ซึ่งอยู่ต่ำกว่าช่องพิมพ์
+      const add = $$('button').find((b) => visible(b) && text(b) === 'add' && b.getBoundingClientRect().top < Math.min(120, editorTop));
+      if (!add) throw new Error('ไม่พบปุ่ม + สำหรับสร้างคอลเล็กชันใน Flow');
+      realClick(add);
+      const item = await waitFor(() => menuItem('folder'), { timeout: 6000, label: 'เมนูคอลเล็กชันใหม่' });
+      realClick(item);
+      tile = await waitFor(
+        () => {
+          const u = collectionTiles().filter((t) => UNTITLED.test(t.getAttribute('aria-label') || ''));
+          return u.length > untitledBefore ? u[0] : null;
+        },
+        { timeout: 15000, label: 'คอลเล็กชันใหม่' },
+      );
+    }
+    const target = tile.querySelector('flow-collection-tile') || tile;
+    target.click();
+    const opened = await waitFor(inCollection, { timeout: 8000, label: 'เปิดคอลเล็กชัน' }).catch(() => false);
+    if (!opened) {
+      realClick(target);
+      await waitFor(inCollection, { timeout: 10000, label: 'เปิดคอลเล็กชัน' });
+    }
+    await waitFor(SEL.editor, { timeout: 15000, label: 'ช่องพิมพ์ในคอลเล็กชัน' });
+    await sleep(500);
+    const input = nameInput();
+    if (input && input.value !== name) await typeIntoInput(input, name);
+  }
+
+  /**
+   * เลือกรูปอ้างอิงด้วยชื่อ จากตัวเลือกสื่อของช่องพิมพ์ (ปุ่ม + ในช่องพิมพ์)
+   * ตัวเลือกนี้เห็นภาพทุกใบใน project รวมที่อยู่ในคอลเล็กชันอื่น และมีช่องค้นหา — ไม่ต้องอัปโหลดซ้ำ
+   */
+  async function attachFromPicker(name) {
+    const before = chips().length;
+    const editorTop = SEL.editor()?.getBoundingClientRect().top ?? 0;
+    const add =
+      $$('button[aria-label="เพิ่มองค์ประกอบลงในช่องพรอมต์"], button[aria-label="Add ingredient to prompt"]').find(visible) ||
+      $$('button').find((b) => visible(b) && text(b) === 'add' && b.getBoundingClientRect().top > editorTop - 40);
+    if (!add) return false;
+    realClick(add);
+    const pane = await waitFor(() => $$('.cdk-overlay-pane').find((p) => visible(p) && p.querySelector('[role="listbox"]')), {
+      timeout: 8000,
+      label: 'ตัวเลือกสื่อ',
+    }).catch(() => null);
+    if (!pane) {
+      escape();
+      return false;
+    }
+    const search = pane.querySelector('input');
+    if (search) {
+      search.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, name.replace(/\.[a-z]+$/i, ''));
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    const optionName = (b) => text(b).replace(/\s+(รูปภาพ|image|photo|วิดีโอ|video)$/i, '');
+    const opt = await waitFor(() => $$('button[role="option"]', pane).find((b) => visible(b) && optionName(b) === name), {
+      timeout: 8000,
+      label: `รูป ${name} ในตัวเลือกสื่อ`,
+    }).catch(() => null);
+    if (!opt) {
+      escape();
+      await sleep(300);
+      return false;
+    }
+    opt.click();
+    await sleep(600);
+    // บางครั้งการคลิกรายการคือการเพิ่มเข้าช่องพิมพ์ทันทีและปิดตัวเลือกไปเอง — นับ chip ก่อนหาปุ่มเพิ่ม
+    if (chips().length > before) {
+      await waitFor(() => !chipsBusy(), { timeout: 20000, label: 'เพิ่มรูปอ้างอิงเข้าช่องพิมพ์' });
+      if (pane.isConnected && visible(pane)) escape();
+      return true;
+    }
+    const addBtn = $$('button', pane).find((b) => /เพิ่มไปยังพรอมต์|add to prompt/i.test(text(b)));
+    if (!addBtn) {
+      escape();
+      return chips().length > before;
+    }
+    addBtn.click();
+    await waitFor(() => chips().length > before && !chipsBusy(), { timeout: 20000, label: 'เพิ่มรูปอ้างอิงเข้าช่องพิมพ์' });
+    await sleep(400);
+    return true;
+  }
+
+  /**
+   * รูปอ้างอิงที่ยังไม่เคยอยู่ใน project (เช่นรูปผู้เขียน) อัปโหลดครั้งเดียวเข้าคอลเล็กชัน "00 รูปอ้างอิง"
+   * แล้วตั้งชื่อ tile ตามชื่อไฟล์ — ครั้งต่อไปทุกรูปเลือกจากตัวเลือกสื่อด้วยชื่อนี้
+   */
+  async function ensureRefUploaded(r, refCollection) {
+    if (!r?.dataUrl || !r.name) return;
+    await openCollection(refCollection);
+    if (SEL.tiles().some((t) => t.getAttribute('aria-label') === r.name && tileId(t))) return;
+    const before = knownIds();
+    const dt = new DataTransfer();
+    dt.items.add(dataUrlToFile(r.dataUrl, r.name));
+    const editor = await waitFor(SEL.editor, { label: 'ช่องพิมพ์' });
+    editor.focus();
+    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    const up = await waitFor(
+      () => {
+        const t = SEL.tiles().find((x) => tileId(x) && !before.has(tileId(x)) && tileImg(x).naturalWidth > 0);
+        return t && !chipsBusy() ? t : null;
+      },
+      { timeout: 60000, interval: 500, label: 'Flow อัปโหลดรูปอ้างอิง' },
+    );
+    if ((up.getAttribute('aria-label') || '') !== r.name) await renameTile(tileId(up), r.name).catch(() => false);
+    await clearRefs();
+  }
+
   /** วางรูปลงช่องพิมพ์ด้วย paste แบบเดียวกับ Ctrl+V (วิธีเดียวกับโปรเจกต์ Youtube ที่ใช้แนบรูปตัวละคร) */
   async function attachRefs(refs) {
     if (!refs?.length) return 0;
@@ -338,8 +476,9 @@
        * เดิมวางไฟล์ใหม่ทุกรูปทุกรอบ project หนึ่งเล่มจึงมีรูปผู้เขียนซ้ำสิบกว่าใบ
        * ตอนนี้หา tile เดิมก่อนเสมอ อัปโหลดเฉพาะครั้งแรกที่ยังไม่มี
        */
+      if (r.tile && (await attachFromPicker(r.tile).catch(() => false))) continue;
+      if (r.name && r.name !== r.tile && (await attachFromPicker(r.name).catch(() => false))) continue;
       if (r.tile && (await attachFromTile(r.tile).catch(() => false))) continue;
-      if (r.name && r.name !== r.tile && (await attachFromTile(r.name).catch(() => false))) continue;
       if (r.dataUrl) upload.push(r);
     }
     if (!upload.length) return chips().length - start;
@@ -601,6 +740,7 @@
 
   async function opPrepare(args = {}) {
     await openProject();
+    await goRoot().catch(() => {});
     await renameProject(args.title).catch(() => {});
     const cfg = await configure({ ratio: args.ratio || '3:4', models: args.models });
     return { ...cfg, projectUrl: location.href };
@@ -609,6 +749,17 @@
   async function opGenerate(args = {}) {
     at('เปิด project');
     await openProject();
+    if (args.refCollection) {
+      for (const r of args.refs || []) {
+        if (!r.dataUrl || r.tile) continue;
+        at(`เตรียมรูปอ้างอิง ${r.name}`);
+        await ensureRefUploaded(r, args.refCollection).catch(() => {});
+      }
+    }
+    if (args.collection) {
+      at(`เปิดคอลเล็กชัน ${args.collection}`);
+      await openCollection(args.collection);
+    }
 
     /**
      * รอบก่อนวาดเสร็จและตั้งชื่อไว้แล้ว แต่ขั้นหลังจากนั้นพลาด (เช่นดึงไฟล์ไม่สำเร็จ)
@@ -741,7 +892,7 @@
     }
   }
 
-  globalThis.__ebookPlusFlow = { run, configure, readPane, renameTile, download2k, knownIds, attachRefs, clearRefs, stage: () => stage };
+  globalThis.__ebookPlusFlow = { run, configure, readPane, renameTile, download2k, knownIds, attachRefs, clearRefs, openCollection, attachFromPicker, stage: () => stage };
 
   if (typeof chrome === 'undefined' || !chrome.runtime?.id) return; // ฉีดทดสอบในหน้าเว็บตรง ๆ
 
