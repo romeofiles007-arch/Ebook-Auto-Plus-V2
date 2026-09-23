@@ -1722,6 +1722,74 @@ export function figureNearbyText(md, placement = 'middle', max = 900) {
   return out.length > max ? `${out.slice(0, max)}…` : out;
 }
 
+/**
+ * เนื้อหาที่อยู่ "รอบตัวภาพจริง" ในตอนนั้น — ย่อหน้าก่อนหน้าภาพและหลังภาพเล็กน้อย
+ * ภาพถูกวางหลังข้อความที่อธิบายสิ่งที่ภาพต้องแสดง ข้อความตรงนั้นจึงบอกได้ดีที่สุดว่าภาพควรเป็นอะไร
+ */
+export function figureContextText(md, name, placement = 'middle', max = 700) {
+  const src = String(md || '');
+  const at = name ? src.indexOf(`fig:${name}`) : -1;
+  if (at < 0) return figureNearbyText(src, placement, max);
+  const clean = (s) =>
+    s
+      .replace(/^#{1,6}\s.*$/gm, '')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/^:::[\s\S]*?^:::$/gm, '')
+      .replace(/[*_`>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const lineStart = src.lastIndexOf('\n', at);
+  const before = clean(src.slice(0, lineStart < 0 ? at : lineStart));
+  const after = clean(src.slice(src.indexOf('\n', at) < 0 ? src.length : src.indexOf('\n', at)));
+  const head = before.slice(-Math.round(max * 0.75));
+  const tail = after.slice(0, Math.round(max * 0.25));
+  return [head, tail].filter(Boolean).join(' … ');
+}
+
+/**
+ * Prompt ภาพประกอบในเล่มสำหรับ Google Flow — สั้น เรียงตามความสำคัญ ไม่มีกติกาขัดกันเอง
+ *
+ * ของเดิม (interiorFigurePrompt) ยาวราว 5,000 ตัวอักษร และสั่งหลายเรื่องที่ขัดกัน:
+ * สไตล์ลายเส้นขาวดำ vs ให้เหมือนปกที่เป็นภาพถ่ายตัดปะ · บังคับมุมกล้องก้มมอง vs ภาพเรียงขั้น ·
+ * "ทำได้ทีละการกระทำ" vs ภาพสอนหลายขั้น — โมเดลเล็กอย่าง Nano Banana 2 Lite เลือกไม่ถูก
+ * แล้วถอยไปวาดสิ่งที่เห็นในรูปอ้างอิง (ปก) แทน ผลคือภาพไม่เกี่ยวกับเนื้อหา (ผู้ใช้ทักมา)
+ *
+ * ลำดับที่ใช้: ผู้อ่านต้องเรียนรู้อะไร → ภาพต้องเห็นอะไร → เนื้อหาจริงรอบภาพ → รูปแบบภาพ → สไตล์หนึ่งบรรทัด
+ */
+export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color = true, palette = [] } = {}) {
+  const lang = book?.language === 'en' ? 'English' : 'Thai';
+  const st = FIGURE_STYLES[styleKey];
+  const style =
+    st?.brief && styleKey !== 'line'
+      ? st.brief
+      : 'clean, friendly instructional illustration, clear simple shapes, plain uncluttered background, soft even light';
+  const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
+  const subject = String(fig?.subject || '').trim();
+  const caption = String(fig?.caption || '').trim();
+  const steps = /\b(step|steps|panel|panels|sequence|before|after|wrong|right way|correct)\b|ขั้น|ลำดับ|ก่อน.*หลัง|ถูก.*ผิด/i.test(`${subject} ${caption}`);
+  const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  return [
+    `Instructional illustration for a ${lang} how-to book${book?.title ? ` titled "${book.title}"` : ''}.`,
+    caption ? `WHAT THE READER MUST LEARN FROM THIS PICTURE (${lang} caption printed under it): "${caption}"` : '',
+    subject ? `SHOW EXACTLY THIS: ${subject}` : '',
+    ctx
+      ? `THE BOOK TEXT RIGHT AT THIS PICTURE (${lang}) — every object, action and setting must come from this passage:\n"${ctx}"`
+      : '',
+    steps
+      ? 'LAYOUT: 2–4 clearly separated panels in reading order (left to right, then top to bottom), each marked with a large step number 1, 2, 3, 4. Each panel shows one step being done.'
+      : 'LAYOUT: one clear scene that shows the method being done, with the result visible.',
+    'Show hands, tools and materials actually doing the task and the visible outcome. If a person is needed, an anonymous ordinary learner seen mostly from behind or from the side, focused on the work — never the book\'s author, never posing, never smiling at the camera, never just holding something.',
+    `STYLE: ${style}${color ? `${hues ? `, colours in the family of ${hues}` : ''}` : ', black and white / grayscale only, must print clearly in grayscale'}. Fill the whole frame, no border.`,
+    steps
+      ? 'ALLOWED MARKS: one large step number per panel (1, 2, 3, 4), arrows, a green ✓ for the right way and a red ✗ for the wrong way. NO words, NO letters, NO sentences in any language.'
+      : 'ALLOWED MARKS: arrows, a green ✓ for the right way and a red ✗ for the wrong way. NO numbers, NO words, NO letters in any language.',
+    'Books, papers, screens and labels inside the picture are blank or show only abstract lines — no readable titles or writing.',
+    'People (if any) have normal anatomy: two hands with five fingers each, no extra or floating limbs.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function interiorFigurePrompt(styleKey, subject, widthMm, heightMm = 45, aspect = '4:3', opts = {}) {
   /**
    * ภาพแต่ละรูปในเล่มต้องเป็นคนละภาพจริง ไม่ใช่แค่คนละไฟล์

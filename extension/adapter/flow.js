@@ -224,6 +224,15 @@
     };
   }
 
+  /** ปิดแผงตั้งค่าให้แน่ — บางครั้ง Esc และคลิกฉากหลังไม่ปิด (เห็นกับหน้าจริง) ต้องกดปุ่มเดิมซ้ำเพื่อพับ */
+  async function closePane() {
+    for (let i = 0; i < 3 && settingsPane(); i++) {
+      if (i === 0) escape();
+      else realClick(await waitFor(SEL.settingsTrigger, { timeout: 3000, label: 'ปุ่มตั้งค่าโมเดล' }).catch(() => document.body));
+      await waitFor(() => !settingsPane(), { timeout: 1500, label: 'ปิดแผงตั้งค่า' }).catch(() => null);
+    }
+  }
+
   async function openPane() {
     if (settingsPane()) return;
     realClick(await waitFor(SEL.settingsTrigger, { label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }));
@@ -280,8 +289,8 @@
         if (last && okModel && last.image && last.ratio === ratio && last.count === 'x1') break;
       }
       if (last?.model === model && last.credits === 0) {
-        escape();
-        await sleep(400);
+        await closePane();
+        await sleep(300);
         return { model, ratio, credits: 0 };
       }
     }
@@ -852,6 +861,7 @@
     scrollGridTop();
     await waitFor(() => !SEL.tiles().some(isPending), { timeout: 6 * 60000, interval: 2000, label: 'ภาพที่กำลังวาดอยู่ก่อนหน้า' }).catch(() => {});
 
+    await closePane(); // แผงตั้งค่าที่ค้างอยู่บังปุ่มสร้างได้
     // ด่านสุดท้ายก่อนกด: ต้องยังอยู่ในคอลเล็กชันของรูปนี้ ไม่งั้นภาพจะไปเกิดผิดที่ — หยุดแล้วให้รอบใหม่เปิดให้ถูก
     if (args.collection && (!inCollection() || nameInput()?.value !== args.collection)) {
       const e = new Error(`ไม่ได้อยู่ในคอลเล็กชัน "${args.collection}" ตอนจะกดสร้าง — ยังไม่ได้ส่งงาน`);

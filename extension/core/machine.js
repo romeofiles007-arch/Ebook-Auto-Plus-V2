@@ -2248,7 +2248,16 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
   // 6) ลูปนับหน้า — หัวใจของระบบ
   async fit() {
     if (this.book.contentMode === 'items') return this.fitItems();
-    const target = targetPhysicalPages(this.book, this.book.outline);
+    /**
+     * Ebook Plus + Google Flow: ภาพเป็น "หน้าที่เพิ่มขึ้น" ไม่ใช่ส่วนที่หักออกจากเนื้อหา
+     * ผู้ใช้สั่งชัด: เนื้อหาต้องเต็มตามจำนวนหน้าที่ตั้งไว้ ภาพจะทำให้เล่มหนาเกินเท่าไรก็ได้
+     * เป้าที่ใช้เทียบจึงบวกหน้าที่ภาพกินเข้าไป ทุกด่านข้างล่าง (ย่อ/ยืด/ระยะบรรทัด) เลยเห็นแต่หน้าเนื้อหา
+     */
+    const imagePages = this.book.imageSource === 'flow' ? imagePageShare(this.book) : 0;
+    const target = targetPhysicalPages(this.book, this.book.outline) + imagePages;
+    if (imagePages && this.job.round === 0) {
+      this.log('ok', `ภาพประกอบกินราว ${imagePages} หน้า — นับเป็นหน้าเพิ่ม ไม่หักจากเนื้อหา (เป้ารวมภาพ ${target} หน้า)`);
+    }
     const tol = this.book.pageTolerance ?? 2;
     /**
      * จำนวนหน้าเป็น "เป้าหมายคร่าว ๆ" หรือ "ต้องเป๊ะ"
@@ -2347,7 +2356,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       // การคอมไพล์เล่มจริงคือข้อมูล calibration ที่ดีที่สุดที่เรามี
       // ถ้าพลาดเกิน 3% แปลว่าความเข้าใจเรื่องอักษรต่อหน้าผิด ไม่ใช่เนื้อหาผิด
       if (Math.abs(err) / target > 0.03) {
-        const observed = observedCharsPerPage(this.book, this.book.outline, sections, pages);
+        const observed = observedCharsPerPage(this.book, this.book.outline, sections, pages - imagePages);
         const old = this.book.calibration.charsPerPage;
         if (observed > 0 && Math.abs(observed - old) / old > 0.05) {
           this.book.calibration.charsPerPage = observed;
@@ -3422,15 +3431,45 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       }
 
       const ratio = flowRatioFor(j);
-      const needsRef = wantsAuthorRef(this.book, j) || j.needsAuthorRef || promptWantsAuthorRef(j.prompt);
+      /**
+       * ภาพประกอบในเล่มของโหมด Flow ไม่แนบรูปผู้เขียน — ใช้กับปกเท่านั้น
+       * เล่มจริงที่ตรวจแล้ว: แนบรูปผู้เขียนทุกรูป ภาพในเล่มจึงเป็นหน้าผู้เขียนเกือบทุกหน้า
+       * กลายเป็นภาพคนโพสท่าแทนภาพสอนวิธีทำ ซึ่งผู้ใช้สั่งไว้ชัดว่าไม่เอา
+       */
+      const needsRef =
+        j.kind !== 'interior' && (wantsAuthorRef(this.book, j) || j.needsAuthorRef || promptWantsAuthorRef(j.prompt));
       if (needsRef) j.prompt = enforceAuthorRefPrompt(j.prompt);
       const authorRef = needsRef ? await this.authorRef() : null;
       if (needsRef && !authorRef?.dataUrl) throw new Halt('หยุดสร้างภาพ: ไม่พบรูปผู้เขียนที่เลือกไว้ กรุณาแนบรูปใน Studio แล้วเริ่มต่อ');
       const refs = [];
       let prompt = j.prompt;
       if (authorRef) refs.push({ name: authorRef.name, dataUrl: authorRef.dataUrl });
-      // ปกหน้าเป็นตัวอ้างอิงภาษาภาพของทุกรูปถัดไป — Flow ใช้ภาพปกที่อยู่ใน project เดิมได้เลย ไม่ต้องอัปโหลดซ้ำ
-      const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'interior', 'pattern'].includes(j.kind);
+      /**
+       * ภาพประกอบในเล่ม: เขียน prompt ใหม่ตอนส่ง จากแผนภาพ + เนื้อหาจริงรอบตำแหน่งภาพ
+       * prompt ที่เก็บไว้ตั้งแต่ตอนวางแผนยาวและขัดกันเอง ภาพจาก Flow จึงเพี้ยนและไม่เกี่ยวกับเนื้อหา (ผู้ใช้ทักมา)
+       * ทำตอนส่งจึงแก้ได้ทั้งเล่มใหม่และเล่มที่วางแผนไว้แล้ว โดยไม่ต้องวางแผนภาพใหม่
+       */
+      if (j.kind === 'interior') {
+        const fig = (this.book.figures || []).find((f) => f.name === j.name);
+        if (fig) {
+          const rec = fig.section ? await db.loadSection(this.book.id, fig.section).catch(() => null) : null;
+          const requested = this.book.figureStyle || 'box';
+          prompt = P.flowFigurePrompt({
+            book: this.book,
+            fig,
+            passage: P.figureContextText(rec?.md || rec?.text || '', fig.name, fig.placement),
+            styleKey: requested === 'box' ? '' : requested,
+            color: P.figureColorOn(this.book),
+            palette: this.book.style?.palette || [],
+          });
+          if (authorRef) prompt += '\n\nThe attached photo is the author. If a person appears, it is this person doing the task — keep the face recognisable, never a posed portrait.';
+        }
+      }
+      /**
+       * ปกหน้าเป็นตัวอ้างอิงเฉพาะของที่ต้องหน้าตาเหมือนปก (ปกหลัง · ลวดลาย)
+       * ไม่แนบให้ภาพประกอบในเล่มแล้ว: โมเดลเอาของในปก (คนถือกระดาษ) มาวาดซ้ำแทนเนื้อหาของตอนนั้น
+       */
+      const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'pattern'].includes(j.kind);
       const coverRef = wantsCoverRef ? await this.coverStyleRef() : null;
       if (coverRef) {
         refs.push({ tile: 'cover-front.png', name: coverRef.name, dataUrl: coverRef.dataUrl });
@@ -5361,6 +5400,19 @@ async function normalizeGeneratedImage(blob, job) {
  * — ช่องที่ขอสิ่งที่เป็นไปไม่ได้ ไม่ใช่มาตรฐาน แต่เป็นกับดัก
  */
 const NATIVE_ASPECTS = { '3:2': 3 / 2, '1:1': 1, '2:3': 2 / 3 };
+
+/**
+ * หน้าที่ภาพประกอบในเล่มกินจริง คิดจากความสูงช่องภาพที่วางแผนไว้ + คำบรรยายและระยะห่าง
+ * เทียบกับความสูงพื้นที่พิมพ์ของหน้า — ใช้แยก "หน้าเนื้อหา" ออกจาก "หน้าภาพ" ตอนปรับจำนวนหน้า
+ */
+function imagePageShare(book) {
+  const m = book.typography?.marginsMm || {};
+  const area = Math.max(80, (Number(book.trim?.heightMm) || 210) - (Number(m.top) || 20) - (Number(m.bottom) || 20));
+  const mm = (book.figures || [])
+    .filter((f) => f.kind === 'image')
+    .reduce((n, f) => n + (Number(f.heightMm) || 45) + 14, 0);
+  return Math.round(mm / area);
+}
 
 function normalizeFigureAspect(value, book = null) {
   /**

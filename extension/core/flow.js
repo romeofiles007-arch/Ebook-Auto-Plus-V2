@@ -55,6 +55,15 @@ function parseRatio(value) {
 export function flowPrompt(job, ratio) {
   const parts = [String(job?.prompt || '').trim()];
   const lossPct = Math.round((ratio?.loss || 0) * 100);
+  /**
+   * ปก = ภาพผิวหน้าปกเอง แบนเต็มกรอบ ไม่ใช่ "รูปถ่ายหนังสือ"
+   * เจอจริง: สั่ง "ปกหลังของหนังสือ" แล้ว Flow วาดหนังสือทั้งเล่มวางบนโต๊ะ ถ่ายจากมือถือ เห็นขอบโต๊ะและกางเกงคนถ่าย
+   */
+  if (job?.kind === 'cover') {
+    parts.unshift(
+      'THIS IMAGE IS THE FLAT PRINTED COVER SURFACE ITSELF, filling the frame edge to edge. It is NOT a photograph of a book, NOT a 3D mockup: no table, no desk, no hands holding it, no book edges or spine, no perspective, no shadow around it, no background around the cover.',
+    );
+  }
   const edge =
     job?.kind === 'cover'
       ? 'This is a printed book cover: keep every important subject and face well away from all four edges (about 8% margin), because the edges are trimmed.'

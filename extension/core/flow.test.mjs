@@ -36,7 +36,8 @@ test('สัดส่วนเก่าของ ChatGPT (3:2 · 2:3) เกา�
 
 test('prompt บอกกรอบภาพ และปกต้องเว้นขอบให้ของสำคัญ', () => {
   const cover = flowPrompt({ prompt: 'A lighthouse', kind: 'cover' }, { label: '3:4', loss: 0.068 });
-  assert.match(cover, /^A lighthouse/);
+  assert.match(cover, /^THIS IMAGE IS THE FLAT PRINTED COVER SURFACE/);
+  assert.match(cover, /\nA lighthouse\n/);
   assert.match(cover, /FRAME: 3:4 portrait/);
   assert.match(cover, /away from all four edges/);
   const fig = flowPrompt({ prompt: 'A boat', kind: 'interior' }, { label: '16:9', loss: 0 });
@@ -191,4 +192,38 @@ test('ดึงภาพบน tile แบบไม่แนบ cookie ก่อ
 
 test('ไม่เขียนไฟล์ลง Downloads เอง', () => {
   assert.doesNotMatch(machine, /downloadBookImage|Downloads\/Ebook Plus|sw\.download', url: dataUrl/);
+});
+
+/** ผู้ใช้ส่ง PDF เล่มจริงมา: เนื้อหาน้อย · ภาพไม่เกี่ยวกับเนื้อหา · หน้าผู้เขียนเกือบทุกภาพ · ปกหลังเป็นรูปถ่ายหนังสือบนโต๊ะ */
+test('ภาพเป็นหน้าเพิ่ม ไม่หักงบเนื้อหา', async () => {
+  const budget = await readFile(new URL('./budget.js', import.meta.url), 'utf8');
+  assert.match(budget, /if \(book\.imageSource === 'flow'\) return 0;/);
+  assert.match(machine, /const target = targetPhysicalPages\(this\.book, this\.book\.outline\) \+ imagePages;/);
+});
+
+test('prompt ภาพในเล่มสร้างใหม่ตอนส่ง จากแผน + เนื้อหารอบภาพ สั้นและไม่ขัดกันเอง', async () => {
+  const P = await import('./prompts.js');
+  const md = 'ก่อนเริ่มให้จดคะแนนสามช่อง\n\n![c](fig:fig-1.1-1.png 80% 60mm)\n\nแล้วค่อยเริ่มจับเวลา';
+  const ctx = P.figureContextText(md, 'fig-1.1-1.png');
+  assert.match(ctx, /จดคะแนนสามช่อง/);
+  assert.match(ctx, /เริ่มจับเวลา/);
+  const p = P.flowFigurePrompt({ book: { title: 't' }, fig: { caption: 'จดคะแนน', subject: 'Hands writing three scores on a card' }, passage: ctx });
+  assert.ok(p.length < 2000, `ยาว ${p.length}`);
+  assert.match(p, /WHAT THE READER MUST LEARN/);
+  assert.match(p, /NO numbers/); // ภาพฉากเดียวห้ามมีเลขลอย ๆ
+  assert.match(p, /never the book's author/);
+  const steps = P.flowFigurePrompt({ book: {}, fig: { subject: 'Step 1 close the book; step 2 write from memory' } });
+  assert.match(steps, /one large step number per panel/);
+  assert.match(machine, /prompt = P\.flowFigurePrompt\(/);
+});
+
+test('ภาพในเล่มโหมด Flow ไม่แนบรูปผู้เขียนและไม่แนบปก', () => {
+  assert.match(machine, /j\.kind !== 'interior' && \(wantsAuthorRef/);
+  assert.match(machine, /\['cover', 'pattern'\]\.includes\(j\.kind\)/);
+});
+
+test('ปกคือผิวหน้าปกแบนเต็มกรอบ ไม่ใช่รูปถ่ายหนังสือ', async () => {
+  const { flowPrompt } = await import('./flow.js');
+  const p = flowPrompt({ kind: 'cover', prompt: 'x' }, { label: '3:4', loss: 0.07 });
+  assert.match(p, /NOT a photograph of a book, NOT a 3D mockup/);
 });

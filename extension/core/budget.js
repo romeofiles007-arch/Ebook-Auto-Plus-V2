@@ -107,6 +107,8 @@ function backMatterPages(book) {
 }
 
 function estimateFigurePages(book, outline) {
+  // Ebook Plus + Google Flow: ภาพเป็นหน้าเพิ่ม ไม่หักงบเนื้อหา — ทุกตอนได้โควตาเขียนเต็มตามจำนวนหน้าที่ตั้ง
+  if (book.imageSource === 'flow') return 0;
   // ระดับ max มีภาพทุกตอน (บางตอนหลายรูป) นับตามจำนวนตอนจริง ภาพหนึ่งรูปกินราวครึ่งหน้ารวมคำบรรยาย
   if (book.illustrationLevel === 'max') {
     const sections = (outline?.chapters || []).reduce((n, c) => n + (c.sections?.length || 0), 0);
