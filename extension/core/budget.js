@@ -217,7 +217,8 @@ export function assignQuotas(book, outline) {
    * นิยายต้องมีที่ให้ฉากเดิน จึงให้ขั้นต่ำสูงกว่าสารคดี · โหมด "ต้องเป๊ะ" ยังแบ่งตามจำนวนหน้าเดิม
    */
   const soft = (book.pageMode || 'soft') !== 'strict';
-  const wantPerSection = Math.round(minUnits * (book.contentMode === 'fiction' ? 1.8 : 1.1));
+  // นิยาย ~3 หน้าต่อฉาก: พอให้มีบทสนทนา ฉาก และอารมณ์ ไม่ใช่เล่าย่อ (1.8 เท่ายังได้ฉากบางเกินไป)
+  const wantPerSection = Math.round(minUnits * (book.contentMode === 'fiction' ? 3 : 1.1));
   if (soft && budget / entries.length < wantPerSection) {
     const grown = wantPerSection * entries.length;
     warnings.push(
