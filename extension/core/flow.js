@@ -96,7 +96,7 @@ export function fictionCast(book, max = 8) {
   const seeds = book?.castSeeds || [];
   const list = [...seen.values()].map((c) => {
     const s = seeds.find((x) => (c.seed && x.slot === c.seed) || (x.name && x.name === c.name));
-    return s ? { ...c, seedSlot: s.slot, photo: !!s.photo } : c;
+    return s ? { ...c, seedSlot: s.slot, photo: !!s.photo, fromLibrary: !!s.fromLibrary } : c;
   });
   /**
    * ช่องที่ผู้ใช้กรอกเอง (มีชื่อหรือแนบรูป) ต้องมีภาพต้นแบบเสมอ แม้โครงเรื่องจะไม่ได้ใส่ seed กลับมา
@@ -106,8 +106,8 @@ export function fictionCast(book, max = 8) {
     if (!s?.slot || !(s.name || s.photo) || list.some((c) => c.seedSlot === s.slot)) continue;
     const name = String(s.name || s.label || s.slot).trim();
     const same = list.find((c) => c.name === name);
-    if (same) Object.assign(same, { seedSlot: s.slot, photo: !!s.photo });
-    else list.push({ name, role: s.label || '', appearance: s.appearance || '', seedSlot: s.slot, photo: !!s.photo });
+    if (same) Object.assign(same, { seedSlot: s.slot, photo: !!s.photo, fromLibrary: !!s.fromLibrary });
+    else list.push({ name, role: s.label || '', appearance: s.appearance || '', seedSlot: s.slot, photo: !!s.photo, fromLibrary: !!s.fromLibrary });
   }
   const rank = (c) => (c.seedSlot ? 2 : 0) + (c.appearance ? 1 : 0);
   return list.sort((a, b) => rank(b) - rank(a)).slice(0, max);

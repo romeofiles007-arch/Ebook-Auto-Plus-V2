@@ -344,3 +344,18 @@ test('สูตรปกตามประเภทหนังสือ: ใช
   }
   assert.match(machine, /if \(!fiction && j\.kind === 'cover'\) \{\n        const direction = P\.flowGenreCoverDirection/);
 });
+
+/** ผู้ใช้ขอ: บันทึกอ้างอิงของตัวละครไว้ใช้ (คลังตัวละครข้ามเล่ม) */
+test('คลังตัวละคร: เก็บภาพต้นแบบทุกตัว และเลือกจากคลังแล้วใช้ภาพเดิมไม่วาดใหม่', async () => {
+  const lib = await readFile(new URL('./cast-library.js', import.meta.url), 'utf8');
+  assert.match(lib, /export const CAST_LIBRARY = '__cast_library__'/);
+  assert.match(lib, /W\.saveCharacterFile\(file, blob, meta\)/);
+  assert.match(machine, /if \(c\.fromLibrary && photoRef\) \{/);
+  assert.match(machine, /if \(!asset\.meta\?\.inLibrary\) \{\n        const saved = await saveToLibrary\(/);
+  const { fictionCast } = await import('./flow.js');
+  const cast = fictionCast({ castSeeds: [{ slot: 'heroine', name: 'ฟ้า', photo: true, fromLibrary: true }] });
+  assert.equal(cast[0].fromLibrary, true);
+  const studio = await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8');
+  assert.match(studio, /fromLibrary: photo && row\?\.dataset\.lib === '1'/);
+  assert.match(studio, /data-cast-lib/);
+});

@@ -31,6 +31,7 @@ import { turnDelay } from './production-mode.js';
 import { noteTrouble } from './dispatch.js';
 import { generateImage, DEFAULT_IMAGE_MODEL } from './imageApi.js';
 import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, enforceAuthorRefPrompt } from './imageRef.js';
+import { saveToLibrary } from './cast-library.js';
 import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText, castPhotoName } from './flow.js';
 
 export const STEPS = [
@@ -3488,6 +3489,12 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         const ready = photo?.blob ? await prepareRefImage(photo.blob).catch(() => null) : null;
         if (ready) photoRef = { name: castPhotoName(c.seedSlot), dataUrl: ready.dataUrl };
       }
+      // เลือกมาจากคลังตัวละคร = ภาพต้นแบบที่วาดไว้แล้ว ใช้ตรง ๆ ไม่วาดใหม่ หน้าตาจึงเหมือนเล่มก่อนทุกอย่าง
+      if (c.fromLibrary && photoRef) {
+        this.log('ok', `ตัวละคร ${c.name}: ใช้ภาพต้นแบบจากคลังตัวละคร`);
+        out.push({ ...c, ref: { ...photoRef, upload: true } });
+        continue;
+      }
       // ชื่อไฟล์มีเลขรุ่นสไตล์: Flow ใช้ภาพเดิมซ้ำตามชื่อ ถ้าชื่อเดิมจะได้ภาพสไตล์เก่ากลับมา
       const name = charRefName(i, P.NOVEL_STYLE_V);
       let asset = await db.loadAsset(this.book.id, name).catch(() => null);
@@ -3518,7 +3525,15 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         const blob = await db.dataUrlToBlob(res.dataUrl);
         await db.saveAsset(this.book.id, name, blob, { kind: 'character', character: c.name, from: 'flow', fromPhoto: !!photoRef, novelStyle: P.NOVEL_STYLE_V });
         await W.saveBookImage(this.book, name, blob, { folder: 'characters' });
-        asset = { blob };
+        asset = { blob, meta: { kind: 'character', character: c.name, from: 'flow', fromPhoto: !!photoRef, novelStyle: P.NOVEL_STYLE_V } };
+      }
+      // เก็บเข้าคลังตัวละครไว้ใช้เล่มต่อไป (ครั้งเดียวต่อภาพ · ภาพที่วาดไว้ก่อนมีคลังก็เก็บด้วย)
+      if (!asset.meta?.inLibrary) {
+        const saved = await saveToLibrary({ name: c.name, role: c.role, appearance: c.appearance, blob: asset.blob, book: this.book, style: P.novelBrief(this.book, styleKey) });
+        if (saved) {
+          await db.saveAsset(this.book.id, name, asset.blob, { ...(asset.meta || {}), kind: 'character', character: c.name, inLibrary: saved }).catch(() => {});
+          this.log('ok', `บันทึก ${c.name} เข้าคลังตัวละครแล้ว — เลือกใช้ในเล่มต่อไปได้`);
+        }
       }
       const ready = await prepareRefImage(asset.blob).catch(() => null);
       out.push({ ...c, ref: ready ? { name, dataUrl: ready.dataUrl } : null });

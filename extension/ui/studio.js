@@ -81,6 +81,7 @@ import { preflight } from '../core/preflight.js';
 import { compileBook } from '../typeset/compiler.js';
 import * as X from '../core/export.js';
 import * as W from '../core/workspace.js';
+import { listLibrary, removeFromLibrary } from '../core/cast-library.js';
 import { testKey as testImageApiKey, DEFAULT_IMAGE_MODEL } from '../core/imageApi.js';
 
 // บอกยามเฝ้าการบูตว่าโมดูลนี้รันถึงบรรทัดนี้จริง (ดู ui/boot-guard.js)
@@ -6701,16 +6702,19 @@ function renderCastSeeds() {
       <b class="castLabel">${esc(c.label)}</b>
       <input data-cast="name" placeholder="ชื่อ — ว่างไว้ได้" autocomplete="off">
       <input data-cast="appearance" placeholder="รูปลักษณ์ — ว่างได้ · วางรูปได้" autocomplete="off">
+      <button type="button" data-cast-lib title="เลือกตัวละครที่เคยสร้างไว้จากคลัง">คลัง</button>
       <button type="button" data-cast-pick>แนบรูป</button>
       <img class="authorRefThumb hidden" alt="">
       <button type="button" class="castClear hidden" data-cast-clear title="เอารูปออก" aria-label="เอารูปออก">✕</button>
       <input type="file" accept="image/*" hidden data-cast-file>
+      <div class="castLib hidden" data-cast-libbox></div>
     </div>`,
   ).join('');
   box.querySelectorAll('.castRow').forEach((row) => {
     const slot = row.dataset.slot;
     const file = row.querySelector('[data-cast-file]');
     row.querySelector('[data-cast-pick]').onclick = () => file.click();
+    row.querySelector('[data-cast-lib]').onclick = () => toggleCastLibrary(slot);
     row.querySelector('[data-cast-clear]').onclick = () => clearCastPhoto(slot);
     file.onchange = (e) => {
       const f = e.target.files?.[0];
@@ -6749,10 +6753,13 @@ function renderCastSeeds() {
   });
 }
 
-function setCastPhoto(slot, f) {
+function setCastPhoto(slot, f, { fromLibrary = false } = {}) {
   const row = document.querySelector(`.castRow[data-slot="${slot}"]`);
   if (!row || !f) return;
   setupCastPhotos[slot] = f;
+  // รูปจากคลัง = ภาพต้นแบบที่วาดไว้แล้ว ใช้ตรง ๆ · รูปที่แนบเอง = ให้ Flow วาดต้นแบบจากรูปนี้
+  if (fromLibrary) row.dataset.lib = '1';
+  else delete row.dataset.lib;
   const img = row.querySelector('img');
   img.src = URL.createObjectURL(f);
   img.classList.remove('hidden');
@@ -6766,6 +6773,7 @@ function clearCastPhoto(slot) {
   const row = document.querySelector(`.castRow[data-slot="${slot}"]`);
   if (!row) return;
   delete setupCastPhotos[slot];
+  delete row.dataset.lib;
   const img = row.querySelector('img');
   if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
   img.removeAttribute('src');
@@ -6779,7 +6787,58 @@ function readCastSeeds() {
   return CAST_SLOTS.map((c) => {
     const row = document.querySelector(`.castRow[data-slot="${c.slot}"]`);
     const get = (k) => String(row?.querySelector(`[data-cast="${k}"]`)?.value || '').trim();
-    return { slot: c.slot, label: c.label, name: get('name'), appearance: get('appearance'), photo: !!setupCastPhotos[c.slot], use: true };
+    const photo = !!setupCastPhotos[c.slot];
+    return { slot: c.slot, label: c.label, name: get('name'), appearance: get('appearance'), photo, fromLibrary: photo && row?.dataset.lib === '1', use: true };
+  });
+}
+
+/**
+ * คลังตัวละคร — ตัวละครทุกตัวที่เคยได้ภาพต้นแบบใน Flow ถูกเก็บไว้ (core/cast-library.js)
+ * เลือกแล้วเติมชื่อ รูปลักษณ์ และใช้ภาพต้นแบบเดิมเป็นตัวอ้างอิงหน้าตา — ตัวละครเดิมข้ามเล่มได้หน้าเหมือนเดิม
+ * แสดงเป็นรายการในแถวเอง ไม่เปิดหน้าต่างใหม่
+ */
+async function toggleCastLibrary(slot) {
+  const row = document.querySelector(`.castRow[data-slot="${slot}"]`);
+  const box = row?.querySelector('[data-cast-libbox]');
+  if (!box) return;
+  if (!box.classList.contains('hidden')) {
+    box.classList.add('hidden');
+    return;
+  }
+  document.querySelectorAll('[data-cast-libbox]').forEach((b) => b.classList.add('hidden'));
+  box.classList.remove('hidden');
+  box.textContent = 'กำลังโหลดคลังตัวละคร…';
+  const items = await listLibrary().catch(() => []);
+  if (!items.length) {
+    box.textContent = 'คลังยังว่าง — ตัวละครจะถูกเก็บเข้าคลังอัตโนมัติเมื่อสร้างภาพต้นแบบนิยายด้วย Google Flow';
+    return;
+  }
+  box.innerHTML = items
+    .map(
+      (it, i) => `<div class="castLibItem" data-i="${i}">
+        <img alt="">
+        <span><b>${esc(it.name)}</b><small>${esc([it.role, it.fromTitle && `จาก ${it.fromTitle}`].filter(Boolean).join(' · '))}</small></span>
+        <button type="button" data-lib-use>ใช้</button>
+        <button type="button" class="castClear" data-lib-del title="ลบออกจากคลัง" aria-label="ลบออกจากคลัง">✕</button>
+      </div>`,
+    )
+    .join('');
+  box.querySelectorAll('.castLibItem').forEach((el) => {
+    const it = items[Number(el.dataset.i)];
+    el.querySelector('img').src = URL.createObjectURL(it.blob);
+    el.querySelector('[data-lib-use]').onclick = () => {
+      const set = (k, v) => { const inp = row.querySelector(`[data-cast="${k}"]`); if (inp && v) inp.value = v; };
+      set('name', it.name);
+      set('appearance', it.appearance);
+      setCastPhoto(slot, new File([it.blob], it.file, { type: it.blob.type || 'image/png' }), { fromLibrary: true });
+      box.classList.add('hidden');
+      status(`ใช้ ${it.name} จากคลังตัวละครแล้ว — ภาพต้นแบบเดิมจะเป็นตัวอ้างอิงหน้าตาในเล่มนี้`);
+    };
+    el.querySelector('[data-lib-del]').onclick = async () => {
+      await removeFromLibrary(it.file);
+      el.remove();
+      status(`ลบ ${it.name} ออกจากคลังตัวละครแล้ว`);
+    };
   });
 }
 
