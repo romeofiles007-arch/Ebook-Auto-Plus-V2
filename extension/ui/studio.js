@@ -6137,14 +6137,12 @@ $('wizardNext').onclick = () => wizardShift(1);
   */
 const MODE_PRESET = {
   flow: { textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
-  free: { textSource: 'web', imageSource: 'web', coverMode: 'prompt', figureMode: 'prompt', illus: 'light' },
   plus: { textSource: 'web', imageSource: 'web', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
   api: { textSource: 'api', imageSource: 'api', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
 };
 
 const MODE_NOTE = {
   flow: 'โหมด Ebook Plus: เขียนเนื้อหาผ่านหน้าเว็บ ChatGPT แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูปตามแผนของ ChatGPT · ภาพถูกตั้งชื่อตามตำแหน่งในเล่ม เก็บลงโฟลเดอร์ของเล่ม แล้วใส่เข้าหน้าให้เอง · ต้องเปิดแท็บ chatgpt.com และล็อกอิน flow.google.com ไว้',
-  free: 'โหมดฟรี: เขียนเนื้อหาผ่านหน้าเว็บ ChatGPT แล้วเว้นช่องภาพไว้พร้อม Prompt ครบทั้งปกหน้า ปกหลัง และภาพประกอบในเล่ม (ราว 1 ภาพต่อ 2-3 ตอน) · เอา Prompt ไปสร้างที่อื่นแล้วนำไฟล์กลับมาใส่ · ต้องเปิดแท็บ chatgpt.com ค้างไว้ตลอด',
   plus: 'โหมด Plus: เขียนและสร้างภาพด้วยบัญชีเดียว ระบบดึงภาพมาใส่ให้เอง · หรือจะเปลี่ยนเป็นเอา Prompt ไปสร้างเองแล้วแนบก็ได้ที่ขั้นรูปเล่มและภาพ · ต้องเปิดแท็บ chatgpt.com ค้างไว้ตลอด',
   api: 'โหมด API: เขียนและสร้างภาพผ่าน API ไม่ต้องเปิดแท็บ ChatGPT เลย · เปลี่ยนเป็นเอา Prompt ไปสร้างเองก็ได้เหมือนกัน · ต้องใส่ API key และจ่ายตามจำนวน token ที่ใช้จริง',
 };
@@ -6190,7 +6188,8 @@ function syncModeFromForm() {
   const i = val('imageSource', 'web');
   if (t === 'api' && i === 'api') return highlightMode('api');
   if (t === 'web' && i === 'flow') return highlightMode('flow');
-  if (t === 'web' && i === 'web') return highlightMode(chosenMode === 'plus' ? 'plus' : 'free');
+  // การ์ด ChatGPT ฟรี ถูกเอาออกแล้ว (ผู้ใช้สั่ง) — หน้าเว็บทั้งคู่ไฮไลต์ Plus เฉพาะตอนที่เลือกการ์ดนั้นเอง ไม่งั้นแสดงเป็นค่าที่ตั้งเอง
+  if (t === 'web' && i === 'web' && chosenMode === 'plus') return highlightMode('plus');
   /**
    * ผสมทาง เช่นเขียนด้วย API แต่วาดภาพด้วยหน้าเว็บ ไม่ตรงกับการ์ดใบไหนเลย
    * ห้ามไฮไลต์การ์ดมั่ว ต้องกางช่องตั้งเองให้เห็นว่าค่าจริงคืออะไร
