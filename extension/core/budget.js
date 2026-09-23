@@ -107,6 +107,11 @@ function backMatterPages(book) {
 }
 
 function estimateFigurePages(book, outline) {
+  // ระดับ max มีภาพทุกตอน (บางตอนหลายรูป) นับตามจำนวนตอนจริง ภาพหนึ่งรูปกินราวครึ่งหน้ารวมคำบรรยาย
+  if (book.illustrationLevel === 'max') {
+    const sections = (outline?.chapters || []).reduce((n, c) => n + (c.sections?.length || 0), 0);
+    return sections * 0.65;
+  }
   const per = { none: 0, light: 0.375, rich: 1.1 }[book.illustrationLevel || 'none'];
   return (outline?.chapters?.length || 0) * per;
 }

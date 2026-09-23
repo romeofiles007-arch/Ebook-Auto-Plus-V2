@@ -98,3 +98,16 @@ test('manifest ขอสิทธิ์ Flow ครบ และชื่อเ�
   assert.ok(manifest.host_permissions.includes('https://flow-content.google/*'));
   assert.ok(manifest.permissions.includes('debugger'));
 });
+
+/** ผู้ใช้ขอ: "ถ้าเป็น Google Flow สร้างมากที่สุดเท่าที่ควรจะเป็นภาพ" */
+test('ระดับภาพ max: ทุกตอนอย่างน้อย 1 รูป และเป็นค่าเริ่มต้นของโหมด Flow', async () => {
+  const P = await import('./prompts.js');
+  const outline = { title: 't', chapters: [{ n: 1, title: 'a', sections: [{ id: '1.1', title: 'x' }, { id: '1.2', title: 'y' }] }] };
+  const s = P.figurePlanPrompt({ audience: 'x', illustrationLevel: 'max', outline }, outline, outline.chapters, 'line');
+  assert.match(s, /อย่างน้อย 2 รูป \(ทุกตอนอย่างน้อย 1 รูป\)/);
+  assert.match(s, /มากที่สุดเท่าที่ควรจะเป็นภาพ/);
+  assert.doesNotMatch(s, /ไม่ใช่ใส่ให้ครบจำนวน/);
+  const studio = await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8');
+  assert.match(studio, /flow: \{ textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' \}/);
+  assert.match(machine, /this\.book\.illustrationLevel === 'max' && style !== 'box'/);
+});

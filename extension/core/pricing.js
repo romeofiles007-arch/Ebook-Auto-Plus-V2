@@ -157,7 +157,7 @@ export function plannedImageCount({
     // กล่องสรุปไม่นับ เพราะ Typst วาดเองและไม่เสียเงิน
     if (Number.isFinite(knownFigures)) figures = knownFigures;
     else {
-      const perSections = { light: 3, rich: 1.5 }[illustrationLevel] || 3;
+      const perSections = { light: 3, rich: 1.5, max: 0.75 }[illustrationLevel] || 3;
       figures = illustrationLevel === 'none' ? 0 : Math.round(sections / perSections);
     }
   }

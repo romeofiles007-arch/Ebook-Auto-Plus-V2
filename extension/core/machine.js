@@ -1324,6 +1324,32 @@ ${P.NO_CITATION_RULE}
       return next();
     }
 
+    /**
+     * ระดับ max (Ebook Plus + Google Flow): ทุกตอนต้องมีภาพอย่างน้อยหนึ่งรูป
+     * โมเดลมักลดจำนวนเองตามนิสัยเดิม ("ใส่เฉพาะที่จำเป็น") จึงถามซ้ำหนึ่งครั้งเฉพาะตอนที่ยังไม่มีภาพ
+     * แล้วรวมเข้ากับแผนเดิม — ไม่ขอแผนใหม่ทั้งเล่ม ภาพที่ได้ไปแล้วจะไม่หาย
+     */
+    if (this.book.illustrationLevel === 'max' && style !== 'box') {
+      const allIds = (this.book.outline.chapters || []).flatMap((c) => (c.sections || []).map((s) => String(s.id)));
+      const covered = new Set(plan.figures.filter((f) => f.kind === 'image').map((f) => String(f.section)));
+      const missing = allIds.filter((id) => !covered.has(id));
+      if (missing.length) {
+        this.log('ok', `ระดับภาพ "มากที่สุด": ยังมี ${missing.length} ตอนที่ไม่มีภาพ (${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ' …' : ''}) — ขอภาพเพิ่มเฉพาะตอนเหล่านี้`);
+        const extra = await this.turnWithRetry(
+          `${basePrompt}\n\nแผนก่อนหน้าได้ภาพไปแล้ว ${plan.figures.filter((f) => f.kind === 'image').length} รูป แต่ตอนต่อไปนี้ยังไม่มีภาพชนิด image เลย: ${missing.join(', ')}\n` +
+            'ตอบเฉพาะภาพเพิ่มสำหรับตอนเหล่านี้ ตอนละ 1–3 ภาพตามจำนวนฉาก/สิ่งที่ควรเห็นเป็นภาพ ห้ามซ้ำกับภาพที่มีอยู่แล้ว ใช้รูปแบบ JSON เดิม',
+          { label: 'วางแผนภาพเพิ่ม (ทุกตอน)' },
+        ).catch(() => null);
+        const more = extra ? X.parseJson(extra.text) : null;
+        const wanted = new Set(missing);
+        const added = (more?.figures || []).filter((f) => f?.kind === 'image' && wanted.has(String(f.section)));
+        if (added.length) {
+          plan.figures.push(...added);
+          this.log('ok', `ได้ภาพเพิ่ม ${added.length} รูป — รวมทั้งเล่ม ${plan.figures.filter((f) => f.kind === 'image').length} รูป`);
+        }
+      }
+    }
+
     const textWidthMm =
       this.book.trim.widthMm - this.book.typography.marginsMm.inner - this.book.typography.marginsMm.outer;
 

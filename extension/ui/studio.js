@@ -6127,7 +6127,7 @@ $('wizardNext').onclick = () => wizardShift(1);
   * ไม่ใช่การเดาแทนคนที่ไม่เคยแตะการ์ดแล้วตั้งใจไม่เอาภาพจริง ๆ
   */
 const MODE_PRESET = {
-  flow: { textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
+  flow: { textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
   free: { textSource: 'web', imageSource: 'web', coverMode: 'prompt', figureMode: 'prompt', illus: 'light' },
   plus: { textSource: 'web', imageSource: 'web', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
   api: { textSource: 'api', imageSource: 'api', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
