@@ -1,0 +1,57 @@
+/* The side panel shares each character's village and time of day with Studio. */
+html {
+  --panel-scene: url('crew/rooms/research-morning.jpg');
+  --panel-position: 59% center;
+  --panel-accent: #70d7ff;
+  background: #101b14;
+}
+html[data-panel-room="planner"] { --panel-scene: url('crew/rooms/planner-late-morning.jpg'); --panel-position: 72% center; --panel-accent: #ffb58d; }
+html[data-panel-room="writer"] { --panel-scene: url('crew/rooms/writer-afternoon.jpg'); --panel-position: 73% center; --panel-accent: #ffe08b; }
+html[data-panel-room="editor"] { --panel-scene: url('crew/rooms/editor-evening.jpg'); --panel-position: 65% center; --panel-accent: #ffc493; }
+html[data-panel-room="art"] { --panel-scene: url('crew/rooms/art-evening.jpg'); --panel-position: 31% center; --panel-accent: #e1b4ff; }
+html[data-panel-room="proof"] { --panel-scene: url('crew/rooms/proof-dusk.jpg'); --panel-position: 68% center; --panel-accent: #a7dfdf; }
+html[data-panel-room="layout"] { --panel-scene: url('crew/rooms/layout-dusk.jpg'); --panel-position: 71% center; --panel-accent: #a4bfff; }
+html[data-panel-room="ship"] { --panel-scene: url('crew/rooms/ship-night.jpg'); --panel-position: 71% center; --panel-accent: #ffd2a0; }
+html[data-panel-room="ceo"] { --panel-scene: url('crew/rooms/ceo-night.jpg'); --panel-position: 27% center; --panel-accent: #ffd6b1; }
+
+body { position: relative; background: #101b14; color: #f3f8f0; }
+body::before, body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+body::before { background: var(--panel-scene) var(--panel-position) / cover no-repeat; }
+body::after { background: linear-gradient(180deg, #0b190f45, #0b190f6a 50%, #0b190fa6); }
+main {
+  position: relative;
+  z-index: 1;
+  min-height: calc(100vh - 28px);
+  border-color: color-mix(in srgb, var(--panel-accent) 47%, #728b75);
+  background: linear-gradient(135deg, #e9f7e919, transparent 28%, #e9f7e90a 100%), #172b1f9c;
+  box-shadow: inset 0 1px #ffffff32, 0 12px 24px #0008;
+  backdrop-filter: blur(10px) saturate(1.18);
+}
+.brand { color: #fff; text-shadow: 0 2px 8px #0009; }
+main > p { color: #dfedde; font-size: 14px; }
+.primary, .primary:hover { color: #12271b; }
+.live {
+  border-color: color-mix(in srgb, var(--panel-accent) 39%, #628068);
+  background: #172b1fdf;
+  color: #e8f3e7;
+  font-size: 13px;
+}
+.crew-stage, .ceo-panel {
+  border-bottom-color: color-mix(in srgb, var(--panel-accent) 48%, #6b8b73);
+  border-radius: 11px;
+  box-shadow: inset 0 1px #ffffff36, 0 7px 15px #0006;
+}
+button:focus-visible, #panelLog:focus-visible {
+  outline: 3px solid var(--panel-accent);
+  outline-offset: 3px;
+}
+::selection { background: var(--panel-accent); color: #12271b; }
+@media (prefers-reduced-transparency: reduce) {
+  main { background: #1b3425; backdrop-filter: none; }
+}

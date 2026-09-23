@@ -455,6 +455,91 @@ const deptNotes = new Map();
 const completedDepts = new Set();
 let activeDept = -1;
 let activeDepts = new Set();
+let ceoSceneActive = false;
+
+const STUDIO_SCENES = {
+  research: 'เช้า', planner: 'สาย', writer: 'บ่าย', editor: 'เย็น',
+  art: 'เย็น', proof: 'พลบค่ำ', layout: 'พลบค่ำ', ship: 'ค่ำ', ceo: 'ค่ำ',
+};
+
+/**
+ * สองแผนกทำงานร่วมกัน = พื้นหลังแบ่งตามแผนก: ซ้ายห้องแผนกแรก ขวาห้องแผนกที่สอง รอยต่อตรงกลางฟุ้ง (ผู้ใช้ขอ)
+ * รูปห้องอ่านจากกฎ html[data-studio-room="…"] ที่ธีมกำหนดไว้แล้ว ไม่จดชื่อไฟล์ซ้ำที่นี่
+ * ชั้นนี้อยู่ระหว่างรูปห้องหลัก (body::before) กับชั้นทำให้มืดลง (body::after) ข้อความจึงอ่านได้เท่าเดิม
+ */
+function studioRoomImage(id) {
+  return studioRoomVar(id, '--scene-image');
+}
+
+/** ค่าตัวแปรของห้องหนึ่งจากกฎของธีม html[data-studio-room="…"] เช่นรูปห้องหรือสีประจำแผนก */
+function studioRoomVar(id, prop) {
+  const want = `html[data-studio-room="${id}"]`;
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const r of rules || []) {
+      if (r.selectorText?.split(',').some((s) => s.trim() === want)) {
+        const v = r.style?.getPropertyValue(prop)?.trim();
+        if (v) return v;
+      }
+    }
+  }
+  return '';
+}
+
+/**
+ * สีธีมตามตัวละคร: คนเดียว = สีของแผนกนั้น (ธีมจัดให้อยู่แล้วผ่าน data-studio-room)
+ * หลายคน = แบ่งสี — สีเน้นทั้งหน้าเป็นสีผสมของสองแผนก และแถบความคืบหน้า/จุดขั้น/ป้ายฉากไล่สีจากคนแรกไปคนที่สอง
+ */
+function syncStudioAccents(firstId, secondId) {
+  const root = document.documentElement;
+  const a = secondId ? studioRoomVar(firstId, '--scene-accent') : '';
+  const b = secondId ? studioRoomVar(secondId, '--scene-accent') : '';
+  if (a && b) {
+    root.dataset.sceneDuo = '1';
+    root.style.setProperty('--scene-accent-a', a);
+    root.style.setProperty('--scene-accent-b', b);
+    root.style.setProperty('--scene-accent', `color-mix(in srgb, ${a} 50%, ${b})`);
+  } else {
+    delete root.dataset.sceneDuo;
+    for (const p of ['--scene-accent-a', '--scene-accent-b', '--scene-accent']) root.style.removeProperty(p);
+  }
+}
+
+function syncStudioDuo(secondId, firstId = document.documentElement.dataset.studioRoom) {
+  let layer = document.getElementById('sceneDuo');
+  const image = secondId ? studioRoomImage(secondId) : '';
+  syncStudioAccents(firstId, image ? secondId : '');
+  if (!image) {
+    layer?.remove();
+    return;
+  }
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'sceneDuo';
+    layer.setAttribute('aria-hidden', 'true');
+    document.body.prepend(layer);
+  }
+  layer.style.setProperty('--scene-image2', image);
+}
+
+function syncStudioScene() {
+  const department = DEPARTMENTS[activeDept];
+  const id = ceoSceneActive ? 'ceo' : department?.id || 'research';
+  document.documentElement.dataset.studioRoom = id;
+  const second = ceoSceneActive ? null : DEPARTMENTS[[...activeDepts].find((i) => i !== activeDept)];
+  syncStudioDuo(second && crewBusy() ? second.id : '');
+  const label = $('sceneLabel');
+  if (label) label.textContent = ceoSceneActive
+    ? 'แมว CEO · หมู่บ้านยามค่ำ'
+    : department
+      ? `${department.name} · หมู่บ้านยาม${STUDIO_SCENES[id]}`
+      : 'หมู่บ้านยามเช้า · ทีมงานพร้อมเริ่ม';
+}
 
 function activateDepartments(ids) {
   const next = [...new Set((ids || []).map((id) => typeof id === 'number' ? id : DEPT_INDEX.get(id)))]
@@ -496,6 +581,7 @@ function noteDept(step, text, level = 'ok') {
 }
 
 const renderSteps = () => {
+  syncStudioScene();
   $('steps').innerHTML = DEPARTMENTS.map((d, i) => {
     const note = deptNotes.get(i);
     const progress = activeDepts.has(i) && crewBusy() ? 'active' : completedDepts.has(i) ? 'done' : '';
@@ -2303,6 +2389,10 @@ function makeSupervisor() {
   if (!ceoModeOn()) return null; // ไม่ได้เปิดโหมด หรือไม่มีคีย์ = เดินด้วยตัวกู้อัตโนมัติเดิมทุกอย่าง
   const owner = book;
   const publishCeo = (working, detail, requestId, until) => {
+    if (typeof syncStudioScene === 'function') {
+      ceoSceneActive = working;
+      syncStudioScene();
+    }
     const at = Date.now();
     chrome.runtime.sendMessage({ type: 'ui.activity', event: {
       id: `ceo-${at}-${Math.random()}`, at,

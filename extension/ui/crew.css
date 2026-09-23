@@ -1,22 +1,22 @@
 .crew-sprite{display:block;position:relative;width:90px;aspect-ratio:3/4;overflow:hidden;flex-shrink:0;border-radius:10px;background:transparent}
 .crew-sprite .crew-strip{display:block;width:800%;height:100%;max-width:none;object-fit:fill;transform:translateX(0);animation:none}
 .crew-art{background:transparent;filter:drop-shadow(0 8px 10px #0008)}
-.dept[data-room="research"],.crew-stage[data-room="research"]{--crew-room:url('crew/rooms/research-village.jpg')}
-.dept[data-room="planner"],.crew-stage[data-room="planner"]{--crew-room:url('crew/rooms/planner-village.jpg')}
-.dept[data-room="writer"],.crew-stage[data-room="writer"]{--crew-room:url('crew/rooms/writer-village.jpg')}
-.dept[data-room="editor"],.crew-stage[data-room="editor"]{--crew-room:url('crew/rooms/editor-village.jpg')}
-.dept[data-room="art"],.crew-stage[data-room="art"]{--crew-room:url('crew/rooms/art-village.jpg')}
-.dept[data-room="proof"],.crew-stage[data-room="proof"]{--crew-room:url('crew/rooms/proof-village.jpg')}
-.dept[data-room="layout"],.crew-stage[data-room="layout"]{--crew-room:url('crew/rooms/layout-village.jpg')}
-.dept[data-room="ship"],.crew-stage[data-room="ship"]{--crew-room:url('crew/rooms/ship-village.jpg')}
-.dept{position:relative;overflow:hidden;isolation:isolate;min-height:138px;background:linear-gradient(90deg,#07384fb8 0%,#07384f99 48%,#155d4955 100%),linear-gradient(180deg,#0000,#07384f44),var(--crew-room) center/cover no-repeat}
+.dept[data-room="research"],.crew-stage[data-room="research"]{--crew-room:url('crew/rooms/research-morning.jpg')}
+.dept[data-room="planner"],.crew-stage[data-room="planner"]{--crew-room:url('crew/rooms/planner-late-morning.jpg')}
+.dept[data-room="writer"],.crew-stage[data-room="writer"]{--crew-room:url('crew/rooms/writer-afternoon.jpg')}
+.dept[data-room="editor"],.crew-stage[data-room="editor"]{--crew-room:url('crew/rooms/editor-evening.jpg')}
+.dept[data-room="art"],.crew-stage[data-room="art"]{--crew-room:url('crew/rooms/art-evening.jpg')}
+.dept[data-room="proof"],.crew-stage[data-room="proof"]{--crew-room:url('crew/rooms/proof-dusk.jpg')}
+.dept[data-room="layout"],.crew-stage[data-room="layout"]{--crew-room:url('crew/rooms/layout-dusk.jpg')}
+.dept[data-room="ship"],.crew-stage[data-room="ship"]{--crew-room:url('crew/rooms/ship-night.jpg')}
+.dept{position:relative;overflow:hidden;isolation:isolate;min-height:138px;background:linear-gradient(90deg,#163c29b8 0%,#163c2999 48%,#2d624455 100%),linear-gradient(180deg,#0000,#163c2944),var(--crew-room) center/cover no-repeat}
 .dept .body{position:relative;z-index:1;flex:1}
 .dept .crew-art{align-self:center}
 .dept.active .crew-strip,.crew-stage.working .crew-strip,.crew-roster .working .crew-strip{animation:crew-frames 2.4s steps(8,end) infinite}
 @keyframes crew-frames{to{transform:translateX(-100%)}}
-.crew-stage{position:relative;display:flex;gap:12px;align-items:center;min-width:0;min-height:132px;padding:7px 12px 7px 4px;isolation:isolate;overflow:hidden;border-bottom:1px solid #445779;background:linear-gradient(90deg,#07384f33 0%,#07384f77 48%,#07384fcc 92%),linear-gradient(180deg,#0000,#07384f44),var(--crew-room) center/cover no-repeat;transition:background-image .18s ease-out}
+.crew-stage{position:relative;display:flex;gap:12px;align-items:center;min-width:0;min-height:132px;padding:7px 12px 7px 4px;isolation:isolate;overflow:hidden;border-bottom:1px solid #5c795f;background:linear-gradient(90deg,#163c2933 0%,#163c2977 48%,#163c29cc 92%),linear-gradient(180deg,#0000,#163c2944),var(--crew-room) center/cover no-repeat;transition:background-image .18s ease-out}
 .crew-active-art{display:flex;align-items:center;gap:5px;flex-shrink:0}.crew-active-art:has(.crew-art:nth-child(2)) .crew-art{width:72px}
-.crew-description{min-width:0;position:relative;z-index:1;text-shadow:0 2px 7px #000,0 0 2px #000}.crew-description strong{display:block;font-size:15px;color:#fff}.crew-description span{display:block;line-height:1.6;font-size:13px;color:#d7e2f4;overflow-wrap:anywhere}
+.crew-description{min-width:0;position:relative;z-index:1;text-shadow:0 2px 7px #000,0 0 2px #000}.crew-description strong{display:block;font-size:15px;color:#fff}.crew-description span{display:block;line-height:1.6;font-size:13px;color:#e3eee2;overflow-wrap:anywhere}
 .crew-roster{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding:2px 3px}.crew-roster .crew-sprite{width:30px;border-radius:4px}.crew-roster>[data-crew]{opacity:.55;border-radius:4px}.crew-roster>.current{opacity:1;outline:2px solid var(--glow);outline-offset:1px;box-shadow:0 0 8px color-mix(in srgb,var(--glow) 55%,#0000)}
 .crew-sprite.crew-backdrop{display:none}
 /* แผนกที่กำลังทำงาน: กรอบฟุ้งสีเดียวกับขอบตัวหุ่นยนต์ของแผนกนั้น (ดูสีจาก crew/PROMPTS.md) + ควันจาง ๆ ลอยขึ้น */
@@ -30,7 +30,7 @@
 .dept[data-room="layout"],.crew-roster>[data-crew="layout"]{--glow:#5cb6ff}
 .dept[data-room="ship"],.crew-roster>[data-crew="ship"]{--glow:#e8894a}
 .dept.active{--g-hi:color-mix(in srgb,var(--glow) 70%,#fff);border-color:var(--glow);box-shadow:0 0 0 1px color-mix(in srgb,var(--glow) 40%,#0000),0 0 14px color-mix(in srgb,var(--glow) 40%,#0000),0 0 30px color-mix(in srgb,var(--glow) 20%,#0000),inset 0 0 22px color-mix(in srgb,var(--glow) 13%,#0000);animation:dept-glow 2.8s ease-in-out infinite}
-.dept.active .mark{position:relative;z-index:2;background:color-mix(in srgb,var(--glow) 28%,#0b1220);color:var(--g-hi);box-shadow:0 0 10px color-mix(in srgb,var(--glow) 55%,#0000)}
+.dept.active .mark{position:relative;z-index:2;background:color-mix(in srgb,var(--glow) 28%,#122018);color:var(--g-hi);box-shadow:0 0 10px color-mix(in srgb,var(--glow) 55%,#0000)}
 .dept.active .crew-art{position:relative;z-index:2}
 .dept.active::before,.dept.active::after{--s:color-mix(in srgb,var(--glow) 30%,#fff);content:"";position:absolute;z-index:0;pointer-events:none;left:-10%;right:-10%;bottom:-40%;height:120%;filter:blur(14px);opacity:0;background:radial-gradient(38% 30% at 22% 70%,color-mix(in srgb,var(--s) 36%,#0000),#0000 70%),radial-gradient(30% 26% at 58% 78%,color-mix(in srgb,var(--s) 29%,#0000),#0000 70%),radial-gradient(34% 28% at 86% 66%,color-mix(in srgb,var(--s) 32%,#0000),#0000 70%);animation:dept-smoke 7s linear infinite}
 .dept.active::after{background:radial-gradient(32% 26% at 40% 72%,color-mix(in srgb,var(--s) 31%,#0000),#0000 70%),radial-gradient(28% 24% at 74% 80%,color-mix(in srgb,var(--s) 27%,#0000),#0000 70%),radial-gradient(26% 22% at 8% 82%,color-mix(in srgb,var(--s) 25%,#0000),#0000 70%);animation-duration:9s;animation-delay:-4.5s}
@@ -38,3 +38,17 @@
 @keyframes dept-smoke{0%{transform:translate3d(0,20%,0) scale(1);opacity:0}25%{opacity:1}70%{opacity:.7}100%{transform:translate3d(4%,-45%,0) scale(1.25);opacity:0}}
 @media(prefers-reduced-motion:reduce){.dept.active .crew-strip,.crew-stage.working .crew-strip,.crew-roster .working .crew-strip,.dept.active,.dept.active::before,.dept.active::after{animation:none}.dept.active::before{opacity:.6}}
 @media(max-width:480px){.dept .crew-art{width:66px}.crew-active-art:has(.crew-art:nth-child(2)) .crew-art{width:58px}.dept{gap:7px;padding:10px}.dept .mark{width:20px;height:20px}}
+
+/* สองแผนกทำงานร่วมกัน: ฉากแบ่งตามแผนก — ยืนติดกันเหมือนเดิม แต่คนแรกยืนบนห้องของตัวเอง คนที่สองยืนบนห้องของตัวเอง
+   รอยต่อฟุ้งอยู่ระหว่างสองคน (หุ่นกว้าง 72px ต่อคน) ห้องที่สองคลุมส่วนที่เหลือของแผง รวมถึงข้อความ */
+.crew-stage.duo::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,#163c2933 0%,#163c2977 48%,#163c29cc 92%),linear-gradient(180deg,#0000,#163c2944),var(--crew-room2) center/cover no-repeat;-webkit-mask-image:linear-gradient(90deg,transparent 52px,#000 108px);mask-image:linear-gradient(90deg,transparent 52px,#000 108px)}
+@media(max-width:480px){.crew-stage.duo::before{-webkit-mask-image:linear-gradient(90deg,transparent 40px,#000 88px);mask-image:linear-gradient(90deg,transparent 40px,#000 88px)}}
+/* แผงข้าง: หลายคนทำงานร่วมกัน = แบ่งสี — เส้นใต้ฉากและแถบความคืบหน้าไล่จากสีแผนกแรกไปแผนกที่สอง (สีตั้งจาก setDuoAccents) */
+html[data-panel-duo] .crew-stage.duo{border-bottom:2px solid transparent;border-image:linear-gradient(90deg,var(--panel-accent-a),var(--panel-accent-b)) 1}
+html[data-panel-duo] .bar i{background:linear-gradient(90deg,var(--panel-accent-a),var(--panel-accent-b))}
+/* แผงข้าง: สีธีมทั้งแผงตามตัวละครที่ทำงานอยู่ — พื้น ขอบ และชั้นทำให้มืด ย้อมด้วย --panel-accent (หลายคน = สีผสมจาก setDuoAccents) */
+html{--ptint-bg:color-mix(in srgb,var(--panel-accent,#8bd7aa) 22%,#121a14);--ptint-shade:color-mix(in srgb,var(--panel-accent,#8bd7aa) 16%,#0b120d)}
+html body::after{background:linear-gradient(180deg,color-mix(in srgb,var(--ptint-shade) 30%,transparent),color-mix(in srgb,var(--ptint-shade) 45%,transparent) 50%,color-mix(in srgb,var(--ptint-shade) 70%,transparent))}
+html main{border-color:color-mix(in srgb,var(--panel-accent,#8bd7aa) 62%,#dfe9df);background:linear-gradient(135deg,#ffffff1c,transparent 28%,#ffffff0a 100%),color-mix(in srgb,var(--ptint-bg) 62%,transparent)}
+html .live{border-color:color-mix(in srgb,var(--panel-accent,#8bd7aa) 55%,#9fb5a0);background:color-mix(in srgb,var(--ptint-bg) 88%,#000)}
+html main button{background:color-mix(in srgb,var(--panel-accent,#8bd7aa) 26%,#1c261e)}

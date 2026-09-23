@@ -2,7 +2,16 @@ import { crewMarkup, crewSource } from './crew-sprites.js';
 import { mountRunStatus } from './run-status.js';
 import { mountRunTimer } from './run-timer.js';
 import { mountCeoPanel } from './ceo-panel.js';
-const paintCeo = mountCeoPanel(document.getElementById('ceoPanel'));
+let activeCrewRoom = 'research';
+let ceoPanelMode = 'awake';
+function syncPanelScene() {
+  const room = ceoPanelMode === 'working' ? 'ceo' : activeCrewRoom;
+  if (document.documentElement.dataset.panelRoom !== room) document.documentElement.dataset.panelRoom = room;
+}
+const paintCeo = mountCeoPanel(document.getElementById('ceoPanel'), (mode) => {
+  ceoPanelMode = mode;
+  syncPanelScene();
+});
 const paintRunStatus = mountRunStatus(document.querySelector('main'), async () => {
   const result = await chrome.runtime.sendMessage({type:'sw.openStudio'});
   if (!result?.ok) throw new Error(result?.error || 'เปิด Studio ไม่สำเร็จ');
@@ -52,14 +61,81 @@ function validCrewIds(crew) {
     .filter((id) => crewIds.includes(id));
 }
 
+/**
+ * สองแผนกทำงานร่วมกัน = แบ่งฉากคนละครึ่ง แต่ละคนยืนในห้องของตัวเอง รอยต่อตรงกลางฟุ้ง (ผู้ใช้ขอ)
+ * รูปห้องของแผนกที่สองอ่านจาก --crew-room ที่ธีมกำหนดไว้ให้แผนกนั้นอยู่แล้ว
+ * จึงไม่ต้องจดชื่อไฟล์ห้องซ้ำที่นี่ — เปลี่ยนรูปห้องในธีมเมื่อไร ฉากแบ่งครึ่งก็เปลี่ยนตามเอง
+ */
+function roomImageOf(id) {
+  const probe = document.createElement('div');
+  probe.className = 'crew-stage';
+  probe.dataset.room = id;
+  probe.style.display = 'none';
+  document.body.append(probe);
+  const value = getComputedStyle(probe).getPropertyValue('--crew-room').trim();
+  probe.remove();
+  return value;
+}
+
+/** ค่าตัวแปรของห้องหนึ่งจากกฎของธีมแผงข้าง html[data-panel-room="…"] (เช่นสีประจำแผนก --panel-accent) */
+function panelRoomVar(id, prop) {
+  const want = `html[data-panel-room="${id}"]`;
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const r of rules || []) {
+      if (r.selectorText?.split(',').some((s) => s.trim() === want)) {
+        const v = r.style?.getPropertyValue(prop)?.trim();
+        if (v) return v;
+      }
+    }
+  }
+  return '';
+}
+
+/**
+ * สีธีมตามตัวละคร: คนเดียว = สีของแผนกนั้น (ธีมจัดให้แล้วผ่าน data-panel-room)
+ * หลายคน = แบ่งสี — สีเน้นเป็นสีผสมของสองแผนก และขอบฉาก/แถบต่าง ๆ ไล่สีจากคนแรกไปคนที่สอง
+ */
+function setDuoAccents(firstId, secondId) {
+  const root = document.documentElement;
+  const a = secondId ? panelRoomVar(firstId, '--panel-accent') : '';
+  const b = secondId ? panelRoomVar(secondId, '--panel-accent') : '';
+  if (a && b) {
+    root.dataset.panelDuo = '1';
+    root.style.setProperty('--panel-accent-a', a);
+    root.style.setProperty('--panel-accent-b', b);
+    root.style.setProperty('--panel-accent', `color-mix(in srgb, ${a} 50%, ${b})`);
+  } else {
+    delete root.dataset.panelDuo;
+    for (const p of ['--panel-accent-a', '--panel-accent-b', '--panel-accent']) root.style.removeProperty(p);
+  }
+}
+
+function setDuoRoom(el, secondId) {
+  const room = secondId ? roomImageOf(secondId) : '';
+  el.classList.toggle('duo', !!room);
+  if (room) el.style.setProperty('--crew-room2', room);
+  else el.style.removeProperty('--crew-room2');
+  setDuoAccents(el.dataset.room, room ? secondId : '');
+}
+
 function showCrew(crew) {
   const activeIds = validCrewIds(crew);
   if (!activeIds.length) return;
   crewState = { ...crew, id: activeIds[0], ids: activeIds };
   const el = $('panelCrew');
   el.dataset.room = activeIds[0];
+  setDuoRoom(el, activeIds[1]);
+  activeCrewRoom = activeIds[0];
+  syncPanelScene();
   const art = el.querySelector('.crew-active-art');
-  art.innerHTML = activeIds.map((id) => crewMarkup(id, 'crew-art')).join('');
+  // ฉากแบ่งครึ่งมีที่ยืนสองฝั่ง — คนที่สามจะไปยืนทับข้อความตรงกลาง จึงแสดงสองแผนกแรก
+  art.innerHTML = activeIds.slice(0, 2).map((id) => crewMarkup(id, 'crew-art')).join('');
   const backdrop = el.querySelector('.crew-backdrop .crew-strip');
   const src = crewSource(activeIds[0]);
   if (backdrop?.getAttribute('src') !== src) backdrop.src = src;

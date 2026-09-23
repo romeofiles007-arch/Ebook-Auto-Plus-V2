@@ -19,8 +19,13 @@ The attached user image was used only as a reference for Japanese anime line wor
 - `rooms/proof-village.jpg`: daylight print inspection workspace.
 - `rooms/layout-village.jpg`: page arrangement table in an open pavilion.
 - `rooms/ship-village.jpg`: book parcels and delivery cart beside the village path.
+- `ceo-cat-awake-8.png`: eight transparent poses of a chibi calico kitten with a blue scarf and bell, reviewing a blank clipboard, waving, and approving.
+- `ceo-cat-sleep-8.png`: eight transparent dozing, breathing, yawning, and tail-twitch poses of the same kitten.
+- `rooms/ceo-village.jpg`: sunny cottage veranda and cushion overlooking the village fields.
 
 Each agent has eight distinct transparent full-body frames arranged in one horizontal strip. The working department plays its own eight frames with CSS. Each department now has its own background in the same rural village.
+
+The CEO uses the calico kitten instead of the previous desk robot. It plays eight awake/work poses or eight sleep poses according to the existing CEO state. A brief synthesized meow plays once when the CEO is called, subject to the sound toggle in the panel.
 
 Prompt set: use the attached picture as a style reference only for clean Japanese anime line art and cel shading. For each role above, create an original male or female humanoid AI robot with a segmented ear module, glowing neck and wrist circuits, vivid role colors, and the named work prop. Draw eight consecutive full-body work poses of the same character in a 4-column by 2-row grid with fixed framing, no gutters, a genuine transparent background, and no text. The background prompts use the shared village image as a color and world reference: bright 16:9 anime countryside, blue-roof cottages, green rice fields, blue hills, clear sky, and a role-specific work area matching the list above, without characters or readable text. The eight generated grids were resampled into horizontal eight-frame strips for the UI.
 

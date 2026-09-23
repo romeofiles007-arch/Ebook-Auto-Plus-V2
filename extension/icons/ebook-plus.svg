@@ -1,14 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <title>Ebook Plus — book with generated pictures</title>
-  <path fill="#BFE8DC" d="M 10 2 L 54 2 C 59 2 62 5 62 10 L 62 54 C 62 59 59 62 54 62 L 10 62 C 5 62 2 59 2 54 L 2 10 C 2 5 5 2 10 2 Z"/>
-  <path fill="#0F2E33" d="M 10 7 L 54 7 C 56 7 57 8 57 10 L 57 54 C 57 56 56 57 54 57 L 10 57 C 8 57 7 56 7 54 L 7 10 C 7 8 8 7 10 7 Z"/>
-  <path fill="#F2C66D" d="M 12 20 C 18 19 25 21 30 24 L 30 47 C 25 44 18 42 12 43 Z"/>
-  <path fill="#EAF6FF" d="M 34 24 C 39 21 46 19 52 20 L 52 43 C 46 42 39 44 34 47 Z"/>
-  <path fill="#2FA37F" d="M 34 44 L 40 35 L 44 40 L 47 36 L 52 41 L 52 43 C 46 42 39 44 34 47 Z"/>
-  <path fill="#FF8A3D" d="M 45.6 28 C 45.6 29.4 44.4 30.6 43 30.6 C 41.6 30.6 40.4 29.4 40.4 28 C 40.4 26.6 41.6 25.4 43 25.4 C 44.4 25.4 45.6 26.6 45.6 28 Z"/>
-  <path fill="#0F2E33" d="M 60 13 C 60 18.52 55.52 23 50 23 C 44.48 23 40 18.52 40 13 C 40 7.48 44.48 3 50 3 C 55.52 3 60 7.48 60 13 Z"/>
-  <path fill="#7C5CFF" d="M 58 13 C 58 17.42 54.42 21 50 21 C 45.58 21 42 17.42 42 13 C 42 8.58 45.58 5 50 5 C 54.42 5 58 8.58 58 13 Z"/>
-  <path fill="#FFFFFF" d="M 48.5 8.5 L 51.5 8.5 L 51.5 17.5 L 48.5 17.5 Z"/>
-  <path fill="#FFFFFF" d="M 45.5 11.5 L 54.5 11.5 L 54.5 14.5 L 45.5 14.5 Z"/>
-  <path fill="#BFE8DC" d="M 27 51 L 37 51 L 37 54 L 27 54 Z"/>
+  <title>Ebook Plus — village storybook crystal</title>
+  <!-- A faceted blue frame connects the icon to the crystal Studio theme. -->
+  <path fill="#B3EBCB" d="M 14 2 L 50 2 L 62 14 L 62 50 L 50 62 L 14 62 L 2 50 L 2 14 Z"/>
+  <path fill="#193B2A" d="M 15 6 L 49 6 L 58 15 L 58 49 L 49 58 L 15 58 L 6 49 L 6 15 Z"/>
+  <path fill="#E0F8E8" d="M 14 2 L 50 2 L 56 8 L 8 8 Z"/>
+  <path fill="#6CBD94" d="M 50 2 L 62 14 L 62 50 L 58 49 L 58 15 L 49 6 Z"/>
+  <!-- The small crystal stands for the AI agents; the open book remains the core mark. -->
+  <path fill="#70D9BE" d="M 32 9 L 39 17 L 32 25 L 25 17 Z"/>
+  <path fill="#F4FFFF" d="M 32 9 L 32 25 L 25 17 Z"/>
+  <path fill="#B3EBCB" d="M 32 9 L 39 17 L 32 17 Z"/>
+  <path fill="#78A98B" d="M 10 28 C 17 25 26 26 32 30 C 38 26 47 25 54 28 L 54 50 C 46 48 39 49 32 53 C 25 49 18 48 10 50 Z"/>
+  <path fill="#F6FBF5" d="M 12 25 C 19 22 26 24 31 27 L 31 49 C 25 46 19 45 12 46 Z"/>
+  <path fill="#EDF9F4" d="M 33 27 C 38 24 45 22 52 25 L 52 46 C 45 45 39 46 33 49 Z"/>
+  <!-- Sunrise and green fields make the village setting legible at toolbar size. -->
+  <path fill="#FFC96B" d="M 25 33 C 25 35.21 23.21 37 21 37 C 18.79 37 17 35.21 17 33 C 17 30.79 18.79 29 21 29 C 23.21 29 25 30.79 25 33 Z"/>
+  <path fill="#82D3A5" d="M 12 40 C 18 38 25 40 31 43 L 31 49 C 25 46 19 45 12 46 Z"/>
+  <path fill="#47B98A" d="M 33 42 L 39 35 L 43 39 L 47 33 L 52 41 L 52 46 C 45 45 39 46 33 49 Z"/>
+  <path fill="#146F69" d="M 33 46 C 39 43 46 43 52 44 L 52 46 C 45 45 39 46 33 49 Z"/>
+  <path fill="#E0F8E8" d="M 29 52 L 35 52 L 35 55 L 29 55 Z"/>
 </svg>

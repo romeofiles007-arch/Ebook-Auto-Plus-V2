@@ -1,0 +1,191 @@
+/* The village follows the active crew member; the UI stays legible over every sky. */
+html {
+  --scene-image: url('crew/rooms/research-morning.jpg');
+  --scene-accent: #70d7ff;
+  color-scheme: dark;
+  background: #101b14;
+}
+html[data-studio-room="planner"] { --scene-image: url('crew/rooms/planner-late-morning.jpg'); --scene-accent: #ffb58d; }
+html[data-studio-room="writer"] { --scene-image: url('crew/rooms/writer-afternoon.jpg'); --scene-accent: #ffe08b; }
+html[data-studio-room="editor"] { --scene-image: url('crew/rooms/editor-evening.jpg'); --scene-accent: #ffc493; }
+html[data-studio-room="art"] { --scene-image: url('crew/rooms/art-evening.jpg'); --scene-accent: #e1b4ff; }
+html[data-studio-room="proof"] { --scene-image: url('crew/rooms/proof-dusk.jpg'); --scene-accent: #a7dfdf; }
+html[data-studio-room="layout"] { --scene-image: url('crew/rooms/layout-dusk.jpg'); --scene-accent: #a4bfff; }
+html[data-studio-room="ship"] { --scene-image: url('crew/rooms/ship-night.jpg'); --scene-accent: #ffd2a0; }
+html[data-studio-room="ceo"] { --scene-image: url('crew/rooms/ceo-night.jpg'); --scene-accent: #ffd6b1; }
+
+body {
+  position: relative;
+  background: #101b14;
+  color: #f4f8f0;
+  font-size: 15px;
+  line-height: 1.6;
+  accent-color: var(--scene-accent);
+}
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+body::before {
+  background: var(--scene-image) center center / cover no-repeat;
+}
+body::after {
+  background: linear-gradient(90deg, #0c1d135c, #0c1d137a 42%, #0c1d137a 58%, #0c1d135c),
+    linear-gradient(180deg, #0b190f45, #0b190f22 42%, #0b190f77);
+}
+.app { position: relative; z-index: 1; }
+
+header {
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--scene-accent) 57%, #c9eed8);
+  border-radius: 14px;
+  background: linear-gradient(125deg, #f0fff13b, #e0f5e209 24%, transparent 50%),
+    linear-gradient(310deg, #d9fff01f, transparent 31%), #172b1fa8;
+  box-shadow: inset 0 1px #ffffff9c, inset 1px 0 #ffffff2b, 0 10px 20px #0007;
+  backdrop-filter: blur(18px) saturate(1.25);
+}
+.brand { color: #fff; text-shadow: 0 2px 8px #0009; }
+.sub { color: #e1eee0; }
+.sceneLabel {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 10px;
+  border: 1px solid color-mix(in srgb, var(--scene-accent) 54%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--scene-accent) 13%, #172b1f);
+  color: color-mix(in srgb, var(--scene-accent) 55%, white);
+  font-size: 14px;
+  font-weight: 700;
+}
+.status, .mode {
+  background: #213b2ab8;
+  color: #f1f8ed;
+  border: 1px solid color-mix(in srgb, var(--scene-accent) 52%, #a2c5a9);
+  box-shadow: inset 0 1px #ffffff58;
+}
+.run-status {
+  border-color: color-mix(in srgb, var(--scene-accent) 47%, #9dbba4);
+  background: linear-gradient(125deg, #effff032, transparent 27%), #10241bb5;
+  box-shadow: inset 0 1px #ffffff72, 0 10px 20px #0006;
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+.run-status strong { color: #f4f9f1; }
+.run-status small { color: #d8e8d6; }
+.run-timer {
+  border-color: color-mix(in srgb, var(--scene-accent) 48%, #9dbba4);
+  background: #10241bbd;
+  backdrop-filter: blur(12px);
+}
+
+.card {
+  border-color: color-mix(in srgb, var(--scene-accent) 55%, #a4c8ae);
+  background: linear-gradient(128deg, #ecfff03b 0%, #e2f4e40a 23%, transparent 53%),
+    linear-gradient(312deg, #e6fff017 0%, transparent 29%), #172b1fa8;
+  box-shadow: inset 0 1px #ffffff81, inset 1px 0 #ffffff24, 0 12px 24px #0008;
+  backdrop-filter: blur(20px) saturate(1.2);
+}
+.hero { box-shadow: inset 0 1px #ffffff91, inset 1px 0 #ffffff2b, 0 16px 30px #0009; }
+.cardTitle, .nowTitle, .card h2, .card h3 {
+  color: #f8fcf7;
+  text-shadow: 0 2px 8px #0009;
+}
+.muted, .field label, .modeCard .modeWhat, .soundToggle { color: #e0eee0; }
+.muted { font-size: 15px; }
+.modeCard .modeNote, .dept .role, .dept .note { color: #dcebdd; }
+
+.macroSteps {
+  padding: 15px 12px 3px;
+  border: 1px solid color-mix(in srgb, var(--scene-accent) 32%, #b0d3b8);
+  border-radius: 14px;
+  background: linear-gradient(125deg, #e9f9ec24, transparent 28%), #172b1f94;
+  box-shadow: inset 0 1px #ffffff6b, 0 9px 20px #0005;
+  backdrop-filter: blur(16px);
+}
+.macroStep .dot, .wizardStep .n {
+  border-color: color-mix(in srgb, var(--scene-accent) 32%, #657e68);
+  background: #294632;
+  color: #e0eee0;
+}
+.macroStep .label, .wizardStep { color: #e0eee1; }
+.macroStep .track { background: color-mix(in srgb, var(--scene-accent) 34%, #59775e); }
+.macroStep.current .dot, .macroStep.active .dot, .wizardStep.now .n {
+  border-color: var(--scene-accent);
+  background: color-mix(in srgb, var(--scene-accent) 35%, #294632);
+  color: #fff;
+}
+.wizardStep, .modeCard, .more, .apiBar, .fullAutoBar, .ceoBar,
+.stepGuide, .folderRow, .estimate, .resumeBar, .projectArchive,
+.historyPanel, .event, .fig, .secItem, .pagestat, .projectItem,
+.dept, .pf, .trendPick, .outlineChoice, .docxRow, .imgPanel,
+.p2Row, .p2Help, .p2Dir, .authorRef, .projectDetail {
+  border-color: color-mix(in srgb, var(--scene-accent) 48%, #96bca0);
+  background: linear-gradient(135deg, #f2fff03a, #e2f4e40a 24%, transparent 53%), #1e3526ad;
+  color: #eff7eb;
+  box-shadow: inset 0 1px #ffffff51;
+}
+.modeCard {
+  min-height: 160px;
+  backdrop-filter: blur(12px) saturate(1.16);
+  box-shadow: inset 0 1px #ffffff80, 0 6px 14px #0005;
+}
+.modeCard:hover, .wizardStep:hover, .secItem:hover {
+  border-color: var(--scene-accent);
+}
+.modeCard.sel, .wizardStep.now {
+  border-color: var(--scene-accent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--scene-accent) 32%, transparent), transparent 58%), #244332bd;
+  box-shadow: inset 0 1px #ffffffa1, 0 0 0 2px color-mix(in srgb, var(--scene-accent) 22%, transparent), 0 8px 16px #0007;
+}
+.modeCard b { color: #fff; }
+.modeCard .modeWhat, .modeCard.sel .modeWhat { color: #edf6e9; font-size: 15px; line-height: 1.5; }
+.modeCard .modeNote { font-size: 15px; line-height: 1.55; }
+.wizardStep { font-size: 13px; }
+.wizardStep.now { color: #fff; }
+.wizardStep.now .n { background: var(--scene-accent); color: #12271b; }
+.wizardBar {
+  border-top-color: color-mix(in srgb, var(--scene-accent) 40%, #5e7a63);
+  background: linear-gradient(115deg, #e9ffed20, transparent 38%), #1c3325bd;
+  box-shadow: inset 0 1px #ffffff4d, 0 -12px 24px -14px #000a;
+  backdrop-filter: blur(18px);
+}
+
+button { background-color: #345d41c9; }
+button.primary, #wizardNext {
+  background-color: #a6e2b6;
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--scene-accent) 77%, #e3f5e4), #a6e2b6);
+  color: #12271b;
+  box-shadow: inset 0 1px #ffffff78, 0 7px 16px #0007;
+}
+button:disabled { box-shadow: none; }
+input:not([type=checkbox]), select, textarea {
+  border-color: color-mix(in srgb, var(--scene-accent) 43%, #8aac91);
+  background: #13271cd6;
+  color: #f7fbf4;
+}
+input::placeholder, textarea::placeholder { color: #c6d8c4; opacity: 1; }
+:where(button, input, select, textarea, summary, a):focus-visible {
+  outline: 3px solid var(--scene-accent);
+  outline-offset: 3px;
+}
+::selection { background: var(--scene-accent); color: #12271b; }
+* { scrollbar-color: color-mix(in srgb, var(--scene-accent) 58%, #426d51) #1c3325; }
+
+@media (max-width: 900px) {
+  body::after { background: #0c1d13b8; }
+  .app { padding: 12px; }
+  header { align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .headerRight { flex-wrap: wrap; }
+  .hero { margin-top: 18px; }
+  .modeCard { min-height: 0; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  header, .card, .macroSteps, .wizardBar, .modeCard, .run-status, .run-timer { backdrop-filter: none; background: #1b3425; }
+  .modeCard.sel, .wizardStep.now { background: #304e37; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar i { transition: none; }
+}

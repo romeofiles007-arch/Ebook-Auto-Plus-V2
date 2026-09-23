@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="crew.css">
   <link rel="stylesheet" href="run-status.css">
   <link rel="stylesheet" href="ceo-panel.css">
+  <link rel="stylesheet" href="panel-scenes.css">
 </head>
 <body><main>
   <div class="brand"><img class="brand-logo" src="../icons/icon-48.png" alt=""> <span>Ebook Auto</span></div>
@@ -20,8 +21,9 @@
     <button id="jobResume">▶ ทำต่อ</button>
   </div>
   <section id="ceoPanel" class="ceo-panel awake" aria-label="ผู้คุมกระบวนการ CEO">
-    <div class="ceo-scene" aria-hidden="true"><span class="ceo-portrait"></span><span class="ceo-sleep">z Z</span><span class="ceo-scan"></span></div>
-    <div><strong>CEO · ตื่นและพร้อมรับงาน</strong><span class="ceo-detail" role="status">ยังไม่มีงานที่ต้องกำกับ · พร้อมรับการเรียกครั้งถัดไป</span></div>
+    <div class="ceo-scene" aria-hidden="true"><span class="ceo-portrait"></span><span class="ceo-sleep">z Z</span><span class="ceo-sparkle"></span></div>
+    <div><strong>CEO แมวน้อย · ตื่นและพร้อมรับงาน</strong><span class="ceo-detail" role="status">ยังไม่มีงานที่ต้องกำกับ · พร้อมรับการเรียกครั้งถัดไป</span></div>
+    <button class="ceo-sound-toggle" type="button" aria-label="ปิดเสียงแมว CEO" aria-pressed="true" title="ปิดเสียงแมว CEO">🔊</button>
   </section>
   <section aria-label="ทีมงานและสถานะล่าสุด">
     <div id="panelCrew" class="crew-stage"><span class="crew-sprite crew-art" aria-hidden="true"><img class="crew-strip" src="crew/research-work.png" alt=""></span><div class="crew-description"><strong>ทีมงานพร้อมเริ่ม</strong><span>สถานะจะอัปเดตเมื่อ Studio เริ่มทำงาน</span></div><span class="crew-sprite crew-backdrop" aria-hidden="true"><img class="crew-strip" src="crew/research-work.png" alt=""></span></div>
@@ -35,4 +37,3 @@
   </section>
 </main><script type="module" src="/design/ceo-preview.js"></script></body>
 </html>
-
