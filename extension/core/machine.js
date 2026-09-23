@@ -3536,7 +3536,11 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
 
           const savedPath = await W.saveBookImage(this.book, j.name, candidate.blob);
           if (savedPath) this.log('ok', `เก็บไฟล์ไว้ที่ ${savedPath}`);
-          else await this.downloadBookImage(j.name, candidate.blob);
+          else if (!this._warnedNoFolder) {
+            // ไม่ลง Downloads เด็ดขาด (ผู้ใช้ไม่ต้องการ) — ภาพยังอยู่ในเล่มครบ แค่ยังไม่มีสำเนาในโฟลเดอร์โครงการ
+            this._warnedNoFolder = true;
+            this.log('warn', 'ยังไม่ได้เลือกโฟลเดอร์โครงการใน Studio — ภาพเก็บในเล่มแล้ว แต่ยังไม่มีสำเนาเป็นไฟล์ กด "เลือกโฟลเดอร์" แล้วระบบจะเขียนไฟล์ให้ครบ');
+          }
 
           if (j.name === 'cover-front.png') this._coverRef = undefined; // ภาพถัดไปต้องเห็นปกใบที่เพิ่งได้
           if (j.name === 'cover-back.png' && P.backCoverTextBaked(this.book)) this.book.backCoverTextBaked = true;
@@ -3585,19 +3589,6 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       }
     }
     return false;
-  }
-
-  /**
-   * ยังไม่ได้เลือกโฟลเดอร์ทำงาน = ไม่มีที่ให้เขียนไฟล์ตรง ๆ
-   * ส่งลงโฟลเดอร์ Downloads/Ebook Plus/<ชื่อเล่ม>/ แทน ผู้ใช้จะได้มีไฟล์ภาพตามชื่อที่วางแผนไว้เสมอ
-   */
-  async downloadBookImage(name, blob) {
-    try {
-      const safe = (s) => String(s || 'ebook').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'ebook';
-      const dataUrl = await db.blobToDataUrl(blob);
-      const r = await chrome.runtime.sendMessage({ type: 'sw.download', url: dataUrl, filename: `Ebook Plus/${safe(this.book.title)}/${name}` });
-      if (r?.ok) this.log('ok', `เก็บไฟล์ไว้ที่ Downloads/Ebook Plus/${safe(this.book.title)}/${name}`);
-    } catch {}
   }
 
   async images() {

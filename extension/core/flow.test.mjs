@@ -167,3 +167,28 @@ test('ภาพแต่ละใบไปอยู่ในคอลเล็�
   assert.match(adapter, /attachFromPicker\(r\.tile\)/);
   assert.match(adapter, /ensureRefUploaded\(r, args\.refCollection\)/);
 });
+
+/** เล่มจริงรอบที่สอง: ปกถูกวาดซ้ำที่หน้าหลัก · ปกหน้าถูกตัดสินว่าล้มทั้งที่ยังวาดอยู่ · ปกหลังได้ภาพปกหน้า */
+test('ปิด Agent ไม่กดปุ่ม ← ที่พาออกจากคอลเล็กชัน', () => {
+  assert.match(adapter, /const back = panel && iconButton\('arrow_back', panel\)/);
+  assert.match(adapter, /e\.code = 'wrong_place'/);
+});
+
+test('ตามตัว tile ของตัวเองจาก prompt และไม่เอาคำใน prompt มาตัดสินว่าล้ม', () => {
+  assert.match(adapter, /const isPending = \(tile\) => !!tile\?\.querySelector\('flow-pending-tile'\)/);
+  assert.match(adapter, /FAIL_TEXT\.test\(statusText\(mine, prompt\)\)/);
+  assert.doesNotMatch(adapter, /!beforeEls\.has\(tile\) && FAIL_TEXT\.test\(text\(tile\)\)/);
+});
+
+test('ไม่ส่งงานใหม่ขณะที่ยังมีภาพกำลังวาดอยู่ในหน้า', () => {
+  assert.match(adapter, /await waitFor\(\(\) => !SEL\.tiles\(\)\.some\(isPending\)/);
+});
+
+test('ดึงภาพบน tile แบบไม่แนบ cookie ก่อน แล้วค่อยให้ service worker ดึงแทน', () => {
+  assert.match(adapter, /for \(const opts of \[\{\}, \{ credentials: 'include' \}\]\)/);
+  assert.match(adapter, /type: 'sw\.fetchImage', url: src/);
+});
+
+test('ไม่เขียนไฟล์ลง Downloads เอง', () => {
+  assert.doesNotMatch(machine, /downloadBookImage|Downloads\/Ebook Plus|sw\.download', url: dataUrl/);
+});

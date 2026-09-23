@@ -182,9 +182,19 @@
       await sleep(300);
     }
     if (agentOn()) throw new Error('ปิดโหมด Agent ของ Flow ไม่สำเร็จ — กดปุ่ม Agent ในช่องพิมพ์ให้ดับเองแล้วสั่งใหม่');
-    // แผงตั้งค่า Agent อาจเปิดค้างอยู่ด้านขวา — ปิดทิ้ง ไม่ต้องบันทึกอะไร
-    iconButton('arrow_back')?.click();
-    await sleep(300);
+    /**
+     * แผงตั้งค่า Agent อาจเปิดค้างอยู่ด้านขวา — ปิดทิ้ง ไม่ต้องบันทึกอะไร
+     * ต้องกดเฉพาะปุ่ม ← ที่อยู่ในแผงนั้นเท่านั้น: ในคอลเล็กชัน ปุ่ม ← มุมซ้ายบนคือ "กลับหน้าหลักของ project"
+     * เคยกดตัวนั้นพลาด ภาพจึงไปเกิดที่หน้าหลักแทนในคอลเล็กชัน แล้วระบบรอไม่เจอจนสั่งวาดปกซ้ำหลายรอบ
+     */
+    const panel = $$('flow-agent-panel, .cdk-overlay-pane, aside').find(
+      (p) => visible(p) && /Agent settings|การตั้งค่า Agent/i.test(text(p).slice(0, 80)),
+    );
+    const back = panel && iconButton('arrow_back', panel);
+    if (back) {
+      back.click();
+      await sleep(300);
+    }
   }
 
   // ── แผงตั้งค่าของช่องพิมพ์ (Image · สัดส่วน · โมเดล · x1 · ตัวบอกเครดิต) ──
@@ -566,11 +576,43 @@
    * ภาพตรงสัดส่วนที่สั่ง — เดิมเช็คแค่ข้อแรก รูปผู้เขียนที่เพิ่งอัปโหลดโผล่ช้ากว่าการจดรายการ
    * จึงถูกหยิบไปเป็น "ภาพที่วาดได้" แล้วระบบสั่งวาดซ้ำจนภาพซ้ำเต็ม project
    */
-  async function waitNewTile(before, beforeEls, { timeout = 5 * 60000, ratio = '', skipNames = [] } = {}) {
+  /**
+   * tile ที่กำลังวาดมี <flow-pending-tile> และแสดง "image 47% <prompt>" — element เดียวกันนี้
+   * กลายเป็นภาพที่เสร็จแล้ว (ตรวจกับหน้าจริงแล้ว) จึงตามตัว tile ของเราเองได้ตรง ๆ ไม่ต้องเดา
+   */
+  const isPending = (tile) => !!tile?.querySelector('flow-pending-tile');
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const promptKey = (prompt) => norm(prompt).slice(0, 60);
+  /** ข้อความบน tile โดยตัด prompt ของเราออก — prompt มีคำอย่าง "failed output" ที่ห้ามนับเป็นความผิดพลาด */
+  const statusText = (tile, prompt) => {
+    const t = text(tile);
+    const k = promptKey(prompt).slice(0, 30);
+    const i = k ? t.indexOf(k) : -1;
+    return i >= 0 ? t.slice(0, i) : t;
+  };
+
+  async function waitNewTile(before, beforeEls, { timeout = 5 * 60000, ratio = '', skipNames = [], prompt = '' } = {}) {
     const skip = new Set(skipNames.filter(Boolean));
+    const key = promptKey(prompt);
+    let mine = null; // tile กำลังวาดที่แสดง prompt ของเรา
     return waitFor(
       () => {
         scrollGridTop();
+        if (!mine?.isConnected) {
+          mine = key ? SEL.tiles().find((t) => isPending(t) && norm(text(t)).includes(key.slice(0, 40))) || null : null;
+        }
+        if (mine) {
+          const id = tileId(mine);
+          const img = tileImg(mine);
+          if (id && img.complete && img.naturalWidth > 0) return { tile: mine, id };
+          if (!id && !isPending(mine) && FAIL_TEXT.test(statusText(mine, prompt))) {
+            const e = new Error(`Flow สร้างภาพไม่สำเร็จ: ${statusText(mine, prompt).slice(0, 200) || 'ไม่ทราบสาเหตุ'}`);
+            e.code = 'generation_failed';
+            throw e;
+          }
+          return null;
+        }
+        // ทางสำรองเมื่อหา tile ของเราด้วยข้อความไม่เจอ: media id ใหม่ที่ไม่ใช่ไฟล์อัปโหลดและตรงสัดส่วน
         for (const tile of SEL.tiles()) {
           const id = tileId(tile);
           const img = tileImg(tile);
@@ -583,11 +625,6 @@
             ratioOk(img.naturalWidth, img.naturalHeight, ratio)
           )
             return { tile, id };
-          if (!id && !beforeEls.has(tile) && FAIL_TEXT.test(text(tile))) {
-            const e = new Error(`Flow สร้างภาพไม่สำเร็จ: ${text(tile).slice(0, 200)}`);
-            e.code = 'generation_failed';
-            throw e;
-          }
         }
         const alert = $$('[role="alert"], mat-snack-bar-container, .mat-mdc-snack-bar-container').find(
           (a) => visible(a) && FAIL_TEXT.test(text(a)),
@@ -724,9 +761,27 @@
     const img = tileImg(findTile(id));
     const src = img?.currentSrc || img?.src;
     if (!src) throw new Error('ไม่พบไฟล์ภาพบน tile');
-    const r = await fetch(src, { credentials: 'include' });
-    if (!r.ok) throw new Error(`โหลดภาพจาก Flow ไม่ได้ (HTTP ${r.status})`);
-    return r.blob();
+    /**
+     * ภาพที่เพิ่งวาดเสร็จอยู่บน flow-content.google ซึ่งตอบ CORS แบบไม่รับ cookie
+     * ขอพร้อม credentials แล้วโดนปฏิเสธ ("Failed to fetch") — ลองแบบไม่แนบก่อน (ตรวจกับหน้าจริงแล้ว)
+     * ถ้ายังไม่ได้ ให้ service worker ดึงแทนด้วยสิทธิ์ของส่วนขยาย
+     */
+    const errors = [];
+    for (const opts of [{}, { credentials: 'include' }]) {
+      try {
+        const r = await fetch(src, opts);
+        if (r.ok) return r.blob();
+        errors.push(`HTTP ${r.status}`);
+      } catch (e) {
+        errors.push(e?.message || String(e));
+      }
+    }
+    if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
+      const res = await chrome.runtime.sendMessage({ type: 'sw.fetchImage', url: src }).catch((e) => ({ ok: false, error: e?.message }));
+      if (res?.ok && res.dataUrl) return fetch(res.dataUrl).then((r) => r.blob());
+      errors.push(res?.error || 'service worker ดึงไม่ได้');
+    }
+    throw new Error(`โหลดภาพจาก Flow ไม่ได้ (${errors.join(' · ')})`);
   }
 
   // ── งานที่ Studio สั่ง ──
@@ -789,6 +844,21 @@
     at('วาง prompt');
     await typePrompt(args.prompt);
 
+    /**
+     * ห้ามส่งงานใหม่ขณะที่ในหน้านี้ยังมีภาพกำลังวาดอยู่
+     * ภาพของรูปก่อนหน้าที่เสร็จช้าเคยถูกหยิบไปเป็นภาพของรูปถัดไป (ปกหลังได้ภาพปกหน้า)
+     */
+    at('รอภาพก่อนหน้าให้เสร็จ');
+    scrollGridTop();
+    await waitFor(() => !SEL.tiles().some(isPending), { timeout: 6 * 60000, interval: 2000, label: 'ภาพที่กำลังวาดอยู่ก่อนหน้า' }).catch(() => {});
+
+    // ด่านสุดท้ายก่อนกด: ต้องยังอยู่ในคอลเล็กชันของรูปนี้ ไม่งั้นภาพจะไปเกิดผิดที่ — หยุดแล้วให้รอบใหม่เปิดให้ถูก
+    if (args.collection && (!inCollection() || nameInput()?.value !== args.collection)) {
+      const e = new Error(`ไม่ได้อยู่ในคอลเล็กชัน "${args.collection}" ตอนจะกดสร้าง — ยังไม่ได้ส่งงาน`);
+      e.code = 'wrong_place';
+      throw e;
+    }
+
     at('กดสร้าง');
     scrollGridTop();
     const before = knownIds();
@@ -817,6 +887,7 @@
       timeout: args.timeoutMs || 5 * 60000,
       ratio: args.ratio,
       skipNames: (args.refs || []).flatMap((r) => [r.name, r.tile]),
+      prompt: args.prompt,
     });
     return finishTile(id, { ...args, cfg, attached, attachError });
   }
