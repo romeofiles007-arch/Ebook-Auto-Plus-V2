@@ -239,6 +239,69 @@ async function ensureAdapter(tabId, timeoutMs = 20000) {
   }
 }
 
+// ---------- Google Flow (Ebook Plus) ----------
+const FLOW_MATCH = ['https://flow.google.com/*'];
+const isFlowUrl = (url = '') => /^https:\/\/flow\.google\.com\//.test(url);
+
+/**
+ * แท็บ Flow ที่ใช้สร้างภาพ — ใช้แท็บเดิมของงานนี้ก่อน เพราะ project ของเล่มเปิดค้างอยู่ในแท็บนั้น
+ * ถ้าไม่มีเลยค่อยเปิดหน้าต่างใหม่ที่ไม่ย่อ (แท็บที่มองไม่เห็นถูก Chrome ชะลอจนงานช้าลงหลายเท่า)
+ */
+async function ensureFlowTab() {
+  let tab = null;
+  const rememberedId = await S.get('flowTabId');
+  if (rememberedId != null) {
+    try {
+      const t = await chrome.tabs.get(rememberedId);
+      if (isFlowUrl(t.url)) tab = t;
+    } catch {}
+  }
+  if (!tab) {
+    const tabs = await chrome.tabs.query({ url: FLOW_MATCH });
+    tab = tabs.find((t) => /\/project\//.test(t.url || '')) || tabs.find((t) => !t.discarded) || tabs[0] || null;
+  }
+  if (!tab) {
+    const win = await chrome.windows.create({ url: 'https://flow.google.com/', focused: false, width: 1280, height: 900 });
+    tab = win.tabs[0];
+  }
+  try {
+    let fresh = await chrome.tabs.get(tab.id);
+    if (fresh.discarded) {
+      await chrome.tabs.reload(tab.id);
+      fresh = await waitForComplete(tab.id);
+    } else if (fresh.status !== 'complete') {
+      fresh = await waitForComplete(tab.id);
+    }
+    if (fresh) tab = fresh;
+  } catch (_) {}
+  await S.set('flowTabId', tab.id);
+  return tab;
+}
+
+async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
+  const until = Date.now() + timeoutMs;
+  const ping = async () => {
+    try {
+      return !!(await chrome.tabs.sendMessage(tabId, { type: 'flow.ping' }))?.ok;
+    } catch (_) {
+      return false;
+    }
+  };
+  for (;;) {
+    if (await ping()) return true;
+    try {
+      // ตัวดักไฟล์ 2K ต้องอยู่ใน MAIN world ส่วนตัวขับอยู่ใน isolated world ตามปกติ
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['adapter/flow-main.js'], world: 'MAIN' });
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['adapter/flow.js'] });
+    } catch (_) {
+      await waitForComplete(tabId, Math.max(0, until - Date.now())).catch(() => {});
+    }
+    if (await ping()) return true;
+    if (Date.now() >= until) return false;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 // ---------- เส้นทางข้อความ ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
@@ -285,9 +348,87 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return sendResponse(accepted?.ok ? {ok:true} : {ok:false,error:accepted?.error || 'adapter_unavailable'});
       }
 
+      /**
+       * Studio สั่งงานภาพให้แท็บ Flow — ตอบรับทันที ผลจริงมาทีหลังเป็น flow.result
+       * งานหนึ่งรูปกินเวลาเป็นนาที นานกว่าอายุของ service worker ที่จะถือ sendResponse รอไว้ได้
+       */
+      case 'sw.flow': {
+        await S.set('studioTabId', sender.tab?.id ?? (await S.get('studioTabId')));
+        let flow = await ensureFlowTab();
+        /**
+         * หนึ่งเล่ม = หนึ่ง project ใน Flow
+         * แท็บที่ค้างอยู่ใน project ของเล่มก่อน จะทำให้ภาพของเล่มใหม่ไปปนกับของเก่า
+         * และตัวหา "ปกหน้า" ด้วยชื่อ tile จะไปหยิบปกของเล่มก่อนมาเป็นรูปอ้างอิง
+         * ตอนเริ่มงานจึงพาแท็บไปที่ project ของเล่มนี้ (ถ้าเคยมี) หรือหน้าแรกเพื่อเปิด project ใหม่
+         * ต้องทำที่นี่ ไม่ใช่ใน content script เพราะการเปลี่ยนหน้าฆ่าสคริปต์ที่กำลังทำงานอยู่
+         */
+        if (msg.op === 'prepare') {
+          const want = String(msg.args?.projectUrl || '');
+          const here = String(flow.url || '');
+          const go = want ? (here.startsWith(want) ? '' : want) : /\/project\//.test(here) ? 'https://flow.google.com/' : '';
+          if (go) {
+            await chrome.tabs.update(flow.id, { url: go });
+            await new Promise((r) => setTimeout(r, 500));
+            flow = (await waitForComplete(flow.id).catch(() => null)) || flow;
+          }
+        }
+        // แท็บต้องมองเห็นได้ — Chrome ชะลอ timer ของแท็บเบื้องหลังจนขั้นตอนบนหน้า Flow ช้าลงเป็นนาที
+        await chrome.tabs.update(flow.id, { active: true });
+        if (flow.windowId != null) await chrome.windows.update(flow.windowId, { focused: true }).catch(() => {});
+        if (!(await ensureFlowAdapter(flow.id))) return sendResponse({ ok: false, error: 'ติดตั้งตัวขับของ Google Flow ในแท็บไม่สำเร็จ' });
+        const accepted = await chrome.tabs
+          .sendMessage(flow.id, { type: 'flow.run', jobId: msg.jobId, op: msg.op, args: msg.args || {} })
+          .catch((e) => ({ ok: false, error: e?.message || String(e) }));
+        return sendResponse(accepted?.ok ? { ok: true, tabId: flow.id } : { ok: false, error: accepted?.error || 'แท็บ Flow ไม่รับงาน' });
+      }
+
+      case 'sw.flowPing': {
+        const flow = await ensureFlowTab();
+        if (!(await ensureFlowAdapter(flow.id))) return sendResponse({ ok: false, error: 'ติดตั้งตัวขับของ Google Flow ในแท็บไม่สำเร็จ' });
+        const r = await chrome.tabs.sendMessage(flow.id, { type: 'flow.ping' }).catch(() => null);
+        return sendResponse(r || { ok: false, error: 'แท็บ Flow ไม่ตอบ' });
+      }
+
+      /**
+       * คลิกที่นับเป็นคนกดจริง — ปุ่ม "เริ่มสร้าง" ของ Flow ไม่รับคลิกที่สคริปต์สร้าง
+       * รับเฉพาะคำขอจากแท็บ Flow เอง และกดได้ที่พิกัดเดียวในแท็บนั้นเท่านั้น
+       */
+      case 'sw.trustedClick': {
+        if (!sender.tab?.id || !isFlowUrl(sender.tab.url)) return sendResponse({ ok: false, error: 'invalid_tab' });
+        const target = { tabId: sender.tab.id };
+        const x = Number(msg.x);
+        const y = Number(msg.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return sendResponse({ ok: false, error: 'bad_point' });
+        const cmd = (method, params) =>
+          new Promise((resolve, reject) => {
+            chrome.debugger.sendCommand(target, method, params, (r) =>
+              chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(r),
+            );
+          });
+        let attached = false;
+        try {
+          await new Promise((resolve, reject) => {
+            chrome.debugger.attach(target, '1.3', () =>
+              chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(),
+            );
+          });
+          attached = true;
+          await cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+          await cmd('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+          await cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+          return sendResponse({ ok: true });
+        } catch (e) {
+          return sendResponse({ ok: false, error: String(e?.message || e) });
+        } finally {
+          // ต้องถอนตัวเสมอ ไม่งั้นแถบเตือนจะค้างอยู่ทั้งวัน
+          if (attached) chrome.debugger.detach(target, () => void chrome.runtime.lastError);
+        }
+      }
+
       // Content script ส่งผลกลับ → กระจายให้ extension pages
       // สำคัญ: studio.html เป็น extension page ไม่ใช่ content script
       // จึงห้ามใช้ chrome.tabs.sendMessage() กับ Studio
+      case 'flow.result':
       case 'gpt.result':
       case 'gpt.progress': {
         chrome.runtime.sendMessage({ ...msg, _relayed: true }).catch(() => {});
@@ -604,4 +745,5 @@ chrome.alarms.onAlarm.addListener(async (a) => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === (await S.get('studioTabId'))) await S.set('studioTabId', null);
   if (tabId === (await S.get('chatTabId'))) await S.set('chatTabId', null);
+  if (tabId === (await S.get('flowTabId'))) await S.set('flowTabId', null);
 });

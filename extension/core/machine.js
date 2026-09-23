@@ -31,6 +31,7 @@ import { turnDelay } from './production-mode.js';
 import { noteTrouble } from './dispatch.js';
 import { generateImage, DEFAULT_IMAGE_MODEL } from './imageApi.js';
 import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, enforceAuthorRefPrompt } from './imageRef.js';
+import { flowCall, flowRatioFor, flowPrompt, FLOW_MODELS, FLOW_RATIOS } from './flow.js';
 
 export const STEPS = [
   'health',
@@ -1345,12 +1346,20 @@ ${P.NO_CITATION_RULE}
         figures.push({ id: `${f.section}-${n}`, section: f.section, kind: 'box', caption: f.caption, placement: f.placement || 'middle' });
       } else {
         const name = `fig-${f.section}-${n}.png`;
-        const widthPct = Math.min(100, Math.max(40, Number(f.width) || 80));
-        const widthMm = Math.round(((textWidthMm * widthPct) / 100) * 10) / 10;
-        const aspect = normalizeFigureAspect(f.aspect);
+        let widthPct = Math.min(100, Math.max(40, Number(f.width) || 80));
+        let widthMm = Math.round(((textWidthMm * widthPct) / 100) * 10) / 10;
+        const aspect = normalizeFigureAspect(f.aspect, this.book);
         // ล็อกความสูงตั้งแต่ Phase 1 เพื่อให้ placeholder กับภาพจริงกินพื้นที่เท่ากัน
         // จากนั้น Typst จะ crop แบบ cover แทนการปล่อยให้อัตราส่วนไฟล์จริงดันจำนวนหน้า
         const heightMm = Math.round(Math.min(72, widthMm / aspect.ratio) * 10) / 10;
+        /**
+         * Flow วาดได้ตรงสัดส่วนเป๊ะ จึงห้ามให้เพดานความสูง 72 มม. บิดสัดส่วนช่องจนต้องครอปภาพ
+         * ช่องที่ชนเพดานให้แคบลงแทน — ภาพทั้งภาพลงหน้าได้ครบ ไม่มีส่วนสำคัญถูกตัดทิ้ง
+         */
+        if (this.book.imageSource === 'flow' && widthMm / aspect.ratio > 72) {
+          widthMm = Math.round(heightMm * aspect.ratio * 10) / 10;
+          widthPct = Math.max(40, Math.round((widthMm / textWidthMm) * 100));
+        }
         rec.md = insertFigureAt(
           rec.md,
           `![${f.caption || ''}](fig:${name} ${widthPct}% ${heightMm}mm)`,
@@ -1460,7 +1469,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       if (!subject || used.has(target) || (!isTheme && !valid.has(target))) continue;
       used.add(target);
       const widthMm = isTheme ? Math.round(Math.min(50, textW * 0.52) * 10) / 10 : Math.round(textW * 0.8 * 10) / 10;
-      const aspect = normalizeFigureAspect(isTheme ? '1:1' : '4:3');
+      const aspect = normalizeFigureAspect(isTheme ? '1:1' : '4:3', this.book);
       const heightMm = isTheme ? widthMm : Math.round(Math.min(72, widthMm / aspect.ratio) * 10) / 10;
       const rec = isTheme ? null : items.find((s) => String(s.id) === target);
       const prompt = P.interiorFigurePrompt(style, subject, widthMm, heightMm, aspect.label, {
@@ -3337,6 +3346,223 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     return taken;
   }
 
+  /**
+   * Ebook Plus — สร้างภาพทั้งเล่มด้วย Google Flow โหมดฟรี ทีละรูปตามลำดับแผน
+   *
+   * ChatGPT วางแผนไว้แล้วว่ารูปไหนอยู่หน้าไหน ชื่อไฟล์อะไร (cover-front.png · fig-2.1-1.png …)
+   * ที่นี่แค่ส่ง prompt ของแต่ละช่องไปวาด แล้วเก็บไฟล์กลับเข้าช่องเดิมด้วยชื่อเดิม
+   *   · สัดส่วนที่สั่ง = สัดส่วนของ Flow ที่ใกล้ช่องที่สุด ช่องภาพในเล่มถูกวางแผนให้ตรงสัดส่วน Flow อยู่แล้ว
+   *     ภาพจึงลงช่องได้ทั้งภาพ ปกเหลือตัดขอบราว 3% ต่อข้าง ซึ่งส่วนใหญ่อยู่ในระยะตัดตกอยู่แล้ว
+   *   · ปกหน้าที่เสร็จแล้วถูกแนบเป็นรูปอ้างอิงของทุกรูปถัดไป ให้ภาพทั้งเล่มอยู่ในโลกเดียวกับปก
+   *   · ไฟล์ดิบ 2K เก็บไว้ในโฟลเดอร์ generated/ ส่วนไฟล์ที่ปรับเป็น 300 dpi แล้วอยู่ที่ images/<ชื่อที่วางแผน>
+   *
+   * คืน true ถ้าต้องหยุดรอคน (ประตู gate_images) · false ถ้าให้ไปตรวจ Final Check ต่อได้
+   */
+  async imagesViaFlow(jobs, genErrors) {
+    const MAX_FLOW_ATTEMPTS = 3;
+    this.log('ok', `สร้างภาพด้วย Google Flow (โหมดฟรี 0 เครดิต) ทีละรูป ${jobs.length} รูป — ภาพที่ได้จะถูกตั้งชื่อใน Flow ตามชื่อไฟล์ที่วางแผนไว้`);
+
+    const prep = await flowCall(
+      'prepare',
+      { title: this.book.title, ratio: '3:4', models: FLOW_MODELS, projectUrl: this.book.imagePhase?.flowProjectUrl || '' },
+      { timeoutMs: 3 * 60000 },
+    );
+    if (!prep.ok) {
+      const reason = prep.code === 'not_free'
+        ? prep.error
+        : `เตรียม Google Flow ไม่สำเร็จ: ${prep.error} — ตรวจว่าเปิด flow.google.com และล็อกอินบัญชี Google แล้ว`;
+      this.log('warn', reason);
+      this.book.imagePhase = { ...(this.book.imagePhase || {}), status: 'partial', failedReason: reason, stoppedAt: Date.now() };
+      this.job.step = 'gate_images';
+      this.job.status = 'waiting_human';
+      await this.save();
+      return true;
+    }
+    this.log('ok', `Google Flow พร้อม · ${prep.model} · ${prep.credits} เครดิต · ${prep.projectUrl}`);
+    this.book.imagePhase = { ...(this.book.imagePhase || {}), flowProjectUrl: prep.projectUrl };
+
+    for (let index = 0; index < jobs.length; index++) {
+      if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+      const j = jobs[index];
+      this.emit({ type: 'image.progress', stage: 'check', current: index + 1, total: jobs.length, name: j.name, what: j.what });
+
+      const existing = await db.loadAsset(this.book.id, j.name).catch(() => null);
+      const coverNeedsCleanArtwork = existing && j.kind === 'cover' && !P.coverTextBaked(this.book) && !existing.meta?.artworkOnly;
+      if (existing && !coverNeedsCleanArtwork && (await validatePhase2Asset(existing, j)).ok) {
+        this.log('ok', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: มีไฟล์ที่ผ่านตรวจแล้ว ข้ามการสร้างซ้ำ (${j.name})`);
+        this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
+        continue;
+      }
+
+      const ratio = flowRatioFor(j);
+      const needsRef = wantsAuthorRef(this.book, j) || j.needsAuthorRef || promptWantsAuthorRef(j.prompt);
+      if (needsRef) j.prompt = enforceAuthorRefPrompt(j.prompt);
+      const authorRef = needsRef ? await this.authorRef() : null;
+      if (needsRef && !authorRef?.dataUrl) throw new Halt('หยุดสร้างภาพ: ไม่พบรูปผู้เขียนที่เลือกไว้ กรุณาแนบรูปใน Studio แล้วเริ่มต่อ');
+      const refs = [];
+      let prompt = j.prompt;
+      if (authorRef) refs.push({ name: authorRef.name, dataUrl: authorRef.dataUrl });
+      // ปกหน้าเป็นตัวอ้างอิงภาษาภาพของทุกรูปถัดไป — Flow ใช้ภาพปกที่อยู่ใน project เดิมได้เลย ไม่ต้องอัปโหลดซ้ำ
+      const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'interior', 'pattern'].includes(j.kind);
+      const coverRef = wantsCoverRef ? await this.coverStyleRef() : null;
+      if (coverRef) {
+        refs.push({ tile: 'cover-front.png', name: coverRef.name, dataUrl: coverRef.dataUrl });
+        prompt += '\n\nThe attached image is the finished cover of this same book. Use it ONLY as a reference for palette, mood and visual language so this image belongs to the same world. Do NOT redraw it, do NOT copy its composition or subject, and do NOT put any text from it into this image.';
+      }
+      prompt = flowPrompt({ ...j, prompt }, ratio);
+
+      let saved = false;
+      let flowError = '';
+      for (let attempt = 1; attempt <= MAX_FLOW_ATTEMPTS && !saved; attempt++) {
+        if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+        this.emit({
+          type: 'image.progress',
+          stage: attempt === 1 ? 'generate' : 'retry',
+          current: index + 1,
+          total: jobs.length,
+          attempt,
+          maxAttempts: MAX_FLOW_ATTEMPTS,
+          name: j.name,
+          what: j.what,
+        });
+        this.book.imagePhase = {
+          ...(this.book.imagePhase || {}),
+          status: 'running',
+          total: jobs.length,
+          current: index + 1,
+          currentName: j.name,
+          currentWhat: j.what,
+          attempt,
+          remaining: jobs.slice(index).map((x) => x.name),
+          lastAttemptAt: Date.now(),
+        };
+        await this.save();
+        this.log(
+          'ok',
+          `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ส่งให้ Flow วาด ${ratio.label}` +
+            (ratio.loss >= 0.01 ? ` (ตัดขอบลงช่องราว ${Math.round(ratio.loss * 100)}%)` : ' (ตรงช่องพอดี ไม่ต้องครอป)') +
+            (refs.length ? ` · แนบ${authorRef ? 'รูปผู้เขียน' : 'ปกหน้า'}เป็นตัวอ้างอิง` : '') +
+            (attempt > 1 ? ` · ครั้งที่ ${attempt}` : ''),
+        );
+
+        const res = await flowCall(
+          'generate',
+          { name: j.name, prompt, ratio: ratio.label, refs, models: FLOW_MODELS, hires: true },
+          { timeoutMs: 9 * 60000 },
+        );
+        if (!res.ok) {
+          flowError = res.error || 'Flow ไม่ส่งภาพกลับมา';
+          this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${flowError}`);
+          noteTrouble({ step: 'images', symptom: 'flow_failed', move: 'retry', detail: `${j.what}: ${flowError}`, by: 'Google Flow' });
+          // ใช้เครดิตไม่ใช่ 0 = หยุดทั้งคิวทันที ห้ามลองซ้ำ
+          if (res.code === 'not_free') {
+            genErrors.set(j.name, flowError);
+            break;
+          }
+          await sleep(3000);
+          continue;
+        }
+        if (res.attachError) this.log('warn', `ภาพ ${j.name}: แนบรูปอ้างอิงใน Flow ไม่สำเร็จ (${res.attachError}) — วาดต่อโดยไม่มีรูปอ้างอิง`);
+        if (res.hiresError) this.log('warn', `ภาพ ${j.name}: ขอไฟล์ 2K ไม่สำเร็จ (${res.hiresError}) — ใช้ไฟล์ 1K แทน`);
+
+        try {
+          this.emit({ type: 'image.progress', stage: 'download', current: index + 1, total: jobs.length, name: j.name, what: j.what });
+          const rawBlob = await db.dataUrlToBlob(res.dataUrl);
+          const rawName = `${j.name.replace(/\.png$/i, '')}--flow-${res.via}-รอบ${attempt}.jpg`;
+          await W.saveBookImage(this.book, rawName, rawBlob, { folder: 'generated' });
+
+          const sourceCheck = await validateGeneratedSource(rawBlob, j);
+          if (!sourceCheck.ok) throw new Error(`ไฟล์ต้นฉบับไม่ผ่านตรวจ: ${sourceCheck.reason}`);
+          const normalized = await normalizeGeneratedImage(rawBlob, j);
+          const candidate = {
+            blob: normalized.blob,
+            meta: {
+              from: 'flow',
+              via: res.via,
+              flowModel: res.model || null,
+              flowRatio: ratio.label,
+              flowMediaId: res.mediaId || null,
+              phase: 2,
+              kind: j.kind || null,
+              artworkOnly: j.kind === 'cover' && !(j.name === 'cover-front.png' && P.coverTextBaked(this.book)),
+              textBaked: j.name === 'cover-front.png' && P.coverTextBaked(this.book),
+              generationVersion: 5,
+              targetWidthMm: j.widthMm || null,
+              targetHeightMm: j.heightMm || null,
+              aspect: j.aspect || null,
+              ...normalized.meta,
+            },
+          };
+          const checked = await validatePhase2Asset(candidate, j);
+          if (!checked.ok) throw new Error(`ภาพไม่ผ่านตรวจ: ${checked.reason}`);
+          await db.saveAsset(this.book.id, j.name, candidate.blob, candidate.meta);
+
+          const savedPath = await W.saveBookImage(this.book, j.name, candidate.blob);
+          if (savedPath) this.log('ok', `เก็บไฟล์ไว้ที่ ${savedPath}`);
+          else await this.downloadBookImage(j.name, candidate.blob);
+
+          if (j.name === 'cover-front.png') this._coverRef = undefined; // ภาพถัดไปต้องเห็นปกใบที่เพิ่งได้
+          if (j.name === 'cover-back.png' && P.backCoverTextBaked(this.book)) this.book.backCoverTextBaked = true;
+          saved = true;
+          const dpi = candidate.meta?.effectiveDpi ? ` · ราว ${candidate.meta.effectiveDpi} dpi` : '';
+          this.log(
+            'ok',
+            `✓ ภาพ ${index + 1}/${jobs.length} · ${j.what}: ได้จาก Flow ${res.width}×${res.height}px (${res.via.toUpperCase()}) บันทึกเป็น ${j.name}${dpi}` +
+              (res.renamed ? ' · ตั้งชื่อใน Flow แล้ว' : ''),
+          );
+          this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
+          this.book.imagePhase = {
+            ...(this.book.imagePhase || {}),
+            status: 'running',
+            completed: index + 1,
+            remaining: jobs.slice(index + 1).map((x) => x.name),
+            lastSavedAt: Date.now(),
+          };
+          await this.save();
+          try { await W.syncProject(this.book.id); } catch {}
+        } catch (e) {
+          flowError = e?.message || String(e);
+          this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${flowError}`);
+        }
+      }
+
+      if (!saved) {
+        genErrors.set(j.name, flowError || 'สร้างภาพด้วย Flow ไม่สำเร็จ');
+        this.book.imagePhase = {
+          ...(this.book.imagePhase || {}),
+          failures: [
+            ...(this.book.imagePhase?.failures || []).filter((f) => f.name !== j.name),
+            { name: j.name, what: j.what, reason: flowError || 'สร้างภาพด้วย Flow ไม่สำเร็จ' },
+          ],
+          remaining: jobs.slice(index + 1).map((x) => x.name),
+        };
+        await this.save();
+        this.emit({ type: 'image.progress', stage: 'failed', current: index + 1, total: jobs.length, name: j.name, what: j.what, reason: flowError });
+        if (/เครดิต|credit/i.test(flowError)) {
+          this.book.imagePhase = { ...this.book.imagePhase, status: 'partial', failedReason: flowError, stoppedAt: Date.now() };
+          this.job.step = 'gate_images';
+          this.job.status = 'waiting_human';
+          await this.save();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * ยังไม่ได้เลือกโฟลเดอร์ทำงาน = ไม่มีที่ให้เขียนไฟล์ตรง ๆ
+   * ส่งลงโฟลเดอร์ Downloads/Ebook Plus/<ชื่อเล่ม>/ แทน ผู้ใช้จะได้มีไฟล์ภาพตามชื่อที่วางแผนไว้เสมอ
+   */
+  async downloadBookImage(name, blob) {
+    try {
+      const safe = (s) => String(s || 'ebook').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'ebook';
+      const dataUrl = await db.blobToDataUrl(blob);
+      const r = await chrome.runtime.sendMessage({ type: 'sw.download', url: dataUrl, filename: `Ebook Plus/${safe(this.book.title)}/${name}` });
+      if (r?.ok) this.log('ok', `เก็บไฟล์ไว้ที่ Downloads/Ebook Plus/${safe(this.book.title)}/${name}`);
+    } catch {}
+  }
+
   async images() {
     // โปรเจกต์เก่าบางเล่มมี Prompt ปกก่อนระบบ GPT Art Director และยังคงเว้นพื้นที่โล่งแบบตายตัว
     // ห้ามใช้ Prompt เก่านั้นต่อใน Phase 2: ปรึกษา GPT ใหม่และล้างเฉพาะ asset ปกเก่า 1 ครั้ง
@@ -3440,8 +3666,19 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       this.log('ok', `ข้ามแผนกพิสูจน์คำสั่งภาพ — ใช้คำสั่งที่เตรียมไว้ไปวาดเลย (เริ่มวาดได้ทันที ไม่ต้องรออ่านคำสั่ง ${jobs.length} ฉบับ)`);
     }
 
+    /**
+     * Ebook Plus: ภาพทั้งเล่มมาจาก Google Flow โหมดฟรี — ใช้สายรับภาพของตัวเอง
+     * แล้วมาบรรจบกับ Final Check และการประกอบเล่มชุดเดียวกับทางอื่นด้านล่าง
+     * ลูปของ ChatGPT/API ด้านล่างถูกข้ามทั้งลูป ไม่มีการสั่งวาดซ้ำสองที่
+     */
+    const viaFlow = this.book.imageSource === 'flow';
+    if (viaFlow) {
+      const halted = await this.imagesViaFlow(jobs, genErrors);
+      if (halted) return;
+    }
+
     // ตัวทดสอบเครื่องมือสร้างภาพ ยิงครั้งเดียวต่อหนึ่งรอบงาน ไม่ใช่ต่อหนึ่งรูป
-    for (let index = 0; index < jobs.length; index++) {
+    for (let index = 0; !viaFlow && index < jobs.length; index++) {
       const j = jobs[index];
       this.emit({ type: 'image.progress', stage: 'check', current: index + 1, total: jobs.length, name: j.name, what: j.what });
 
@@ -5097,9 +5334,28 @@ async function normalizeGeneratedImage(blob, job) {
  */
 const NATIVE_ASPECTS = { '3:2': 3 / 2, '1:1': 1, '2:3': 2 / 3 };
 
-function normalizeFigureAspect(value) {
-  if (Object.prototype.hasOwnProperty.call(NATIVE_ASPECTS, value)) {
-    return { label: value, ratio: NATIVE_ASPECTS[value] };
+function normalizeFigureAspect(value, book = null) {
+  /**
+   * Ebook Plus: เมื่อสร้างภาพด้วย Google Flow ช่องต้องเป็นสัดส่วนที่ Flow วาดได้จริง
+   * (16:9 · 4:3 · 1:1 · 3:4 · 9:16) ภาพที่ได้จะลงช่องพอดีโดยไม่ต้องครอปทิ้งแม้แต่พิกเซลเดียว
+   */
+  const table = book?.imageSource === 'flow' ? FLOW_RATIOS : NATIVE_ASPECTS;
+  if (Object.prototype.hasOwnProperty.call(table, value)) {
+    return { label: value, ratio: table[value] };
+  }
+  if (table === FLOW_RATIOS) {
+    const legacy = { '3:2': 3 / 2, '2:3': 2 / 3 }[value];
+    const want = legacy || 4 / 3;
+    let label = '4:3';
+    let best = Infinity;
+    for (const [k, r] of Object.entries(FLOW_RATIOS)) {
+      const d = Math.abs(Math.log(r / want));
+      if (d < best) {
+        best = d;
+        label = k;
+      }
+    }
+    return { label, ratio: FLOW_RATIOS[label] };
   }
   // ค่าเก่า (4:3, 16:9) และค่าแปลก ๆ ให้เกาะสัดส่วนที่วาดได้ซึ่งใกล้ที่สุด
   const legacy = { '4:3': 4 / 3, '16:9': 16 / 9, '1:1': 1, '2:3': 2 / 3 }[value];

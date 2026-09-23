@@ -2191,7 +2191,7 @@ const bookUsesApi = (b) => (b?.textSource || 'web') === 'api';
  * เล่มที่เขียนด้วย API แต่วาดภาพในแท็บ ยังต้องเรียกแท็บขึ้นมาตอน Phase 2 อยู่ดี
  */
 const bookDrawsInTab = (b) =>
-  (b?.imageSource || 'web') !== 'api' && !['none', 'upload'].includes(b?.coverMode || 'prompt');
+  (b?.imageSource || 'web') === 'web' && !['none', 'upload'].includes(b?.coverMode || 'prompt');
 const uiUsesApi = () => val('textSource', 'web') === 'api';
 const useTextApi = (forBook = null) => (forBook ? bookUsesApi(forBook) : uiUsesApi());
 const transportKind = (forBook = null) =>
@@ -4715,6 +4715,17 @@ async function renderPhase2() {
   if (!book?.id || phase2Rendering) return;
   phase2Rendering = true;
   try {
+    const viaFlow = (book.imageSource || 'web') === 'flow';
+    const help = $('phase2Help');
+    if (help) {
+      help.querySelector('summary').textContent = viaFlow
+        ? 'ก่อนเริ่ม: ล็อกอิน Google Flow (flow.google.com) ไว้ในเบราว์เซอร์นี้'
+        : 'ก่อนเริ่ม: ใช้บัญชี ChatGPT ที่สร้างภาพได้';
+      help.querySelector('p').textContent = viaFlow
+        ? 'ระบบจะเปิด project ใหม่ใน Google Flow ตั้งชื่อตามหนังสือ แล้ววาดทีละรูปด้วยโมเดลที่ใช้ 0 เครดิตเท่านั้น (ถ้า Flow บอกว่าต้องใช้เครดิต ระบบจะหยุดทันที) ' +
+          'ภาพแต่ละใบถูกตั้งชื่อใน Flow ตามชื่อไฟล์ที่วางแผนไว้ ดึงไฟล์ 2K มาเก็บในโฟลเดอร์ของเล่ม แล้วแทรกกลับเข้าช่องเดิมให้เอง · กดหยุดกลางทางได้ รูปที่บันทึกไปแล้วจะไม่ถูกสร้างซ้ำ'
+        : 'เปิดหรือคลิกหน้าต่าง ChatGPT ของบัญชีที่สร้างภาพได้อย่างน้อย 1 ครั้ง แล้วกลับมากดเริ่มที่หน้านี้ ระบบจะใช้หน้าต่าง ChatGPT ที่แตะล่าสุด สร้างเฉพาะรูปที่ยังขาด บันทึกทีละรูปทันทีที่ผ่านตรวจ แล้วแทรกกลับเข้าช่องเดิมให้เอง กดหยุดกลางทางได้ รูปที่บันทึกไปแล้วจะไม่ถูกสร้างซ้ำ';
+    }
     const assets = await db.loadAssets(book.id);
     const previousPreviewUrls = phase2PreviewUrls;
     phase2PreviewUrls = [];
@@ -4764,7 +4775,7 @@ async function renderPhase2() {
          */
         const acts =
           `<div class="acts">` +
-          (r.canRegen && r.state !== 'done'
+          (r.canRegen && r.state !== 'done' && !viaFlow
             ? `<button data-p2-grab="${esc(r.name)}" title="ถ้าเห็นว่า ChatGPT วาดเสร็จแล้ว กดปุ่มนี้เพื่อดึงภาพล่าสุดมาใส่ช่องนี้เลย">ภาพเสร็จแล้ว → ดึงมาเลย</button>`
             : '') +
           // ปุ่มนี้เคยผูกกับ canRegen ซึ่งกลับหัวกลับหางกับความจริง
@@ -4781,7 +4792,7 @@ async function renderPhase2() {
           `<span class="p2Note">${esc(r.note)}</span>` +
           (previews.has(r.name) ? (() => {
             const { url, asset } = previews.get(r.name);
-            const from = { chatgpt: 'ChatGPT', api: 'Images API', manual: 'นำเข้าด้วยตนเอง' }[asset.meta?.from] || 'ข้อมูลเก่า ไม่ได้บันทึกแหล่งที่มา';
+            const from = { chatgpt: 'ChatGPT', api: 'Images API', flow: 'Google Flow', manual: 'นำเข้าด้วยตนเอง' }[asset.meta?.from] || 'ข้อมูลเก่า ไม่ได้บันทึกแหล่งที่มา';
             return `<a class="p2Preview" href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="ภาพที่บันทึกจริง: ${esc(r.name)}" loading="lazy"><span>ภาพที่ดึงมา · คลิกดูขนาดเต็ม</span></a>` +
               `<span class="p2Source">แหล่งที่มา: ${esc(from)} · ${Math.round(asset.blob.size / 1024)} KB${asset.at ? ` · บันทึก ${esc(new Date(asset.at).toLocaleString('th-TH'))}` : ''}</span>`;
           })() : '') + `</div>${acts}</div>`
@@ -5214,7 +5225,12 @@ async function startPhase2() {
   setMacroStage('images');
   renderSteps();
   await renderPhase2();
-  setPhase('images', 'กำลังเชื่อมต่อหน้าต่าง ChatGPT ที่เลือกไว้ และเตรียมสร้างภาพที่ยังขาด');
+  setPhase(
+    'images',
+    (book.imageSource || 'web') === 'flow'
+      ? 'กำลังเปิด Google Flow (โหมดฟรี) และเตรียมสร้างภาพที่ยังขาดทีละรูป'
+      : 'กำลังเชื่อมต่อหน้าต่าง ChatGPT ที่เลือกไว้ และเตรียมสร้างภาพที่ยังขาด',
+  );
   status('กำลังเริ่ม Image Phase 2');
   book.job.step = 'images';
   book.job.status = 'paused';
@@ -6111,12 +6127,14 @@ $('wizardNext').onclick = () => wizardShift(1);
   * ไม่ใช่การเดาแทนคนที่ไม่เคยแตะการ์ดแล้วตั้งใจไม่เอาภาพจริง ๆ
   */
 const MODE_PRESET = {
+  flow: { textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
   free: { textSource: 'web', imageSource: 'web', coverMode: 'prompt', figureMode: 'prompt', illus: 'light' },
   plus: { textSource: 'web', imageSource: 'web', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
   api: { textSource: 'api', imageSource: 'api', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
 };
 
 const MODE_NOTE = {
+  flow: 'โหมด Ebook Plus: เขียนเนื้อหาผ่านหน้าเว็บ ChatGPT แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูปตามแผนของ ChatGPT · ภาพถูกตั้งชื่อตามตำแหน่งในเล่ม เก็บลงโฟลเดอร์ของเล่ม แล้วใส่เข้าหน้าให้เอง · ต้องเปิดแท็บ chatgpt.com และล็อกอิน flow.google.com ไว้',
   free: 'โหมดฟรี: เขียนเนื้อหาผ่านหน้าเว็บ ChatGPT แล้วเว้นช่องภาพไว้พร้อม Prompt ครบทั้งปกหน้า ปกหลัง และภาพประกอบในเล่ม (ราว 1 ภาพต่อ 2-3 ตอน) · เอา Prompt ไปสร้างที่อื่นแล้วนำไฟล์กลับมาใส่ · ต้องเปิดแท็บ chatgpt.com ค้างไว้ตลอด',
   plus: 'โหมด Plus: เขียนและสร้างภาพด้วยบัญชีเดียว ระบบดึงภาพมาใส่ให้เอง · หรือจะเปลี่ยนเป็นเอา Prompt ไปสร้างเองแล้วแนบก็ได้ที่ขั้นรูปเล่มและภาพ · ต้องเปิดแท็บ chatgpt.com ค้างไว้ตลอด',
   api: 'โหมด API: เขียนและสร้างภาพผ่าน API ไม่ต้องเปิดแท็บ ChatGPT เลย · เปลี่ยนเป็นเอา Prompt ไปสร้างเองก็ได้เหมือนกัน · ต้องใส่ API key และจ่ายตามจำนวน token ที่ใช้จริง',
@@ -6162,6 +6180,7 @@ function syncModeFromForm() {
   const t = val('textSource', 'web');
   const i = val('imageSource', 'web');
   if (t === 'api' && i === 'api') return highlightMode('api');
+  if (t === 'web' && i === 'flow') return highlightMode('flow');
   if (t === 'web' && i === 'web') return highlightMode(chosenMode === 'plus' ? 'plus' : 'free');
   /**
    * ผสมทาง เช่นเขียนด้วย API แต่วาดภาพด้วยหน้าเว็บ ไม่ตรงกับการ์ดใบไหนเลย
@@ -6172,7 +6191,7 @@ function syncModeFromForm() {
     .querySelectorAll('[data-mode]')
     .forEach((b) => b.classList.remove('sel'));
   $('modePickerNote').textContent =
-    `ตั้งเอง: เขียนด้วย${t === 'api' ? ' OpenAI API' : 'หน้าเว็บ ChatGPT'} · สร้างภาพด้วย${i === 'api' ? ' OpenAI API' : 'หน้าเว็บ ChatGPT'}`;
+    `ตั้งเอง: เขียนด้วย${t === 'api' ? ' OpenAI API' : 'หน้าเว็บ ChatGPT'} · สร้างภาพด้วย${i === 'api' ? ' OpenAI API' : i === 'flow' ? ' Google Flow' : 'หน้าเว็บ ChatGPT'}`;
   $('sourceAdvanced').open = true;
 }
 

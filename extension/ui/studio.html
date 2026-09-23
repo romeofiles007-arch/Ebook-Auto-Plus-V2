@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ebook Auto — Studio</title>
+<title>Ebook Plus — Studio</title>
 <link rel="icon" type="image/png" href="../icons/icon-32.png">
 <link rel="stylesheet" href="studio.css">
 <link rel="stylesheet" href="crew.css">
@@ -54,7 +54,7 @@
 
 <header>
   <div>
-    <div class="brand"><img class="brand-logo" src="../icons/icon-48.png" alt=""> <span>Ebook Auto</span></div>
+    <div class="brand"><img class="brand-logo" src="../icons/icon-48.png" alt=""> <span>Ebook Plus</span></div>
     <div class="sub">Extension ↔ ChatGPT ↔ Typst</div>
   </div>
   <div class="headerRight">
@@ -80,6 +80,11 @@
     คนที่เพิ่งเปิดมาไม่มีทางรู้ว่าต้องเลือกอะไรก่อน และเลือกผิดคือเจอปัญหาคนละชุดกันทั้งเส้นทาง
   -->
   <div id="modePicker" class="modePicker" data-step="mode">
+    <button type="button" class="modeCard" data-mode="flow">
+      <b>ChatGPT + Google Flow</b>
+      <span class="modeWhat">เขียนด้วย ChatGPT ฟรี · วาดปกและภาพประกอบด้วย Google Flow ฟรี</span>
+      <span class="modeNote">ภาพไม่จำกัดจำนวน (โหมด 0 เครดิต) · ได้ไฟล์ 2K ตรงสัดส่วนช่องภาพ ตั้งชื่อตามตำแหน่งในเล่มแล้วใส่ให้เอง · ต้องล็อกอิน flow.google.com ไว้ในเบราว์เซอร์นี้</span>
+    </button>
     <button type="button" class="modeCard" data-mode="free">
       <b>ChatGPT ฟรี</b>
       <span class="modeWhat">เขียนเนื้อหาผ่านหน้าเว็บ ไม่เสียเงิน</span>
@@ -144,7 +149,8 @@
         <span>เลือกแยกจากงานเขียนได้ บัญชีที่สร้างภาพไม่ได้ก็ยังเขียนเนื้อหาได้ครบ</span>
       </div>
       <select id="imageSource">
-        <option value="web" selected>หน้าเว็บ ChatGPT</option>
+        <option value="flow" selected>Google Flow (ฟรี · ไม่จำกัดจำนวนภาพ)</option>
+        <option value="web">หน้าเว็บ ChatGPT</option>
         <option value="api">OpenAI API</option>
       </select>
     </div>

@@ -48,7 +48,7 @@ test('โฟลเดอร์ตั้งชื่อตามหนังส�
   const dir = await W.bookDir(book, { create: true });
   assert.ok(dir, 'ต้องสร้างโฟลเดอร์ได้');
   assert.match(dir.name, /^เมืองที่ไม่เคยหลับ-9f3ab21c$/);
-  assert.equal(await W.bookDirPath(book), '_EbookAuto/books/เมืองที่ไม่เคยหลับ-9f3ab21c');
+  assert.equal(await W.bookDirPath(book), '_EbookPlus/books/เมืองที่ไม่เคยหลับ-9f3ab21c');
 });
 
 test('เปลี่ยนชื่อหนังสือแล้วยังเจอโฟลเดอร์เดิม ไม่ทิ้งภาพเป็นกำพร้า', async () => {
@@ -62,7 +62,7 @@ test('เปลี่ยนชื่อหนังสือแล้วยั�
 
 test('ภาพถูกเก็บพร้อมชื่อช่องของมัน และคืนที่อยู่ไฟล์กลับมา', async () => {
   const path = await W.saveBookImage(book, 'fig-1.1-1.png', png());
-  assert.equal(path, '_EbookAuto/books/เมืองที่ไม่เคยหลับ-9f3ab21c/images/fig-1.1-1.png');
+  assert.equal(path, '_EbookPlus/books/เมืองที่ไม่เคยหลับ-9f3ab21c/images/fig-1.1-1.png');
   const names = (await W.listBookImages(book)).map((f) => f.name).sort();
   assert.deepEqual(names, ['cover-front.png', 'fig-1.1-1.png']);
 });

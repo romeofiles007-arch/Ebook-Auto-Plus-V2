@@ -1,9 +1,10 @@
 # Render the SVG's filled M/L/C/Z paths without third-party dependencies.
-# Run from any directory: powershell -File design/render-icons.ps1
+# Run from any directory: powershell -File design/render-icons.ps1 [-Name ebook-plus]
+param([string]$Name = 'ebook-plus')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 $iconDir = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../extension/icons'))
-[xml]$svg = Get-Content -LiteralPath (Join-Path $iconDir 'ebook-auto.svg') -Raw
+[xml]$svg = Get-Content -LiteralPath (Join-Path $iconDir "$Name.svg") -Raw
 
 function New-IconBitmap([int]$size) {
     $scale = 8

@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Ebook Auto",
-  "version": "0.1.0",
-  "version_name": "0.1.0 build 20260912-0100",
-  "description": "ให้หัวข้อ แล้วสร้างหนังสือทั้งเล่มผ่านหน้าเว็บ ChatGPT เรียงพิมพ์ด้วย Typst ในเบราว์เซอร์ คุมจำนวนหน้าได้จริง",
+  "name": "Ebook Plus",
+  "version": "0.2.0",
+  "version_name": "0.2.0 Ebook Plus · Google Flow",
+  "description": "ให้หัวข้อ แล้วสร้างหนังสือทั้งเล่มผ่านหน้าเว็บ ChatGPT พร้อมภาพปกและภาพประกอบฟรีจาก Google Flow เรียงพิมพ์ด้วย Typst ในเบราว์เซอร์",
   "minimum_chrome_version": "114",
 
   "permissions": [
@@ -24,7 +24,9 @@
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://*.oaiusercontent.com/*",
-    "https://api.openai.com/*"
+    "https://api.openai.com/*",
+    "https://flow.google.com/*",
+    "https://flow-content.google/*"
   ],
 
   "background": { "service_worker": "sw.js", "type": "module" },
@@ -36,7 +38,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Ebook Auto",
+    "default_title": "Ebook Plus",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -51,6 +53,17 @@
       "js": ["adapter/chatgpt.js"],
       "run_at": "document_idle",
       "all_frames": false
+    },
+    {
+      "matches": ["https://flow.google.com/*"],
+      "js": ["adapter/flow-main.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://flow.google.com/*"],
+      "js": ["adapter/flow.js"],
+      "run_at": "document_idle"
     }
   ],
 
