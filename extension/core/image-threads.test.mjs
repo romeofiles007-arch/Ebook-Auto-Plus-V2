@@ -87,7 +87,7 @@ test('พื้นหลังถูกวางไว้หลังข้อ�
   assert.match(template, /background: context \{/);
   assert.match(template, /chapter-pages\.final\(\)\.contains\(here\(\)\.page\(\)\)/);
   // ตัวจดหน้าต้องอยู่ในกฎแสดงผลของหัวข้อ ไม่งั้นรายการจะว่างแล้วทั้งเล่มไม่มีลายเลย
-  assert.match(template, /pagebreak\(to: "odd", weak: true\)\$\{markPatternPage\(opts\)\}/);
+  assert.match(template, /weak: true\)\$\{markPatternPage\(opts\)\}/);
   // ประกาศ state ต้องมาก่อน #set page ทั้งสองเอกสาร ไม่งั้นคอมไพล์ไม่ผ่าน
   assert.equal((template.match(/\$\{patternPreamble\(opts\)\}#set page\(/g) || []).length, 2);
 });

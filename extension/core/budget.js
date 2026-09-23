@@ -178,7 +178,7 @@ function distribute(budget, weights, floor, ceil) {
 
 /** กระจายงบให้แต่ละตอนตามน้ำหนักบท และคืน outline ที่มีโควตาแล้ว */
 export function assignQuotas(book, outline) {
-  const { budget, textPages, breakdown } = computeBudget(book, outline);
+  let { budget, textPages, breakdown } = computeBudget(book, outline);
   const lang = book.language === 'en' ? 'en' : 'th';
 
   /**
@@ -211,6 +211,20 @@ export function assignQuotas(book, outline) {
 
   const minUnits = MIN_WRITABLE_UNITS[lang];
   const maxUnits = MAX_TURN_UNITS[lang];
+  /**
+   * จำนวนหน้าแบบยืดหยุ่น: ตอนต้องยาวพอจะมีเนื้อหาจริงเสมอ เล่มหนาขึ้นได้ ไม่ใช่ตอนสั้นลงจนเหลือประโยคเดียว
+   * เจอจริง: นิยาย 9 ตอนในเล่ม 10 หน้า ได้ตอนละ 73 หน่วย ทุกบทเหลือ 1–2 ประโยค ("ห่วยแตก" — ผู้ใช้)
+   * นิยายต้องมีที่ให้ฉากเดิน จึงให้ขั้นต่ำสูงกว่าสารคดี · โหมด "ต้องเป๊ะ" ยังแบ่งตามจำนวนหน้าเดิม
+   */
+  const soft = (book.pageMode || 'soft') !== 'strict';
+  const wantPerSection = Math.round(minUnits * (book.contentMode === 'fiction' ? 1.8 : 1.1));
+  if (soft && budget / entries.length < wantPerSection) {
+    const grown = wantPerSection * entries.length;
+    warnings.push(
+      `สารบัญมี ${entries.length} ตอน มากกว่าที่ ${book.targetPages} หน้ารองรับ — ให้แต่ละตอนยาวอย่างน้อย ${wantPerSection.toLocaleString()} หน่วยเพื่อให้มีเนื้อหาจริง เล่มจะหนากว่าเป้า`,
+    );
+    budget = grown;
+  }
   const avg = budget / entries.length;
   // ถ้างบทั้งเล่มยังพอ ห้ามแจกตอนไหนต่ำกว่าเกณฑ์เขียนได้จริง
   // แต่ถ้าเล่มเล็กจนค่าเฉลี่ยเองยังต่ำกว่าเกณฑ์ ก็บังคับไม่ได้ ต้องปล่อยแล้วไปเตือนแทน

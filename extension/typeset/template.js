@@ -382,9 +382,10 @@ ${patternPreamble(opts)}#set page(
 // เลขที่ไม่มีใครอ้างถึงจึงเป็นแค่คำรกหน้ากระดาษ ใต้ภาพเหลือเฉพาะคำบรรยายจริงถ้ามี
 #set figure(numbering: none, supplement: none, gap: 0.8em)
 
-// บทใหม่ขึ้นหน้าขวาเสมอ และเว้นช่วงนำสายตาโดยไม่ดันหัวข้อให้ต่ำเกินไป
+// บทใหม่ขึ้นหน้าใหม่ (ขึ้นหน้าขวาเฉพาะเมื่อตั้ง chapterStartRight สำหรับงานพิมพ์) และเว้นช่วงนำสายตา
+// เดิมบังคับหน้าขวาเสมอ นิยายที่บทสั้นจึงมีหน้าว่างทุกหน้าคู่ ครึ่งเล่มเป็นกระดาษเปล่า (ผู้ใช้เจอจริง)
 #show heading.where(level: 1): it => {
-  pagebreak(to: "odd", weak: true)${markPatternPage(opts)}
+  pagebreak(${book.chapterStartRight === true ? 'to: "odd", ' : ''}weak: true)${markPatternPage(opts)}
   v(${round((trim.heightMm - t.marginsMm.top - t.marginsMm.bottom) * 0.16)}mm)
   block(text(size: ${pt(t.sizePt * 1.6)}, weight: 600, it.body))
   v(1em)
@@ -751,23 +752,31 @@ function frontMatter(book, outline, opts = {}) {
   #image("/img/${coverName}", width: 100%, height: 100%, fit: "cover")
 ]`);
     } else {
+    /**
+     * ชื่อเรื่องกับชื่อรองต้องซ้อนกันเป็นก้อนเดียว ไม่ใช่วางคนละตำแหน่งตายตัว
+     * เจอจริง: ชื่อไทยยาวตัดสองบรรทัด บรรทัดที่สองไปทับชื่อรองที่วางไว้ 26% ของความสูง
+     * ชื่อยาวย่อขนาดลงตามความยาว · มีแถบเงาไล่จางด้านบน/ล่าง และตัวอักษรสีอ่อน จึงอ่านออกบนภาพทุกโทน
+     * (เจอจริง: ชื่อผู้เขียนสีเข้มบนพื้นภาพมืด มองแทบไม่เห็น)
+     */
+    const titleLen = [...String(outline.title || '')].length;
+    const titleScale = titleLen > 14 ? Math.max(2.0, Math.min(czTitle.size, (czTitle.size * 14) / titleLen)) : czTitle.size;
+    const light = '#FFFDF7';
     parts.push(`#page(margin: 0pt)[
   #image("/img/${coverName}", width: 100%, height: 100%, fit: "cover")
-  #place(top + left, dx: ${round(coverW * czTitle.x / 100)}mm, dy: ${round(coverH * czTitle.y / 100)}mm)[
+  #place(top + left)[#rect(width: 100%, height: 42%, fill: gradient.linear(rgb("#0000009E"), rgb("#00000000"), angle: 90deg))]
+  ${book.author ? `#place(bottom + left)[#rect(width: 100%, height: 20%, fill: gradient.linear(rgb("#00000000"), rgb("#00000099"), angle: 90deg))]` : ''}
+  #place(top + left, dx: ${round(coverW * czTitle.x / 100)}mm, dy: ${round(coverH * Math.min(czTitle.y, 14) / 100)}mm)[
     #box(width: ${round(coverW * czTitle.width / 100)}mm)[
       #align(${czTitle.align})[
-        #text(font: ${str(book.typography.headFont || book.typography.bodyFont)}, size: ${pt(book.typography.sizePt * czTitle.size)}, weight: 700, fill: rgb("${czTitle.color}"))[${T(outline.title)}]
+        #text(font: ${str(book.typography.headFont || book.typography.bodyFont)}, size: ${pt(book.typography.sizePt * titleScale)}, weight: 700, fill: rgb("${light}"))[${T(outline.title)}]
+        ${outline.subtitle ? `#v(0.5em)
+        #text(size: ${pt(book.typography.sizePt * czSubtitle.size)}, fill: rgb("${light}"))[${T(outline.subtitle)}]` : ''}
       ]
     ]
   ]
-  ${outline.subtitle ? `#place(top + left, dx: ${round(coverW * czSubtitle.x / 100)}mm, dy: ${round(coverH * czSubtitle.y / 100)}mm)[
-    #box(width: ${round(coverW * czSubtitle.width / 100)}mm)[
-      #align(${czSubtitle.align})[#text(size: ${pt(book.typography.sizePt * czSubtitle.size)}, fill: rgb("${czSubtitle.color}"))[${T(outline.subtitle)}]]
-    ]
-  ]` : ''}
-  ${book.author ? `#place(top + left, dx: ${round(coverW * czAuthor.x / 100)}mm, dy: ${round(coverH * czAuthor.y / 100)}mm)[
+  ${book.author ? `#place(bottom + left, dx: ${round(coverW * czAuthor.x / 100)}mm, dy: -${round(coverH * 0.05)}mm)[
     #box(width: ${round(coverW * czAuthor.width / 100)}mm)[
-      #align(${czAuthor.align})[#text(size: ${pt(book.typography.sizePt * czAuthor.size)}, fill: rgb("${czAuthor.color}"))[${T(book.author)}]]
+      #align(${czAuthor.align})[#text(size: ${pt(book.typography.sizePt * czAuthor.size)}, weight: 600, fill: rgb("${light}"))[${T(book.author)}]]
     ]
   ]` : ''}
 ]`);
@@ -841,8 +850,23 @@ function backCoverPage(book, outline, opts = {}) {
    * (เห็นในเล่มจริง: คำโปรยทับกับป้ายกระดาษบนผนังที่เขียนว่า "ทำสไลด์รายงาน")
    * ต่อให้เลือกสีตัวอักษรเก่งแค่ไหนก็ไม่ชนะพื้นหลังที่คุมไม่ได้ ต้องมีพื้นทึบรองเท่านั้น
    */
-  const inkColor = palette?.[0]?.hex || '#14243A';
-  const paperColor = palette?.[2]?.hex || '#F6F1E7';
+  /**
+   * สีจาก palette ใช้ได้ก็ต่อเมื่ออ่านออกจริง
+   * เจอจริง: palette ของนิยายโทนแดงให้ตัวอักษรแดงบนกรอบแดงเข้ม อ่านไม่ออกทั้งหน้า
+   * กรอบต้องสว่าง ตัวอักษรต้องเข้ม และต่างกันพอ (contrast ≥ 7) ไม่งั้นถอยไปคู่สีปลอดภัย
+   */
+  const lum = (hex) => {
+    const m = /^#?([0-9a-f]{6})/i.exec(String(hex || ''));
+    if (!m) return null;
+    const c = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contrast = (a, b) => { const x = lum(a), y = lum(b); return x == null || y == null ? 0 : (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const pickPaper = palette?.[2]?.hex;
+  const paperColor = pickPaper && lum(pickPaper) >= 0.75 ? pickPaper.slice(0, 7) : '#F6F1E7';
+  const pickInk = palette?.[0]?.hex;
+  const inkColor = pickInk && contrast(pickInk, paperColor) >= 7 ? pickInk.slice(0, 7) : '#1B1B1F';
   const textColor = inkColor;
   const panelFill = `${paperColor}F0`; // ทึบ 94% พอให้เห็นเนื้อภาพจาง ๆ แต่อ่านออกแน่นอน
   const coverW = book.trim?.widthMm || 148;

@@ -1806,7 +1806,8 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
   const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
   return [
     `Instructional illustration for a ${lang} how-to book${book?.title ? ` titled "${book.title}"` : ''}.`,
-    caption ? `WHAT THE READER MUST LEARN FROM THIS PICTURE (${lang} caption printed under it): "${caption}"` : '',
+    // คำบรรยายเป็น "ความหมาย" เท่านั้น — เคยใส่เป็นข้อความตรง ๆ แล้ว Flow วาดประโยคไทยนั้นลงในภาพ (ซ้ำกับคำบรรยายใต้ภาพ)
+    caption ? `WHAT THE READER MUST LEARN FROM THIS PICTURE — meaning only, NEVER write these words or any text inside the image (the book prints it below the picture): ${caption}` : '',
     subject ? `SHOW EXACTLY THIS: ${subject}` : '',
     ctx
       ? `THE BOOK TEXT RIGHT AT THIS PICTURE (${lang}) — every object, action and setting must come from this passage:\n"${ctx}"`
@@ -1863,7 +1864,7 @@ export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], 
   return [
     `Story illustration for a ${lang} novel${book?.title ? ` titled "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
     fig?.subject ? `THE MOMENT TO DRAW: ${fig.subject}` : '',
-    fig?.caption ? `Caption printed under it (${lang}): "${fig.caption}"` : '',
+    // ไม่ส่งคำบรรยายใต้ภาพไปเลย: ฉาก + เนื้อเรื่องรอบภาพบอกพอแล้ว และข้อความไทยที่ส่งไปถูกวาดลงในภาพ (เจอจริงในนิยาย)
     ctx ? `THE STORY TEXT RIGHT AT THIS PICTURE (${lang}) — setting, action, mood and who is present must come from this passage:\n"${ctx}"` : '',
     cast,
     'Show the characters doing what the passage describes, with real emotion and body language — not posing for the camera. Reveal nothing that happens later in the story.',
