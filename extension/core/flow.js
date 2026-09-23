@@ -82,7 +82,7 @@ export const FLOW_CAST_COLLECTION = '00 ตัวละคร';
  * ตัวละครหลักของนิยายที่ต้องมีภาพต้นแบบ — รวมจากสารบัญ (cast) และ Story Bible ไม่ซ้ำชื่อ
  * เอาเฉพาะที่มีชื่อจริง และให้ตัวที่บอกรูปลักษณ์ไว้มาก่อน เพราะคือตัวที่ต้องหน้าตาคงเดิมทั้งเล่ม
  */
-export function fictionCast(book, max = 6) {
+export function fictionCast(book, max = 8) {
   const seen = new Map();
   for (const c of [...(book?.outline?.cast || []), ...(book?.bible?.characters || [])]) {
     const name = typeof c === 'object' ? String(c?.name || '').trim() : '';
@@ -98,6 +98,17 @@ export function fictionCast(book, max = 6) {
     const s = seeds.find((x) => (c.seed && x.slot === c.seed) || (x.name && x.name === c.name));
     return s ? { ...c, seedSlot: s.slot, photo: !!s.photo } : c;
   });
+  /**
+   * ช่องที่ผู้ใช้กรอกเอง (มีชื่อหรือแนบรูป) ต้องมีภาพต้นแบบเสมอ แม้โครงเรื่องจะไม่ได้ใส่ seed กลับมา
+   * เจอจริง: คอลเล็กชัน "00 ตัวละคร" มีแค่ 2 ตัว ตัวละครที่ผู้ใช้ตั้งไว้หายไปเฉย ๆ
+   */
+  for (const s of seeds) {
+    if (!s?.slot || !(s.name || s.photo) || list.some((c) => c.seedSlot === s.slot)) continue;
+    const name = String(s.name || s.label || s.slot).trim();
+    const same = list.find((c) => c.name === name);
+    if (same) Object.assign(same, { seedSlot: s.slot, photo: !!s.photo });
+    else list.push({ name, role: s.label || '', appearance: s.appearance || '', seedSlot: s.slot, photo: !!s.photo });
+  }
   const rank = (c) => (c.seedSlot ? 2 : 0) + (c.appearance ? 1 : 0);
   return list.sort((a, b) => rank(b) - rank(a)).slice(0, max);
 }
@@ -106,7 +117,7 @@ export function fictionCast(book, max = 6) {
 export const castPhotoName = (slot) => `cast-${slot}.png`;
 
 /** ชื่อไฟล์/ชื่อภาพใน Flow ของภาพต้นแบบตัวละครลำดับที่ i */
-export const charRefName = (i) => `char-${String(i + 1).padStart(2, '0')}.png`;
+export const charRefName = (i, v = 1) => `char-${String(i + 1).padStart(2, '0')}${v > 1 ? `-v${v}` : ''}.png`;
 
 /** ตัวละครที่ถูกเอ่ยชื่อในข้อความนี้ (ฉาก คำบรรยาย หรือเนื้อเรื่องรอบภาพ) เรียงตามลำดับใน cast */
 export function castInText(cast, textToSearch, max = 3) {

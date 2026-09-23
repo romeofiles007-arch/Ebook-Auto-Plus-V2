@@ -289,3 +289,29 @@ test('ช่องตัวละครของผู้ใช้: ใส่ใ
   assert.match(studio, /castSeeds: contentMode === 'fiction' \? readCastSeeds\(\) : \[\]/);
   assert.match(studio, /await saveSetupCastPhotos\(\);/);
 });
+
+/** ผู้ใช้ทัก: "ตัวละครอ้างอิงไม่ครบ" + "มั่วสไตล์ จืดชืดไม่น่าดู" (ปกภาพถ่าย · ในเล่มสเก็ตช์ย้อมแดง) */
+test('นิยาย: ตัวละครครบทุกช่องที่ผู้ใช้ตั้ง และทั้งเล่มสไตล์เดียวกันสีเต็ม', async () => {
+  const { fictionCast, charRefName } = await import('./flow.js');
+  const cast = fictionCast({
+    outline: { cast: [{ name: 'ต้น' }] },
+    castSeeds: [{ slot: 'hero', label: 'พระเอก', name: 'ภูมิ', photo: true }, { slot: 'other1', label: 'ตัวละครอื่น 1', name: 'ต้น' }, { slot: 'other2', label: 'ตัวละครอื่น 2' }],
+  });
+  assert.deepEqual(cast.map((c) => c.name).sort(), ['ต้น', 'ภูมิ']);
+  assert.equal(cast.find((c) => c.name === 'ภูมิ').photo, true);
+  assert.equal(cast.find((c) => c.name === 'ต้น').seedSlot, 'other1');
+  assert.equal(charRefName(0, 2), 'char-01-v2.png');
+  const P = await import('./prompts.js');
+  assert.equal(P.novelStyleKey('box'), 'novel');
+  assert.equal(P.novelStyleKey('sketch'), 'novel');
+  assert.equal(P.novelStyleKey('riso'), 'riso');
+  const fig = P.flowFictionFigurePrompt({ book: {}, fig: { subject: 'x' }, styleKey: 'novel', palette: [{ hex: '#C0392B' }] });
+  assert.match(fig, /full-colour digital illustration/);
+  assert.match(fig, /never a monochrome or single-tint wash/);
+  assert.doesNotMatch(fig, /colours in the family of/);
+  const sheet = P.characterSheetPrompt({}, { name: 'ภูมิ' }, { styleKey: 'novel', fromPhoto: true });
+  assert.match(sheet, /THE ATTACHED PHOTO IS THIS CHARACTER/);
+  assert.match(machine, /refs: photoRef \? \[photoRef\] : \[\]/);
+  assert.match(machine, /VISUAL LANGUAGE OVERRIDE/);
+  assert.match(machine, /existing\.meta\?\.novelStyle !== P\.NOVEL_STYLE_V/);
+});

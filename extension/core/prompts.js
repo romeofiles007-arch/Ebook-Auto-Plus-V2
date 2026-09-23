@@ -1479,7 +1479,26 @@ ${cards || '(ไม่มีทิศทางส่งมา)'}
  * ไม่ต้องสร้างภาพ ไม่มีปัญหา dpi และเป็นคำตอบที่ถูกต้องกว่าสำหรับ
  * "ภาพ" ที่จริง ๆ แล้วเป็นรายการขั้นตอนหรือตารางเปรียบเทียบ
  */
+/**
+ * สไตล์เดียวของทั้งเล่มนิยาย (Google Flow): ปก · ภาพต้นแบบตัวละคร · ภาพประกอบทุกรูป
+ * เจอจริง: ปกเป็นภาพถ่าย ภาพในเล่มเป็นสเก็ตช์ดินสอเทาย้อมแดง ตัวละครเป็นลายเส้นเปล่า — "มั่วสไตล์ จืดชืดไม่น่าดู"
+ * เปลี่ยนเลข NOVEL_STYLE_V เมื่อเปลี่ยนสไตล์ ภาพเก่าของเล่มที่ทำค้างจะถูกวาดใหม่ให้เข้าชุด
+ */
+export const NOVEL_ART_STYLE =
+  'polished full-colour digital illustration in a modern graphic-novel style: clean confident linework, rich painterly colour with natural skin tones, cinematic lighting from a clear light source, detailed atmospheric background, expressive faces';
+export const NOVEL_STYLE_V = 2;
+
+/** สไตล์ภาพของนิยาย: ค่าตั้งต้นเดิม (กล่อง/สเก็ตช์) = สไตล์นิยายสีเต็ม · สไตล์อื่นที่ผู้ใช้เลือกเองใช้ตามนั้น */
+export function novelStyleKey(requested) {
+  return !requested || requested === 'box' || requested === 'sketch' ? 'novel' : requested;
+}
+
 export const FIGURE_STYLES = {
+  novel: {
+    label: 'ภาพประกอบนิยายสีเต็ม — ชุดเดียวกับปก',
+    brief: NOVEL_ART_STYLE,
+    note: 'ปก ตัวละคร และภาพในเล่มเป็นสไตล์เดียวกันทั้งเล่ม สีสด มีฉากหลังจริง',
+  },
   box: {
     label: 'กล่องสรุป — ให้ Typst วาดเอง ไม่ต้องสร้างภาพ',
     brief: null,
@@ -1831,14 +1850,17 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
  * ภาพต้นแบบตัวละคร (นิยาย · Google Flow) — วาดครั้งเดียวต่อตัวละคร แล้วแนบไปกับทุกภาพที่ตัวละครนั้นอยู่
  * ไม่มีภาพนี้ Flow จะคิดหน้าตาใหม่ทุกรูป ตัวเอกหน้าไม่เหมือนกันทั้งเล่ม (ผู้ใช้ทักมา)
  */
-export function characterSheetPrompt(book, c, { styleKey = '', color = true } = {}) {
+export function characterSheetPrompt(book, c, { styleKey = '', color = true, fromPhoto = false } = {}) {
   const st = FIGURE_STYLES[styleKey];
-  const style = st?.brief || 'expressive story illustration, clean confident lines, soft painterly colour';
+  const style = st?.brief || NOVEL_ART_STYLE;
   return [
     `Character reference sheet for the ${book?.language === 'en' ? 'English' : 'Thai'} novel${book?.title ? ` "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
     `CHARACTER: ${c.name}${c.role ? ` — ${c.role}` : ''}.`,
-    c.appearance ? `APPEARANCE (must match exactly): ${c.appearance}` : 'APPEARANCE: an ordinary, believable person who fits the role; give them a distinctive, memorable face, hairstyle and outfit.',
-    'Show ONE person only: full body, standing, front view, relaxed neutral pose, face clearly visible, plain light background, even soft light.',
+    // รูปจริงที่ผู้ใช้แนบ: ใช้หน้าตาจากรูป แต่วาดเป็นสไตล์ของเล่ม — แนบรูปถ่ายตรง ๆ ไปกับฉาก ภาพออกมาเป็นภาพถ่ายปนภาพวาด
+    fromPhoto
+      ? 'THE ATTACHED PHOTO IS THIS CHARACTER: keep the face, facial features, hairstyle, glasses and build clearly recognisable, but DRAW them in the STYLE below — do not output a photograph, do not copy the photo background.'
+      : c.appearance ? `APPEARANCE (must match exactly): ${c.appearance}` : 'APPEARANCE: an ordinary, believable person who fits the role; give them a distinctive, memorable face, hairstyle and outfit.',
+    'Show ONE person only: full body, standing, front view, relaxed neutral pose, face clearly visible, in full colour (skin, hair and outfit in natural colours), plain light background, even soft light.',
     'This image will be used as the reference for this character in every illustration of the book, so make the face, hairstyle, body type and outfit clear and distinctive.',
     `STYLE: ${style}${color ? '' : ', black and white / grayscale'}.`,
     'No text, no letters, no name labels, no border. Normal anatomy: two hands with five fingers each.',
@@ -1852,7 +1874,7 @@ export function characterSheetPrompt(book, c, { styleKey = '', color = true } = 
 export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], styleKey = '', color = true, palette = [] } = {}) {
   const lang = book?.language === 'en' ? 'English' : 'Thai';
   const st = FIGURE_STYLES[styleKey];
-  const style = st?.brief || 'expressive story illustration, cinematic composition, clean confident lines, soft painterly colour';
+  const style = st?.brief || NOVEL_ART_STYLE;
   const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
   const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
   const cast = people.length
@@ -1868,7 +1890,8 @@ export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], 
     ctx ? `THE STORY TEXT RIGHT AT THIS PICTURE (${lang}) — setting, action, mood and who is present must come from this passage:\n"${ctx}"` : '',
     cast,
     'Show the characters doing what the passage describes, with real emotion and body language — not posing for the camera. Reveal nothing that happens later in the story.',
-    `STYLE: ${style}${color ? `${hues ? `, colours in the family of ${hues}` : ''}` : ', black and white / grayscale only'}. Fill the whole frame, no border.`,
+    // "colours in the family of <palette>" ทำให้ทั้งภาพถูกย้อมเป็นสีเดียว (เจอจริง: ทุกภาพแดงหม่น) — palette เป็นแค่สีเน้น
+    `STYLE: ${style}${color ? `, natural full colour${hues ? ` with accents of ${hues}` : ''} — never a monochrome or single-tint wash` : ', black and white / grayscale only'}. The same art style as the book cover and the character sheets. Fill the whole frame, no border.`,
     'No text, no letters, no speech bubbles, no captions inside the picture. Normal anatomy: two hands with five fingers each, no extra limbs.',
   ]
     .filter(Boolean)

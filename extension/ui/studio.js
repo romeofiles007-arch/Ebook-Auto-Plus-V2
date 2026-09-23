@@ -5831,7 +5831,7 @@ function syncMode() {
   if (items) $('itemOpts').open = true;
   if (fiction) {
     $('fictionOpts').open = true;
-    if ($('figureStyle').value === 'box') $('figureStyle').value = 'sketch';
+    if (['box', 'sketch'].includes($('figureStyle').value)) $('figureStyle').value = 'novel';
     showStyleNote();
   }
   updateEstimate();
