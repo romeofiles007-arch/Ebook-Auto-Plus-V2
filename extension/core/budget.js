@@ -61,12 +61,16 @@ export function computeBudget(book, outline) {
   const toc = (book.frontMatter || []).includes('toc') ? Math.max(1, Math.ceil(entries / 34)) : 0;
   const back = backMatterPages(book);
 
-  // จำนวนหน้าที่ผู้ใช้กรอกหมายถึงหน้าเนื้อหาหลักเท่านั้น
-  // หน้าชื่อเรื่อง ลิขสิทธิ์ คำนำ สารบัญ และส่วนท้ายเพิ่มต่างหาก
+  /**
+   * จำนวนหน้าที่ผู้ใช้กรอก = หน้าตัวหนังสือล้วน (ผู้ใช้กำหนด: "สั่ง 10 หน้า ก็นับเป็นตัวหนังสือทั้งหมด 10 หน้า
+   * รูปภาพแทรกเท่าไหร่ไม่ต้องนับ · ถ้ามากกว่า 10 หน้าก็ปล่อยไป")
+   * หน้าชื่อเรื่อง สารบัญ ส่วนท้าย ช่องว่างหัวบท และหน้าภาพ บวกเพิ่มต่างหาก ไม่หักจากงบตัวหนังสือ
+   * เจอจริง: นิยาย 9 บทในเป้า 10 หน้า หักหัวบท 9×1.3 หน้าจนงบตัวหนังสือเหลือแทบศูนย์ ได้ฉากละ 73 หน่วย
+   */
   const bodyPages = book.targetPages;
   const overhead = chapters * CHAPTER_OVERHEAD_PAGES;
   const figurePages = estimateFigurePages(book, outline);
-  const textPages = Math.max(1, bodyPages - overhead - figurePages);
+  const textPages = Math.max(1, bodyPages);
 
   const cpp = book.calibration?.charsPerPage || TRIM_PRESETS[book.trim.preset]?.seedCPP || 1800;
   const budget = Math.round(textPages * cpp);
@@ -84,7 +88,7 @@ export function computeBudget(book, outline) {
       cpp,
       chapters,
       entries,
-      targetPhysical: bodyPages + front + toc + back,
+      targetPhysical: Math.round(bodyPages + overhead + figurePages + front + toc + back),
     },
   };
 }
@@ -378,7 +382,7 @@ export function estimateTurns(book) {
   const cpp = book.calibration?.charsPerPage || TRIM_PRESETS[book.trim?.preset]?.seedCPP || 750;
   const front = Math.max(4, (book.frontMatter || []).length + 2);
   const back = Math.max(2, (book.backMatter || []).length * 2);
-  const textPages = Math.max(1, pages - front - 2 - back - chapters * 1.3);
+  const textPages = Math.max(1, pages); // จำนวนหน้าที่ตั้ง = หน้าตัวหนังสือล้วน (หัวบท ภาพ หน้าต้น/ท้าย บวกเพิ่มต่างหาก)
   const budget = textPages * cpp;
 
   // นับกลุ่มแบบเดียวกับ Machine.planBatches: จัดกลุ่มภายในบท ไม่ข้ามบท

@@ -22,3 +22,14 @@ test('สารคดีโหมดยืดหยุ่นยังได้�
   assert.ok(assignQuotas(book('soft', 'prose'), outline()).quotaRange[0] >= 990);
   assert.ok(assignQuotas(book('strict'), outline()).quotaRange[0] < 900);
 });
+
+/** ผู้ใช้กำหนด: "สั่ง 10 หน้า ก็นับเป็นตัวหนังสือทั้งหมด 10 หน้า รูปภาพไม่ต้องนับ · มากกว่า 10 หน้าก็ปล่อยไป" */
+test('จำนวนหน้าที่ตั้ง = หน้าตัวหนังสือล้วน หัวบทและภาพไม่หักงบ', async () => {
+  const { computeBudget, targetPhysicalPages } = await import('./budget.js');
+  const b = { ...book('soft'), imageSource: 'flow' };
+  const one = computeBudget(b, { chapters: [{ n: 1, sections: [{ id: 'a' }] }] });
+  const nine = computeBudget(b, outline());
+  assert.equal(one.textPages, 10);
+  assert.equal(nine.textPages, 10); // บทเยอะไม่กินหน้าตัวหนังสือ
+  assert.ok(targetPhysicalPages(b, outline()) > targetPhysicalPages(b, { chapters: [{ n: 1, sections: [{ id: 'a' }] }] }));
+});
