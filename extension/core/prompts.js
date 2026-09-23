@@ -1856,7 +1856,8 @@ export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], 
   const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
   const cast = people.length
     ? `CHARACTERS IN THIS PICTURE — each one has an attached reference sheet, in this order. Keep every face, hairstyle, body type and outfit IDENTICAL to their sheet:\n${people
-        .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.appearance ? ` (${c.appearance})` : ''}`)
+        // ตัวละครที่ผู้ใช้แนบรูปจริง: รูปคือความจริง ไม่ใส่คำบรรยายที่ ChatGPT แต่งเองซึ่งอาจขัดกับรูป
+        .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.appearance && !c.photo ? ` (${c.appearance})` : ''}`)
         .join('\n')}\nNobody else from the cast appears unless the text requires it. The reference sheets show only what the characters look like — do not copy their pose or plain background.`
     : '';
   return [

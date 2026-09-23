@@ -802,6 +802,12 @@ ${P.NO_CITATION_RULE}
   async describeCastPhotos() {
     // ทาง API ไม่ได้ส่งรูปแนบไปด้วย ถ้าถามตรงนี้โมเดลจะแต่งรูปลักษณ์จากรูปที่ไม่เคยเห็น — ข้าม ให้คิดรูปลักษณ์ตอนวางโครงแทน
     if ((this.book.textSource || 'web') === 'api') return;
+    /**
+     * ปิดไว้ก่อน: เล่มจริงค้างที่ขั้นแนบรูปเข้าหน้า ChatGPT ("attaching" เกิน 3 นาที หน้าแชตว่าง ไม่มีรูปไม่มีข้อความ)
+     * แล้วตัวกดทำต่อเองก็วนกลับมาค้างที่เดิม — ขั้นนี้เป็นของเสริม ไม่คุ้มให้ทั้งเล่มหยุด
+     * รูปที่แนบยังใช้เป็นต้นแบบหน้าตาใน Google Flow ตามเดิม เปิดคืนได้ด้วย book.readCastPhotos = true
+     */
+    if (this.book.readCastPhotos !== true) return;
     const seeds = this.book.castSeeds || [];
     let changed = false;
     for (const s of seeds) {
