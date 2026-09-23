@@ -241,3 +241,30 @@ test('ปิดแผงแชต Agent ก่อนตั้งค่าโม�
   assert.match(adapter, /async function agentOff\(\) \{\n    await closeAgentChat\(\);/);
   assert.match(adapter, /if \(!SEL\.settingsTrigger\(\)\) await closeAgentChat\(\);/);
 });
+
+/** ผู้ใช้ถาม: ทำไมนิยายไม่มีการอ้างอิงตัวละคร — และปกนิยายชื่อเรื่องภาษาไทยเพี้ยน */
+test('นิยาย: ภาพต้นแบบตัวละคร แล้วแนบให้ทุกภาพที่ตัวละครนั้นอยู่', async () => {
+  const { fictionCast, castInText, charRefName } = await import('./flow.js');
+  const book = { outline: { cast: [{ name: 'เอมมี่', appearance: 'ผมยาวมัดหาง' }, { name: 'ต้น' }] }, bible: { characters: [{ name: 'เอมมี่', role: 'นางเอก' }] } };
+  const cast = fictionCast(book);
+  assert.equal(cast.length, 2);
+  assert.equal(cast[0].name, 'เอมมี่');
+  assert.equal(cast[0].role, 'นางเอก');
+  assert.deepEqual(castInText(cast, 'เอมมี่ยืนมองโทรศัพท์').map((c) => c.name), ['เอมมี่']);
+  assert.equal(charRefName(0), 'char-01.png');
+  const P = await import('./prompts.js');
+  const p = P.flowFictionFigurePrompt({ book: { title: 't' }, fig: { subject: 'Emmy looks at her phone' }, people: [{ name: 'เอมมี่', appearance: 'ผมยาว' }] });
+  assert.match(p, /attached image 1 = เอมมี่/);
+  assert.doesNotMatch(p, /how-to|anonymous ordinary learner/);
+  assert.match(machine, /const castRefs = fiction \? await this\.ensureFlowCast\(\) : \[\];/);
+  assert.match(machine, /collection: FLOW_CAST_COLLECTION/);
+});
+
+test('โหมด Flow: ปกเป็นภาพล้วน ชื่อเรื่องให้ Typst เรียงพิมพ์ (Flow วาดตัวอักษรไทยเพี้ยน)', async () => {
+  const P = await import('./prompts.js');
+  assert.equal(P.coverTextBaked({ imageSource: 'flow', coverTextMode: 'baked' }), false);
+  assert.equal(P.coverTextBaked({ imageSource: 'web', coverTextMode: 'baked' }), true);
+  assert.equal(P.backCoverTextBaked({ imageSource: 'flow', coverMode: 'auto', backCoverCopy: { hook: 'x' } }), false);
+  const { flowPrompt } = await import('./flow.js');
+  assert.match(flowPrompt({ kind: 'cover', prompt: 'x' }, { label: '3:4' }), /ARTWORK ONLY: absolutely no title/);
+});

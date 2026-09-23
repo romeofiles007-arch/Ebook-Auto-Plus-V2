@@ -1,4 +1,30 @@
-# Robot work sprites
+# Anime village AI agents (active)
+
+The attached user image was used only as a reference for Japanese anime line work and expressive faces. The characters and scene are original. Images were created with the built-in image_gen tool.
+
+- `research-anime-8.png`: silver-blue-haired male researcher with turquoise and yellow clothes and a magnifying glass.
+- `planner-anime-8.png`: coral-haired female planner with an orange jacket, board, and pencil.
+- `writer-anime-8.png`: blonde female writer with a gold and pale blue outfit, notebook, and pen.
+- `editor-anime-8.png`: dark green-haired male editor with a green coat, manuscript, and red pencil.
+- `art-anime-8.png`: violet-haired female artist with a purple jacket, tablet, and stylus.
+- `proof-anime-8.png`: dark teal-haired male proofreader with a mint coat, proof sheet, and magnifier.
+- `layout-anime-8.png`: blue-haired female layout designer with a blue and white outfit, book, and ruler.
+- `ship-anime-8.png`: copper-haired male courier with an orange and blue jacket, book, and parcel.
+- `rooms/village-anime.png`: shared village panorama for the ensemble preview.
+- `rooms/research-village.jpg`: field study station with books and telescope.
+- `rooms/planner-village.jpg`: planning pavilion with maps and markers.
+- `rooms/writer-village.jpg`: writing desk in a cottage overlooking fields.
+- `rooms/editor-village.jpg`: manuscript desk on a shaded veranda.
+- `rooms/art-village.jpg`: outdoor easel and paint beside a stream.
+- `rooms/proof-village.jpg`: daylight print inspection workspace.
+- `rooms/layout-village.jpg`: page arrangement table in an open pavilion.
+- `rooms/ship-village.jpg`: book parcels and delivery cart beside the village path.
+
+Each agent has eight distinct transparent full-body frames arranged in one horizontal strip. The working department plays its own eight frames with CSS. Each department now has its own background in the same rural village.
+
+Prompt set: use the attached picture as a style reference only for clean Japanese anime line art and cel shading. For each role above, create an original male or female humanoid AI robot with a segmented ear module, glowing neck and wrist circuits, vivid role colors, and the named work prop. Draw eight consecutive full-body work poses of the same character in a 4-column by 2-row grid with fixed framing, no gutters, a genuine transparent background, and no text. The background prompts use the shared village image as a color and world reference: bright 16:9 anime countryside, blue-roof cottages, green rice fields, blue hills, clear sky, and a role-specific work area matching the list above, without characters or readable text. The eight generated grids were resampled into horizontal eight-frame strips for the UI.
+
+## Previous robot work sprites
 
 Generated with the built-in image_gen tool. Four consecutive poses per sheet; CSS plays only the working department. Generated PNGs are kept unchanged.
 

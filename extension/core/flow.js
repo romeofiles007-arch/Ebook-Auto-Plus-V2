@@ -61,7 +61,8 @@ export function flowPrompt(job, ratio) {
    */
   if (job?.kind === 'cover') {
     parts.unshift(
-      'THIS IMAGE IS THE FLAT PRINTED COVER SURFACE ITSELF, filling the frame edge to edge. It is NOT a photograph of a book, NOT a 3D mockup: no table, no desk, no hands holding it, no book edges or spine, no perspective, no shadow around it, no background around the cover.',
+      'THIS IMAGE IS THE FLAT PRINTED COVER SURFACE ITSELF, filling the frame edge to edge. It is NOT a photograph of a book, NOT a 3D mockup: no table, no desk, no hands holding it, no book edges or spine, no perspective, no shadow around it, no background around the cover. ' +
+        'ARTWORK ONLY: absolutely no title, no author name, no letters of any kind — the real title is typeset on top later. Shop signs, screens, papers and labels in the scene are blank or show only abstract shapes. Leave calm, uncluttered space in the top third for the title.',
     );
   }
   const edge =
@@ -72,6 +73,39 @@ export function flowPrompt(job, ratio) {
         : '';
   parts.push(`FRAME: ${ratio?.label || '4:3'} ${FLOW_RATIOS[ratio?.label] >= 1 ? 'landscape' : 'portrait'} image, fill the whole frame edge to edge.${edge ? ` ${edge}` : ''}`);
   return parts.filter(Boolean).join('\n\n');
+}
+
+/** คอลเล็กชันของภาพต้นแบบตัวละคร (นิยาย) — ทุกภาพในเล่มอ้างอิงหน้าตาตัวละครจากที่นี่ */
+export const FLOW_CAST_COLLECTION = '00 ตัวละคร';
+
+/**
+ * ตัวละครหลักของนิยายที่ต้องมีภาพต้นแบบ — รวมจากสารบัญ (cast) และ Story Bible ไม่ซ้ำชื่อ
+ * เอาเฉพาะที่มีชื่อจริง และให้ตัวที่บอกรูปลักษณ์ไว้มาก่อน เพราะคือตัวที่ต้องหน้าตาคงเดิมทั้งเล่ม
+ */
+export function fictionCast(book, max = 6) {
+  const seen = new Map();
+  for (const c of [...(book?.outline?.cast || []), ...(book?.bible?.characters || [])]) {
+    const name = typeof c === 'object' ? String(c?.name || '').trim() : '';
+    if (!name) continue;
+    seen.set(name, { ...(seen.get(name) || {}), ...c, name });
+  }
+  return [...seen.values()].sort((a, b) => (b.appearance ? 1 : 0) - (a.appearance ? 1 : 0)).slice(0, max);
+}
+
+/** ชื่อไฟล์/ชื่อภาพใน Flow ของภาพต้นแบบตัวละครลำดับที่ i */
+export const charRefName = (i) => `char-${String(i + 1).padStart(2, '0')}.png`;
+
+/** ตัวละครที่ถูกเอ่ยชื่อในข้อความนี้ (ฉาก คำบรรยาย หรือเนื้อเรื่องรอบภาพ) เรียงตามลำดับใน cast */
+export function castInText(cast, textToSearch, max = 3) {
+  const t = String(textToSearch || '');
+  return cast
+    .map((c, i) => ({ ...c, index: i }))
+    .filter((c) => {
+      const name = String(c.name);
+      const first = name.split(/\s+/)[0];
+      return t.includes(name) || (first.length >= 2 && t.includes(first));
+    })
+    .slice(0, max);
 }
 
 /** คอลเล็กชันสำหรับรูปที่อัปโหลดไปเป็นตัวอ้างอิง (เช่นรูปผู้เขียน) */

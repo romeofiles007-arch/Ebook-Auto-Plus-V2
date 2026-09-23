@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Agents · หมู่บ้านชนบท</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #c7edff; }
+    .scene { position: relative; width: min(100vw, 1200px); aspect-ratio: 16 / 9; margin: 0 auto; overflow: hidden; background: url('../extension/ui/crew/rooms/village-anime.png') center / cover no-repeat; }
+    .scene::after { content: ''; position: absolute; inset: auto 0 0; height: 18%; background: linear-gradient(transparent, #174f1b24); pointer-events: none; }
+    .agent { position: absolute; bottom: 2%; width: 11%; margin: 0; filter: drop-shadow(0 8px 6px #1538247a); }
+    .sprite { display: block; width: 100%; aspect-ratio: 3 / 4; overflow: hidden; }
+    .agent img { display: block; width: 800%; height: 100%; max-width: none; animation: move 2.4s steps(8, end) infinite; }
+    .agent figcaption { display: block; padding: 3px 1px; border-radius: 6px; background: #075164d9; color: white; font-size: clamp(8px, 1.05vw, 13px); text-align: center; white-space: nowrap; }
+    .role-scenes { width: min(100vw, 1200px); margin: 0 auto; padding: 20px 12px 32px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .role-scenes h2 { grid-column: 1 / -1; margin: 0; color: #124e67; font-size: clamp(18px, 2vw, 26px); }
+    .role-card { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 10px; background-position: center; background-size: cover; box-shadow: 0 5px 16px #174f1b3b; }
+    .role-card::after { content: ''; position: absolute; inset: auto 0 0; height: 40%; background: linear-gradient(transparent, #07384f99); pointer-events: none; }
+    .role-sprite { position: absolute; z-index: 1; bottom: 5%; left: 7%; display: block; width: 34%; aspect-ratio: 3 / 4; overflow: hidden; filter: drop-shadow(0 5px 5px #123a377a); }
+    .role-sprite img { display: block; width: 800%; height: 100%; max-width: none; animation: move 2.4s steps(8, end) infinite; }
+    .role-card b { position: absolute; z-index: 1; right: 8%; bottom: 9%; color: white; font-size: clamp(12px, 1.3vw, 17px); text-shadow: 0 2px 5px #123; }
+    @keyframes move { to { transform: translateX(-100%); } }
+    @media (max-width: 700px) { .role-scenes { grid-template-columns: repeat(2, 1fr); } }
+    @media (prefers-reduced-motion: reduce) { .agent img, .role-sprite img { animation: none; } }
+  </style>
+</head>
+<body>
+  <main class="scene" aria-label="ตัวละคร AI ชายและหญิงในหมู่บ้านชนบทสีเขียวฟ้า">
+    <figure class="agent" style="left:2%"><span class="sprite"><img src="../extension/ui/crew/research-anime-8.png" alt=""></span><figcaption>ค้นคว้า</figcaption></figure>
+    <figure class="agent" style="left:14%"><span class="sprite"><img src="../extension/ui/crew/planner-anime-8.png" alt=""></span><figcaption>วางแผน</figcaption></figure>
+    <figure class="agent" style="left:26%"><span class="sprite"><img src="../extension/ui/crew/writer-anime-8.png" alt=""></span><figcaption>เขียน</figcaption></figure>
+    <figure class="agent" style="left:38%"><span class="sprite"><img src="../extension/ui/crew/editor-anime-8.png" alt=""></span><figcaption>บรรณาธิการ</figcaption></figure>
+    <figure class="agent" style="left:50%"><span class="sprite"><img src="../extension/ui/crew/art-anime-8.png" alt=""></span><figcaption>งานภาพ</figcaption></figure>
+    <figure class="agent" style="left:62%"><span class="sprite"><img src="../extension/ui/crew/proof-anime-8.png" alt=""></span><figcaption>ตรวจงาน</figcaption></figure>
+    <figure class="agent" style="left:74%"><span class="sprite"><img src="../extension/ui/crew/layout-anime-8.png" alt=""></span><figcaption>จัดหน้า</figcaption></figure>
+    <figure class="agent" style="left:86%"><span class="sprite"><img src="../extension/ui/crew/ship-anime-8.png" alt=""></span><figcaption>ส่งงาน</figcaption></figure>
+  </main>
+  <section class="role-scenes" aria-label="ฉากประจำตัวของ AI Agent ทั้งแปด">
+    <h2>ฉากประจำตัวทั้ง 8 แผนก</h2>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/research-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/research-anime-8.png" alt=""></span><b>ค้นคว้า</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/planner-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/planner-anime-8.png" alt=""></span><b>วางแผน</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/writer-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/writer-anime-8.png" alt=""></span><b>เขียน</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/editor-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/editor-anime-8.png" alt=""></span><b>บรรณาธิการ</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/art-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/art-anime-8.png" alt=""></span><b>งานภาพ</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/proof-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/proof-anime-8.png" alt=""></span><b>ตรวจงาน</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/layout-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/layout-anime-8.png" alt=""></span><b>จัดหน้า</b></div>
+    <div class="role-card" style="background-image:url('../extension/ui/crew/rooms/ship-village.jpg')"><span class="role-sprite"><img src="../extension/ui/crew/ship-anime-8.png" alt=""></span><b>ส่งงาน</b></div>
+  </section>
+</body>
+</html>

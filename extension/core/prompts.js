@@ -1790,6 +1790,53 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
     .join('\n');
 }
 
+/**
+ * ภาพต้นแบบตัวละคร (นิยาย · Google Flow) — วาดครั้งเดียวต่อตัวละคร แล้วแนบไปกับทุกภาพที่ตัวละครนั้นอยู่
+ * ไม่มีภาพนี้ Flow จะคิดหน้าตาใหม่ทุกรูป ตัวเอกหน้าไม่เหมือนกันทั้งเล่ม (ผู้ใช้ทักมา)
+ */
+export function characterSheetPrompt(book, c, { styleKey = '', color = true } = {}) {
+  const st = FIGURE_STYLES[styleKey];
+  const style = st?.brief || 'expressive story illustration, clean confident lines, soft painterly colour';
+  return [
+    `Character reference sheet for the ${book?.language === 'en' ? 'English' : 'Thai'} novel${book?.title ? ` "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
+    `CHARACTER: ${c.name}${c.role ? ` — ${c.role}` : ''}.`,
+    c.appearance ? `APPEARANCE (must match exactly): ${c.appearance}` : 'APPEARANCE: an ordinary, believable person who fits the role; give them a distinctive, memorable face, hairstyle and outfit.',
+    'Show ONE person only: full body, standing, front view, relaxed neutral pose, face clearly visible, plain light background, even soft light.',
+    'This image will be used as the reference for this character in every illustration of the book, so make the face, hairstyle, body type and outfit clear and distinctive.',
+    `STYLE: ${style}${color ? '' : ', black and white / grayscale'}.`,
+    'No text, no letters, no name labels, no border. Normal anatomy: two hands with five fingers each.',
+  ].join('\n');
+}
+
+/**
+ * ภาพประกอบนิยาย (Google Flow) — เล่าฉากจากเนื้อเรื่องจริงตรงตำแหน่งภาพ และคุมหน้าตาตัวละครด้วยภาพต้นแบบที่แนบไป
+ * ไม่ใช้ flowFigurePrompt เพราะอันนั้นเป็นภาพสอนวิธีทำของหนังสือสารคดี ("ผู้เรียนนิรนาม" ผิดสำหรับนิยาย)
+ */
+export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], styleKey = '', color = true, palette = [] } = {}) {
+  const lang = book?.language === 'en' ? 'English' : 'Thai';
+  const st = FIGURE_STYLES[styleKey];
+  const style = st?.brief || 'expressive story illustration, cinematic composition, clean confident lines, soft painterly colour';
+  const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
+  const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  const cast = people.length
+    ? `CHARACTERS IN THIS PICTURE — each one has an attached reference sheet, in this order. Keep every face, hairstyle, body type and outfit IDENTICAL to their sheet:\n${people
+        .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.appearance ? ` (${c.appearance})` : ''}`)
+        .join('\n')}\nNobody else from the cast appears unless the text requires it. The reference sheets show only what the characters look like — do not copy their pose or plain background.`
+    : '';
+  return [
+    `Story illustration for a ${lang} novel${book?.title ? ` titled "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
+    fig?.subject ? `THE MOMENT TO DRAW: ${fig.subject}` : '',
+    fig?.caption ? `Caption printed under it (${lang}): "${fig.caption}"` : '',
+    ctx ? `THE STORY TEXT RIGHT AT THIS PICTURE (${lang}) — setting, action, mood and who is present must come from this passage:\n"${ctx}"` : '',
+    cast,
+    'Show the characters doing what the passage describes, with real emotion and body language — not posing for the camera. Reveal nothing that happens later in the story.',
+    `STYLE: ${style}${color ? `${hues ? `, colours in the family of ${hues}` : ''}` : ', black and white / grayscale only'}. Fill the whole frame, no border.`,
+    'No text, no letters, no speech bubbles, no captions inside the picture. Normal anatomy: two hands with five fingers each, no extra limbs.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function interiorFigurePrompt(styleKey, subject, widthMm, heightMm = 45, aspect = '4:3', opts = {}) {
   /**
    * ภาพแต่ละรูปในเล่มต้องเป็นคนละภาพจริง ไม่ใช่แค่คนละไฟล์
@@ -1921,7 +1968,11 @@ function coverArtworkSpec(book = {}) {
  * 'typeset' = ChatGPT วาดเฉพาะ artwork แล้วระบบพิมพ์ชื่อเรื่องทับด้วย Typst
  *             ตัวอักษรคมและสะกดถูกเสมอ แต่หน้าตาเหมือนเอาข้อความไปแปะบนภาพ
  */
-export const coverTextBaked = (book) => (book?.coverTextMode || 'baked') === 'baked';
+/**
+ * Google Flow (Nano Banana) วาดตัวอักษรไทยเพี้ยน — ชื่อหนังสือบนปกออกมาเป็น "ะเอมมีม + รุ้กดียะาไล" (ผู้ใช้เจอจริง)
+ * โหมด Flow จึงให้ภาพเป็น artwork ล้วนเสมอ แล้วให้ Typst เรียงพิมพ์ชื่อ/คำโปรยทับ ซึ่งสะกดถูกทุกตัว
+ */
+export const coverTextBaked = (book) => book?.imageSource !== 'flow' && (book?.coverTextMode || 'baked') === 'baked';
 
 function bakedCoverTextRule(book, outline) {
   const title = (outline?.title || book?.topic || '').trim();
@@ -2085,7 +2136,7 @@ ${thai ? '- The text is Thai. Reproduce every Thai character, tone mark and vowe
  * แล้วโยนไฟล์กลับมา เราไม่มีทางรู้ว่าภาพนั้นมีตัวอักษรจริงไหม จึงต้องพิมพ์ทับให้แทน
  */
 export const backCoverTextBaked = (book = {}) =>
-  !!book?.backCoverCopy?.hook && (book?.coverMode || 'prompt') === 'auto';
+  book?.imageSource !== 'flow' && !!book?.backCoverCopy?.hook && (book?.coverMode || 'prompt') === 'auto';
 
 export function backCoverPrompt(style, book = {}) {
   /**

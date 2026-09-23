@@ -31,7 +31,7 @@ import { turnDelay } from './production-mode.js';
 import { noteTrouble } from './dispatch.js';
 import { generateImage, DEFAULT_IMAGE_MODEL } from './imageApi.js';
 import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, enforceAuthorRefPrompt } from './imageRef.js';
-import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION } from './flow.js';
+import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText } from './flow.js';
 
 export const STEPS = [
   'health',
@@ -3417,6 +3417,59 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
    *
    * คืน true ถ้าต้องหยุดรอคน (ประตู gate_images) · false ถ้าให้ไปตรวจ Final Check ต่อได้
    */
+  /**
+   * นิยาย: ภาพต้นแบบตัวละครหลัก (สูงสุด 6 ตัว) — วาดครั้งเดียวต่อเล่ม เก็บในคอลเล็กชัน "00 ตัวละคร"
+   * ไม่มีภาพนี้ Flow คิดหน้าตาตัวละครใหม่ทุกรูป ตัวเอกหน้าไม่เหมือนกันทั้งเล่ม (ผู้ใช้ทักมา)
+   * วาดไม่สำเร็จไม่หยุดงาน — ภาพในเล่มยังสร้างต่อได้ แค่ไม่มีตัวอ้างอิงของตัวละครนั้น
+   * คืน cast พร้อม ref = { name, dataUrl } ของตัวที่มีภาพต้นแบบแล้ว
+   */
+  async ensureFlowCast() {
+    const cast = fictionCast(this.book);
+    if (!cast.length) return [];
+    const requested = this.book.figureStyle || 'box';
+    const out = [];
+    for (let i = 0; i < cast.length; i++) {
+      if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+      const c = cast[i];
+      const name = charRefName(i);
+      let asset = await db.loadAsset(this.book.id, name).catch(() => null);
+      if (asset?.blob && asset.meta?.character !== c.name) asset = null; // ตัวละครเปลี่ยนไปแล้ว วาดใหม่
+      if (!asset?.blob) {
+        this.log('ok', `วาดภาพต้นแบบตัวละคร ${i + 1}/${cast.length}: ${c.name}`);
+        const res = await flowCall(
+          'generate',
+          {
+            name,
+            prompt: flowPrompt({ kind: 'character', prompt: P.characterSheetPrompt(this.book, c, { styleKey: requested === 'box' ? 'sketch' : requested, color: P.figureColorOn(this.book) }) }, { label: '3:4', loss: 0 }),
+            ratio: '3:4',
+            refs: [],
+            models: FLOW_MODELS,
+            hires: false,
+            reuse: true,
+            collection: FLOW_CAST_COLLECTION,
+            refCollection: FLOW_REF_COLLECTION,
+          },
+          { timeoutMs: 9 * 60000 },
+        );
+        if (!res.ok) {
+          this.log('warn', `วาดภาพต้นแบบของ ${c.name} ไม่สำเร็จ (${res.error}) — ภาพที่มีตัวละครนี้จะไม่มีตัวอ้างอิงหน้าตา`);
+          if (res.code === 'not_free') throw new Halt(res.error);
+          out.push({ ...c, ref: null });
+          continue;
+        }
+        const blob = await db.dataUrlToBlob(res.dataUrl);
+        await db.saveAsset(this.book.id, name, blob, { kind: 'character', character: c.name, from: 'flow' });
+        await W.saveBookImage(this.book, name, blob, { folder: 'characters' });
+        asset = { blob };
+      }
+      const ready = await prepareRefImage(asset.blob).catch(() => null);
+      out.push({ ...c, ref: ready ? { name, dataUrl: ready.dataUrl } : null });
+    }
+    const have = out.filter((c) => c.ref).map((c) => c.name);
+    if (have.length) this.log('ok', `ภาพต้นแบบตัวละครพร้อม: ${have.join(', ')} — แนบให้ทุกภาพที่ตัวละครเหล่านี้อยู่`);
+    return out;
+  }
+
   async imagesViaFlow(jobs, genErrors) {
     const MAX_FLOW_ATTEMPTS = 3;
     this.log('ok', `สร้างภาพด้วย Google Flow (โหมดฟรี 0 เครดิต) ทีละรูป ${jobs.length} รูป — ภาพที่ได้จะถูกตั้งชื่อใน Flow ตามชื่อไฟล์ที่วางแผนไว้`);
@@ -3439,6 +3492,10 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     }
     this.log('ok', `Google Flow พร้อม · ${prep.model} · ${prep.credits} เครดิต · ${prep.projectUrl}`);
     this.book.imagePhase = { ...(this.book.imagePhase || {}), flowProjectUrl: prep.projectUrl };
+
+    // นิยาย: วาดภาพต้นแบบตัวละครก่อน ทุกภาพที่ตามมาจะแนบต้นแบบของตัวละครที่อยู่ในฉากนั้น
+    const fiction = this.book.contentMode === 'fiction';
+    const castRefs = fiction ? await this.ensureFlowCast() : [];
 
     for (let index = 0; index < jobs.length; index++) {
       if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
@@ -3477,10 +3534,25 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         if (fig) {
           const rec = fig.section ? await db.loadSection(this.book.id, fig.section).catch(() => null) : null;
           const requested = this.book.figureStyle || 'box';
+          const passage = P.figureContextText(rec?.md || rec?.text || '', fig.name, fig.placement);
+          if (fiction) {
+            // ตัวละครที่ถูกเอ่ยถึงในฉากนี้ + ภาพต้นแบบของแต่ละคน (เรียงตามลำดับที่แนบ)
+            const people = castInText(castRefs, `${fig.subject || ''} ${fig.caption || ''} ${passage}`).filter((c) => c.ref);
+            for (const c of people) refs.push({ tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
+            prompt = P.flowFictionFigurePrompt({
+              book: this.book,
+              fig,
+              passage,
+              people,
+              styleKey: requested === 'box' ? 'sketch' : requested,
+              color: P.figureColorOn(this.book),
+              palette: this.book.style?.palette || [],
+            });
+          } else
           prompt = P.flowFigurePrompt({
             book: this.book,
             fig,
-            passage: P.figureContextText(rec?.md || rec?.text || '', fig.name, fig.placement),
+            passage,
             styleKey: requested === 'box' ? '' : requested,
             color: P.figureColorOn(this.book),
             palette: this.book.style?.palette || [],
@@ -3492,6 +3564,16 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
        * ปกหน้าเป็นตัวอ้างอิงเฉพาะของที่ต้องหน้าตาเหมือนปก (ปกหลัง · ลวดลาย)
        * ไม่แนบให้ภาพประกอบในเล่มแล้ว: โมเดลเอาของในปก (คนถือกระดาษ) มาวาดซ้ำแทนเนื้อหาของตอนนั้น
        */
+      // ปกของนิยาย: ตัวละครที่ปกเอ่ยถึงต้องหน้าตาเดียวกับภาพต้นแบบ
+      if (fiction && j.kind === 'cover' && !authorRef) {
+        const onCover = castInText(castRefs, j.prompt, 2).filter((c) => c.ref);
+        for (const c of onCover) refs.push({ tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
+        if (onCover.length) {
+          prompt += `
+
+CHARACTER REFERENCE SHEETS ATTACHED, in this order: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.name}`).join('; ')}. Keep their faces, hair and outfits identical to the sheets; do not copy the sheet pose or background.`;
+        }
+      }
       const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'pattern'].includes(j.kind);
       const coverRef = wantsCoverRef ? await this.coverStyleRef() : null;
       if (coverRef) {
