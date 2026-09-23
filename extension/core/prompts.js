@@ -1871,6 +1871,44 @@ export function characterSheetPrompt(book, c, { styleKey = '', color = true, fro
  * ภาพประกอบนิยาย (Google Flow) — เล่าฉากจากเนื้อเรื่องจริงตรงตำแหน่งภาพ และคุมหน้าตาตัวละครด้วยภาพต้นแบบที่แนบไป
  * ไม่ใช้ flowFigurePrompt เพราะอันนั้นเป็นภาพสอนวิธีทำของหนังสือสารคดี ("ผู้เรียนนิรนาม" ผิดสำหรับนิยาย)
  */
+/**
+ * ปกนิยาย (Google Flow) — เขียนใหม่ตอนส่ง แทน prompt ปกยาว ๆ ของ Art Director
+ * เจอจริง: ได้ภาพถ่ายสต็อก "หนุ่มสาวนั่งโต๊ะคาเฟ่" ไม่มีจุดเด่น ไม่มีอารมณ์ ไม่มีที่วางชื่อเรื่อง — ผู้ใช้: "ใช้ไม่ได้เลย"
+ * โมเดลเล็กทำตามคำสั่งสั้นที่ชัดได้ดีกว่า: ขายอารมณ์ของเรื่อง · องค์ประกอบแบบโปสเตอร์ · เว้นที่ชื่อเรื่อง · สไตล์เดียวกับทั้งเล่ม
+ */
+export function flowNovelCoverPrompt({ book, outline, people = [], back = false, styleKey = 'novel', palette = [] } = {}) {
+  const lang = book?.language === 'en' ? 'English' : 'Thai';
+  const genre = book?.fictionGenre || book?.genreBrief || book?.genre || '';
+  const digest = book?.coverDigest || {};
+  const st = FIGURE_STYLES[styleKey];
+  const style = st?.brief || NOVEL_ART_STYLE;
+  const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
+  const premise = String(outline?.thesis || outline?.logline || book?.topic || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  const moment = String(digest.signature_moment || '').trim();
+  const cast = people.length
+    ? `CHARACTERS — each has an attached reference sheet, in this order; keep faces, hairstyles and outfits IDENTICAL to the sheets (do not copy the sheet pose or plain background):\n${people
+        .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.role ? ` (${c.role})` : ''}`)
+        .join('\n')}`
+    : '';
+  const front = [
+    `FRONT COVER ARTWORK of a best-selling ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` titled "${book.title}"` : ''} — it must make a reader in a bookshop stop and pick it up.`,
+    premise ? `THE STORY: ${premise}` : '',
+    moment ? `THE MOST VISUAL MOMENT: ${moment}` : '',
+    cast,
+    'COMPOSITION: one striking, emotional key image like a movie poster — the main characters large and close to the viewer (waist-up or closer, filling the lower two thirds), caught in the central feeling of the story: a charged glance, a near-touch, a turning away, a secret. Strong silhouette, depth with a blurred atmospheric background of the story\'s place, dramatic directional light (golden hour, city night lights, rain, window light) with a clear glow and rim light on the faces.',
+    'The top third is calm, softly lit sky, wall, bokeh or gradient with nothing important in it — the title is typeset there. The bottom strip stays darker and calm for the author name.',
+    'NOT a stock photo, NOT two people sitting at a table, NOT smiling at the camera, NOT a flat everyday snapshot, NOT a collage of many small scenes.',
+    `STYLE: ${style}, cover-grade finish, luminous harmonious colour${hues ? ` built around ${hues}` : ''}, high detail on faces and hands.`,
+  ];
+  const backSide = [
+    `BACK COVER ARTWORK of the ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` "${book.title}"` : ''} — the same world, light and art style as the front cover (attached if available), a quieter companion image.`,
+    premise ? `THE STORY: ${premise}` : '',
+    'COMPOSITION: an evocative place or small detail from the story (an empty street at night, a window with rain, two coffee cups, a door left open) — no main character faces. Soft, atmospheric, with the whole middle area calm and even so a text panel can sit on it.',
+    `STYLE: ${style}, cover-grade finish, colour harmonious with the front${hues ? ` (${hues})` : ''}.`,
+  ];
+  return (back ? backSide : front).filter(Boolean).join('\n');
+}
+
 export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], styleKey = '', color = true, palette = [] } = {}) {
   const lang = book?.language === 'en' ? 'English' : 'Thai';
   const st = FIGURE_STYLES[styleKey];
@@ -2132,7 +2170,36 @@ ${baked
  * ห้ามปล่อยให้โมเดลภาพแต่งคำเอง เพราะมันเขียนภาษาไทยผิดและคิดคำขายไม่เป็น
  * แยกงานเขียนออกมาเป็นเทิร์นข้อความจึงได้ทั้งคำที่คมและตัวสะกดที่ถูก
  */
+/**
+ * คำโปรยปกหลังของนิยาย — ชวนติดตามเรื่อง ไม่ใช่ "อ่านแล้วได้อะไร"
+ * เจอจริง: นิยายได้ bullet แบบหนังสือพัฒนาตัวเอง ("• รู้วิธีเริ่มพูดเรื่องสำคัญ…") บนปกหลัง
+ */
+function novelBackCoverCopyPrompt(book, outline = {}) {
+  const cast = (outline.cast || []).slice(0, 3).map((c) => `- ${c.name}${c.role ? ` — ${c.role}` : ''}`).join('\n');
+  return `คุณคือนักเขียนคำโปรยปกหลังนิยายของสำนักพิมพ์ งานนี้คือทำให้คนที่พลิกดูหลังปกอยากรู้ว่าเรื่องจะเป็นอย่างไรต่อ จนต้องซื้อ
+
+นิยาย: ${outline.title || book.topic}
+${outline.subtitle ? `ชื่อรอง: ${outline.subtitle}` : ''}
+แนว: ${book.fictionGenre || book.genreBrief || book.genre || 'นิยาย'}
+เรื่องย่อ/แก่นเรื่อง: ${outline.thesis || book.topic}
+${cast ? `ตัวละครหลัก\n${cast}` : ''}
+
+กติกา
+- ภาษา${(book.language || 'th') === 'th' ? 'ไทย' : 'อังกฤษ'} ทั้งหมด เขียนแบบคำโปรยนิยายจริง มีอารมณ์ ไม่ใช่ภาษาโฆษณาหรือภาษาหนังสือพัฒนาตัวเอง
+- hook: ประโยคเดียว สั้น คม สะกิดใจ (บรรทัดที่ใหญ่ที่สุดบนปกหลัง)
+- body: 3-4 ประโยค แนะนำตัวละครหลักด้วยชื่อ สถานการณ์ และสิ่งที่เดิมพันอยู่ จบด้วยความค้างคาที่ทำให้อยากอ่านต่อ ห้ามเฉลยตอนจบหรือจุดหักมุม
+- closing: วลีปิดสั้น ๆ ไม่เกิน 12 คำ บอกอารมณ์ของเรื่อง (ใส่ "" ได้ถ้าไม่จำเป็น)
+- ห้ามมี bullet ห้ามบอกว่า "ผู้อ่านจะได้เรียนรู้/ได้รู้วิธี" ห้ามใส่ราคา ISBN หรือชื่อสำนักพิมพ์
+- รวมทุกส่วนไม่เกิน 80 คำ และทุกประโยคต้องจบครบ ไม่ขาดกลางคำ
+
+ตอบเป็น JSON ในบล็อกโค้ดเดียวชนิด json ห้ามมีข้อความนอกบล็อก
+\`\`\`json
+{"hook":"...","body":"...","bullets":[],"closing":"..."}
+\`\`\``;
+}
+
 export function backCoverCopyPrompt(book, outline = {}) {
+  if (book?.contentMode === 'fiction') return novelBackCoverCopyPrompt(book, outline);
   const chapters = (outline.chapters || [])
     .slice(0, 8)
     .map((c) => `- ${c.title}`)

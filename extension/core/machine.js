@@ -3085,7 +3085,8 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       this.log('ok', 'ปลดธงปกหลังที่ปักผิดไว้ — ระบบจะพิมพ์คำโปรยทับปกหลังให้ตามเดิม');
     }
 
-    if (this.book.backCoverCopy?.hook) return true;
+    // นิยายที่ได้คำโปรยแบบหนังสือพัฒนาตัวเอง (มี bullet) ไว้แล้ว เขียนใหม่เป็นคำโปรยนิยาย
+    if (this.book.backCoverCopy?.hook && !(this.book.contentMode === 'fiction' && this.book.backCoverCopy.bullets?.length)) return true;
 
     this.log('ok', 'เขียนคำโปรยปกหลังก่อน แล้วค่อยเอาไปวาด/เรียงพิมพ์');
     try {
@@ -3100,7 +3101,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       this.book.backCoverCopy = {
         hook: String(copy.hook || ''),
         body: String(copy.body || ''),
-        bullets: (Array.isArray(copy.bullets) ? copy.bullets : []).slice(0, 3).map(String),
+        bullets: this.book.contentMode === 'fiction' ? [] : (Array.isArray(copy.bullets) ? copy.bullets : []).slice(0, 3).map(String),
         closing: String(copy.closing || ''),
         writtenAt: Date.now(),
       };
@@ -3575,8 +3576,13 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
        * เล่มจริงที่ตรวจแล้ว: แนบรูปผู้เขียนทุกรูป ภาพในเล่มจึงเป็นหน้าผู้เขียนเกือบทุกหน้า
        * กลายเป็นภาพคนโพสท่าแทนภาพสอนวิธีทำ ซึ่งผู้ใช้สั่งไว้ชัดว่าไม่เอา
        */
+      /**
+       * ปกนิยายของโหมด Flow ไม่ส่งรูปผู้เขียนให้ Flow — เจอจริง: Flow แปะรูปถ่ายดิบลงในภาพปกหลัง แล้วกรอบคำโปรยทับหน้า
+       * รูปผู้เขียนให้เครื่องเรียงพิมพ์วางแทน (template.js: backCoverPage) ตำแหน่งแน่นอน ไม่ทับอะไร
+       */
+      const novelCover = fiction && j.kind === 'cover';
       const needsRef =
-        j.kind !== 'interior' && (wantsAuthorRef(this.book, j) || j.needsAuthorRef || promptWantsAuthorRef(j.prompt));
+        !novelCover && j.kind !== 'interior' && (wantsAuthorRef(this.book, j) || j.needsAuthorRef || promptWantsAuthorRef(j.prompt));
       if (needsRef) j.prompt = enforceAuthorRefPrompt(j.prompt);
       const authorRef = needsRef ? await this.authorRef() : null;
       if (needsRef && !authorRef?.dataUrl) throw new Halt('หยุดสร้างภาพ: ไม่พบรูปผู้เขียนที่เลือกไว้ กรุณาแนบรูปใน Studio แล้วเริ่มต่อ');
@@ -3623,23 +3629,24 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
        * ปกหน้าเป็นตัวอ้างอิงเฉพาะของที่ต้องหน้าตาเหมือนปก (ปกหลัง · ลวดลาย)
        * ไม่แนบให้ภาพประกอบในเล่มแล้ว: โมเดลเอาของในปก (คนถือกระดาษ) มาวาดซ้ำแทนเนื้อหาของตอนนั้น
        */
-      // ปกของนิยาย: ตัวละครที่ปกเอ่ยถึงต้องหน้าตาเดียวกับภาพต้นแบบ
-      if (fiction && j.kind === 'cover') {
-        // ปกต้องสไตล์เดียวกับภาพในเล่ม เจอจริง: ปกเป็นภาพถ่าย ภาพในเล่มเป็นสเก็ตช์ — ดูเป็นคนละเล่ม
-        const key = P.novelStyleKey(this.book.figureStyle);
-        const brief = P.FIGURE_STYLES[key]?.brief || P.NOVEL_ART_STYLE;
-        prompt += `
-
-VISUAL LANGUAGE OVERRIDE — this replaces any medium or visual language named above. ART STYLE (the same for every picture in this novel: cover, back cover, character sheets and all illustrations): ${brief}.${key === 'novel' ? ' Not a photograph, not a 3D render.' : ''}`;
-      }
-      if (fiction && j.kind === 'cover' && !authorRef) {
-        const onCover = castInText(castRefs, j.prompt, 2).filter((c) => c.ref);
+      /**
+       * ปกนิยาย: เขียน prompt ใหม่ตอนส่ง (ภาพแบบโปสเตอร์ สไตล์เดียวกับทั้งเล่ม เว้นที่ชื่อเรื่อง)
+       * เจอจริง: prompt ปกของ Art Director ได้ภาพถ่ายสต็อก "หนุ่มสาวนั่งโต๊ะคาเฟ่" — ผู้ใช้: "ปกนิยายไม่สวยเลย ใช้ไม่ได้เลย"
+       * ปกหน้าแนบภาพต้นแบบตัวละครหลักสองตัว (ตัวที่ผู้ใช้ตั้งเป็นพระเอก/นางเอกมาก่อน) ให้หน้าตาตรงกับในเล่ม
+       */
+      if (novelCover) {
+        const back = j.name === 'cover-back.png';
+        const lead = (c) => (c.seedSlot === 'hero' || c.seedSlot === 'heroine' ? 0 : c.seedSlot ? 1 : 2);
+        const onCover = back ? [] : castRefs.filter((c) => c.ref).sort((a, b) => lead(a) - lead(b)).slice(0, 2);
         for (const c of onCover) refs.push(c.ref.upload ? { name: c.ref.name, dataUrl: c.ref.dataUrl } : { tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
-        if (onCover.length) {
-          prompt += `
-
-CHARACTER REFERENCE SHEETS ATTACHED, in this order: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.name}`).join('; ')}. Keep their faces, hair and outfits identical to the sheets; do not copy the sheet pose or background.`;
-        }
+        prompt = P.flowNovelCoverPrompt({
+          book: this.book,
+          outline: this.book.outline,
+          people: onCover,
+          back,
+          styleKey: P.novelStyleKey(this.book.figureStyle),
+          palette: this.book.style?.palette || [],
+        });
       }
       const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'pattern'].includes(j.kind);
       const coverRef = wantsCoverRef ? await this.coverStyleRef() : null;

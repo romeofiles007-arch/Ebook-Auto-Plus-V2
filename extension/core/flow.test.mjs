@@ -134,9 +134,9 @@ test('ไฟล์ 2K ต้องเป็นภาพเดียวกับ 
   assert.match(adapter, /if \(dist > 12\)/);
 });
 
-test('โมเดล: Nano Banana 2 Lite ก่อน แล้วรุ่นไหนก็ได้ที่ 0 เครดิต', async () => {
+test('โมเดล: Nano Banana 2 ก่อน แล้วรุ่นไหนก็ได้ที่ 0 เครดิต', async () => {
   const { FLOW_MODELS } = await import('./flow.js');
-  assert.equal(FLOW_MODELS[0], 'Nano Banana 2 Lite');
+  assert.equal(FLOW_MODELS[0], 'Nano Banana 2');
   assert.match(adapter, /last\.credits === 0/);
 });
 
@@ -312,6 +312,13 @@ test('นิยาย: ตัวละครครบทุกช่องที
   const sheet = P.characterSheetPrompt({}, { name: 'ภูมิ' }, { styleKey: 'novel', fromPhoto: true });
   assert.match(sheet, /THE ATTACHED PHOTO IS THIS CHARACTER/);
   assert.match(machine, /refs: photoRef \? \[photoRef\] : \[\]/);
-  assert.match(machine, /VISUAL LANGUAGE OVERRIDE/);
+  assert.ok(machine.includes("prompt = P.flowNovelCoverPrompt("));
+  const cover = P.flowNovelCoverPrompt({ book: { title: 'ค', fictionGenre: 'โรแมนซ์' }, outline: { thesis: 'x' }, people: [{ name: 'ฟ้า' }] });
+  assert.match(cover, /attached image 1 = ฟ้า/);
+  assert.match(cover, /NOT a stock photo, NOT two people sitting at a table/);
+  assert.match(P.flowNovelCoverPrompt({ book: {}, back: true }), /no main character faces/);
+  // ปกนิยายไม่ส่งรูปผู้เขียนให้ Flow (เคยถูกแปะรูปดิบลงปกหลัง) ให้ Typst วางแทน
+  assert.match(machine, /!novelCover && j.kind !== 'interior'/);
+  assert.match(P.backCoverCopyPrompt({ contentMode: 'fiction' }, {}), /ห้ามมี bullet/);
   assert.match(machine, /existing\.meta\?\.novelStyle !== P\.NOVEL_STYLE_V/);
 });

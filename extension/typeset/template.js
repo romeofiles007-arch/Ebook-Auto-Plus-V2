@@ -872,7 +872,9 @@ function backCoverPage(book, outline, opts = {}) {
   const coverW = book.trim?.widthMm || 148;
   const coverH = book.trim?.heightMm || 210;
   const authorPhotoName = opts.authorPhotoName || 'author-photo.png';
-  const showAuthorPhoto = !!book.authorPhotoOnCover && (opts.assetNames || []).includes(authorPhotoName);
+  // โหมด Flow: รูปผู้เขียนที่เลือกไว้สำหรับปกหลังถูกวางโดยเครื่องเรียงพิมพ์เสมอ (ไม่ส่งให้ Flow วาดลงในภาพ)
+  const wantsPhoto = !!book.authorPhotoOnCover || (book.imageSource === 'flow' && (book.authorRefTargets || []).includes('cover-back'));
+  const showAuthorPhoto = wantsPhoto && (opts.assetNames || []).includes(authorPhotoName);
 
   /**
    * ถามด้วยเกณฑ์เดียวกับตอนเขียน prompt ไม่ใช่เชื่อธงที่ตั้งไว้ตอนบันทึกไฟล์อย่างเดียว
@@ -903,11 +905,20 @@ function backCoverPage(book, outline, opts = {}) {
    * ปกหลังที่ ChatGPT วาดตัวอักษรมาในภาพแล้ว ห้ามวางคำโปรยทับซ้ำ
    * ไม่งั้นจะได้ข้อความสองชุดซ้อนกันบนปกเดียว ซึ่งแย่กว่าไม่มีเลย
    */
-  const blurbBlock = book.blurb && !textInImage
-    ? `#place(top + left, dx: ${round(coverW * 0.1)}mm, dy: ${round(coverH * (showAuthorPhoto ? 0.34 : 0.16))}mm)[
+  /**
+   * คำโปรยจัดเป็นลำดับชั้น: ย่อหน้าแรก (hook) ตัวหนาใหญ่ ที่เหลือตัวปกติ — เดิมเป็นก้อนข้อความขนาดเท่ากันหมด
+   * นิยายตัด bullet ทิ้ง (คำโปรยเก่าที่เขียนแบบหนังสือพัฒนาตัวเอง)
+   */
+  const blurbParas = String(book.blurb || '')
+    .split(/\n\s*\n/)
+    .map((p) => (book.contentMode === 'fiction' ? p.split('\n').filter((l) => !/^\s*[•*-]\s/.test(l)).join('\n') : p).trim())
+    .filter(Boolean);
+  const blurbBlock = blurbParas.length && !textInImage
+    ? `#place(top + left, dx: ${round(coverW * 0.1)}mm, dy: ${round(coverH * (showAuthorPhoto ? 0.3 : 0.14))}mm)[
       #block(width: ${round(coverW * 0.8)}mm, fill: rgb("${panelFill}"), inset: (x: 7mm, y: 6mm), radius: 3mm)[
-        #set par(leading: 0.62em, spacing: 0.7em, first-line-indent: 0pt)
-        #text(size: ${pt(book.typography.sizePt * 0.95)}, fill: rgb("${textColor}"))[${T(book.blurb)}]
+        #set par(leading: 0.62em, spacing: 0.9em, first-line-indent: 0pt)
+        #text(size: ${pt(book.typography.sizePt * 1.12)}, weight: 700, fill: rgb("${textColor}"))[${T(blurbParas[0])}]
+${blurbParas.slice(1).map((p) => `        #parbreak()\n        #text(size: ${pt(book.typography.sizePt * 0.92)}, fill: rgb("${textColor}"))[${T(p)}]`).join('\n')}
       ]
     ]`
     : '';
