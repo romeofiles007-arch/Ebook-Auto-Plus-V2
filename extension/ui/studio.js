@@ -768,8 +768,14 @@ setInterval(() => {
      * ไม่งั้นเล่มยาว ๆ ที่สะดุดคนละที่สามครั้งจะหมดสิทธิ์ตั้งแต่กลางเล่ม
      * เพดานนี้มีไว้กันการวนที่จุดเดิม ไม่ได้มีไว้จำกัดจำนวนครั้งทั้งเล่ม
      */
-    if (book.job.step !== autoContinueStep) {
-      autoContinueStep = book.job.step;
+    /**
+     * นับ "จุดที่ติด" ไม่ใช่ "ขั้น" — ขั้นเขียนเนื้อหาคือขั้นเดียวทั้งเล่ม
+     * เดิมสะดุดสามครั้งที่ตอนไหนก็ได้ในเล่ม สิทธิ์กดต่อก็หมด แล้วงานหยุดรอคนกลางเล่ม (ผู้ใช้เจอจริง)
+     * ตอนนี้ติดคนละตอน/คนละเหตุผล = จุดใหม่ ได้สิทธิ์ใหม่ · ติดซ้ำที่เดิมเท่านั้นที่นับสะสม
+     */
+    const stuckAt = `${book.job.step}|${String(book.job.error || '').slice(0, 160)}`;
+    if (stuckAt !== autoContinueStep) {
+      autoContinueStep = stuckAt;
       autoContinues = 0;
     }
     if (autoContinues >= autoContinueMax()) {

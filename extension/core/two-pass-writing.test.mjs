@@ -7,7 +7,7 @@ import * as B from './bible.js';
 import { countUnits } from './thai.js';
 import { NARRATION_PROFILES } from './editorial.js';
 import { estimateTurns } from './budget.js';
-import { parseContentDraft, recoverContentDraft, contentInputRequests } from './content-readiness.js';
+import { parseContentDraft, recoverContentDraft, contentInputRequests, salvageContentDraft, describeDraftProblem } from './content-readiness.js';
 
 globalThis.chrome = { runtime: { onMessage: { addListener() {} } } };
 const { Machine, ContentInputNeeded } = await import('./machine.js');
@@ -31,7 +31,7 @@ function answer(id, body, meta = { missing_information: [], summary: 'สาร�
 function harness(replies, book = makeBook()) {
   const records = new Map();
   const calls = [];
-  const scope = { P, X, B, countUnits, parseContentDraft, recoverContentDraft, contentInputRequests,
+  const scope = { P, X, B, countUnits, parseContentDraft, recoverContentDraft, contentInputRequests, salvageContentDraft, describeDraftProblem,
     ContentInputNeeded, MAX_CONTINUES: 2, Halt: Error, db: {
     loadSection: async (_, id) => records.get(id),
     saveSection: async (_, s) => records.set(s.id, structuredClone(s)),
@@ -117,13 +117,26 @@ test('missing required information is saved and blocks composition, even with sh
   assert.equal(h.calls.length, 2, 'do not burn another turn until inputs change');
 });
 
-test('invalid readiness metadata or incomplete sentinels cannot bypass draft stage', async () => {
-  for (const response of [answer('1.1', rawBody, {}), answer('1.1', rawBody, { missing_information: 'none' }), `<<<SEC 1.1 BEGIN>>>${rawBody}`]) {
-    const h = harness([response, response]);
-    await assert.rejects(h.machine.writeBatch(input), /สร้างสาระดิบไม่ครบ/);
-    assert.equal(h.calls.length, 2);
-    assert.equal(h.records.size, 0);
+/**
+ * รูปแบบไม่ครบ = ขอใหม่ก่อนเสมอ (META คือช่องที่ ChatGPT ใช้บอกว่าขาดข้อมูลอะไร)
+ * แต่ถ้าครบทุกรอบแล้วยังไม่ครบ ให้เก็บเนื้อหาที่ได้ไว้ใช้ต่อ แทนการหยุดทั้งเล่มรอคน (ผู้ใช้ขอ)
+ */
+test('invalid readiness metadata is retried strictly, then salvaged on the last attempt', async () => {
+  for (const response of [answer('1.1', rawBody, {}), answer('1.1', rawBody, { missing_information: 'none' })]) {
+    const h = harness([response, response, response, response]);
+    await h.machine.prepareContentDrafts(input);
+    assert.equal(h.calls.length, 4);
+    assert.equal(h.records.get('1.1').contentDraft.md.trim(), rawBody.trim());
+    assert.deepEqual(h.records.get('1.1').contentDraft.meta.missing_information, []);
+    assert.match(h.calls[2].prompt, /<<<SEC 1\.1 END>>>/); // รอบหลังเตือนรูปแบบให้ชัด
   }
+});
+
+test('nothing usable after every attempt still stops with the missing section', async () => {
+  const h = harness([`<<<SEC 1.1 BEGIN>>>สั้น`, '', '', '']);
+  await assert.rejects(h.machine.writeBatch(input), /สร้างสาระดิบไม่ครบ/);
+  assert.equal(h.calls.length, 4);
+  assert.equal(h.records.size, 0);
 });
 
 test('draft retry requests only missing section and preserves successful siblings', async () => {

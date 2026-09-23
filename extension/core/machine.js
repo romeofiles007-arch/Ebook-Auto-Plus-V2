@@ -11,7 +11,7 @@ import * as W from './workspace.js';
 import * as P from './prompts.js';
 import * as X from './extract.js';
 import * as B from './bible.js';
-import { parseContentDraft, recoverContentDraft, contentInputRequests } from './content-readiness.js';
+import { parseContentDraft, recoverContentDraft, contentInputRequests, salvageContentDraft, describeDraftProblem } from './content-readiness.js';
 import * as R from './review.js';
 import { countUnits } from './thai.js';
 import {
@@ -1607,19 +1607,41 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       } else pending.push(s);
     }
     const startsThread = pending.length > 0 && this.wantNewThread(isChapterStart);
-    for (let attempt = 0; pending.length && attempt < 2; attempt++) {
-      const prompt = P.contentDraftPrompt({ book: this.book, outline: this.book.outline,
-        bible: this.book.bible, chapter, sections: pending, withContext: isChapterStart });
-      const res = await this.turnWithRetry(prompt, {
-        label: `สาระดิบ · ตอน ${pending.map(s => s.id).join(', ')}`,
-        newThread: attempt === 0 && startsThread,
-      });
+    /**
+     * ซ่อมเองจนผ่าน ไม่หยุดรอคนเพราะรูปแบบคำตอบไม่ครบ
+     *   รอบ 1–2: ขอทั้งชุดตามเดิม (รอบ 2 เตือนรูปแบบให้ชัด)
+     *   รอบ 3–4: ขอทีละตอนในห้องแชตใหม่ — คำตอบสั้นลง โอกาสถูกตัดกลางคันน้อยลง
+     *   รอบสุดท้าย: ถ้ารูปแบบยังไม่ครบแต่เนื้อหาใช้ได้ เก็บเนื้อหาไว้ (salvageContentDraft) แทนการหยุดทั้งเล่ม
+     */
+    const MAX_DRAFT_ATTEMPTS = 4;
+    for (let attempt = 0; pending.length && attempt < MAX_DRAFT_ATTEMPTS; attempt++) {
+      if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+      const oneByOne = attempt >= 2;
+      const batches = oneByOne ? pending.map((s) => [s]) : [pending];
       const retry = [];
-      for (const s of pending) {
-        const ex = parseContentDraft(res.text || '', s.id);
+      for (const batch of batches) {
+      let prompt = P.contentDraftPrompt({ book: this.book, outline: this.book.outline,
+        bible: this.book.bible, chapter, sections: batch, withContext: isChapterStart || oneByOne });
+      if (attempt > 0) {
+        prompt += `\n\nสำคัญ: ${batch.map((s) => `ตอบตอน ${s.id} ให้ครบ ขึ้นต้นด้วย <<<SEC ${s.id} BEGIN>>> ปิดด้วย <<<SEC ${s.id} END>>> และตามด้วยข้อมูลกำกับท้ายตอนตามรูปแบบที่ให้ไว้`).join(' · ')} — ห้ามตัดคำตอบกลางคัน`;
+      }
+      const res = await this.turnWithRetry(prompt, {
+        label: `สาระดิบ · ตอน ${batch.map(s => s.id).join(', ')}${attempt ? ` (รอบ ${attempt + 1})` : ''}`,
+        newThread: (attempt === 0 && startsThread) || oneByOne,
+      });
+      for (const s of batch) {
+        let ex = parseContentDraft(res.text || '', s.id);
         if (!ex) {
-          retry.push(s);
-          continue;
+          // เก็บแบบรูปแบบไม่ครบเฉพาะรอบสุดท้าย — รอบก่อนหน้ายังขอให้ตอบครบก่อน เพราะ META คือช่องที่ ChatGPT ใช้บอกว่าขาดข้อมูลอะไร
+          const saved = attempt === MAX_DRAFT_ATTEMPTS - 1 ? salvageContentDraft(res.text || '', s.id) : null;
+          if (saved) {
+            this.log('warn', `ตอน ${s.id}: ${describeDraftProblem(res.text || '', s.id)} — เก็บเนื้อหาที่ได้ไว้ใช้ต่อ ไม่ทิ้ง`);
+            ex = saved;
+          } else {
+            this.log('warn', `ตอน ${s.id}: อ่านสาระดิบไม่ได้ (${describeDraftProblem(res.text || '', s.id)}) — จะขอใหม่${attempt + 1 < MAX_DRAFT_ATTEMPTS ? '' : ' ในรอบถัดไปของงาน'}`);
+            retry.push(s);
+            continue;
+          }
         }
         const contentDraft = { key: P.contentDraftKey(this.book, chapter, s),
           md: ex.body, meta: ex.meta, createdAt: Date.now() };
@@ -1627,6 +1649,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         await db.saveSection(this.book.id, { ...s, ...old, id: s.id,
           chapter: chapter.n, md: old?.md || '', status: old?.status || 'draft', contentDraft });
         drafts.set(s.id, contentDraft);
+      }
       }
       pending = retry;
     }

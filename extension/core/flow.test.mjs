@@ -227,3 +227,11 @@ test('ปกคือผิวหน้าปกแบนเต็มกรอ�
   const p = flowPrompt({ kind: 'cover', prompt: 'x' }, { label: '3:4', loss: 0.07 });
   assert.match(p, /NOT a photograph of a book, NOT a 3D mockup/);
 });
+
+/** ผู้ใช้ขอ: ให้กดทำต่อเองจนสำเร็จ ไม่หยุดรอคนกลางเล่ม */
+test('กดทำต่อเองนับตามจุดที่ติด ไม่ใช่ทั้งขั้นเขียน', async () => {
+  const studio = await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8');
+  assert.match(studio, /const stuckAt = `\$\{book\.job\.step\}\|\$\{String\(book\.job\.error \|\| ''\)\.slice\(0, 160\)\}`;/);
+  assert.match(machine, /const MAX_DRAFT_ATTEMPTS = 4;/);
+  assert.match(machine, /const oneByOne = attempt >= 2;/);
+});
