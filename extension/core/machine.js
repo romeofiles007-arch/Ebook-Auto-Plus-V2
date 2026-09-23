@@ -3648,6 +3648,11 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           palette: this.book.style?.palette || [],
         });
       }
+      // ปกสารคดีโหมด Flow: ธรรมเนียมปกของประเภทหนังสือมาก่อน (core/flow-genres.js)
+      if (!fiction && j.kind === 'cover') {
+        const direction = P.flowGenreCoverDirection(this.book, { back: j.name === 'cover-back.png' });
+        if (direction) prompt = `${direction}\n\n${prompt}`;
+      }
       const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'pattern'].includes(j.kind);
       const coverRef = wantsCoverRef ? await this.coverStyleRef() : null;
       if (coverRef) {

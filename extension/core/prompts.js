@@ -9,6 +9,7 @@
 import { TRIM_PRESETS } from './budget.js';
 import { referenceContext } from './references.js';
 import { OUTLINE_RULES, proseRules, proseBatch, proseContentDraft, proseCompose, narrationRules, safeVoicePrompt, safeVoiceBlock, proseReview, proseRepair, editContext } from './editorial.js';
+import { flowGenreFor } from './flow-genres.js';
 
 const unitName = (lang) => (lang === 'th' ? 'อักษร' : 'คำ');
 
@@ -1486,9 +1487,18 @@ ${cards || '(ไม่มีทิศทางส่งมา)'}
  */
 export const NOVEL_ART_STYLE =
   'polished full-colour digital illustration in a modern graphic-novel style: clean confident linework, rich painterly colour with natural skin tones, cinematic lighting from a clear light source, detailed atmospheric background, expressive faces';
-export const NOVEL_STYLE_V = 2;
+export const NOVEL_STYLE_V = 3; // 3 = สไตล์ตามประเภทหนังสือ (flow-genres.js)
 
 /** สไตล์ภาพของนิยาย: ค่าตั้งต้นเดิม (กล่อง/สเก็ตช์) = สไตล์นิยายสีเต็ม · สไตล์อื่นที่ผู้ใช้เลือกเองใช้ตามนั้น */
+/**
+ * สไตล์จริงของเล่มในโหมด Flow: สไตล์นิยาย = สไตล์ตามประเภทหนังสือ (core/flow-genres.js) ถ้าเข้าสูตร
+ * ปก ภาพต้นแบบตัวละคร และภาพในเล่มเรียกฟังก์ชันนี้ตัวเดียว ทั้งเล่มจึงได้สไตล์เดียวกันเสมอ
+ */
+export function novelBrief(book, styleKey = 'novel') {
+  if (styleKey && styleKey !== 'novel' && FIGURE_STYLES[styleKey]?.brief) return FIGURE_STYLES[styleKey].brief;
+  return flowGenreFor({ ...(book || {}), contentMode: 'fiction' })?.style || NOVEL_ART_STYLE;
+}
+
 export function novelStyleKey(requested) {
   return !requested || requested === 'box' || requested === 'sketch' ? 'novel' : requested;
 }
@@ -1852,7 +1862,7 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
  */
 export function characterSheetPrompt(book, c, { styleKey = '', color = true, fromPhoto = false } = {}) {
   const st = FIGURE_STYLES[styleKey];
-  const style = st?.brief || NOVEL_ART_STYLE;
+  const style = novelBrief(book, styleKey);
   return [
     `Character reference sheet for the ${book?.language === 'en' ? 'English' : 'Thai'} novel${book?.title ? ` "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
     `CHARACTER: ${c.name}${c.role ? ` — ${c.role}` : ''}.`,
@@ -1881,7 +1891,7 @@ export function flowNovelCoverPrompt({ book, outline, people = [], back = false,
   const genre = book?.fictionGenre || book?.genreBrief || book?.genre || '';
   const digest = book?.coverDigest || {};
   const st = FIGURE_STYLES[styleKey];
-  const style = st?.brief || NOVEL_ART_STYLE;
+  const style = novelBrief(book, styleKey);
   const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
   const premise = String(outline?.thesis || outline?.logline || book?.topic || '').replace(/\s+/g, ' ').trim().slice(0, 500);
   const moment = String(digest.signature_moment || '').trim();
@@ -1890,29 +1900,56 @@ export function flowNovelCoverPrompt({ book, outline, people = [], back = false,
         .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.role ? ` (${c.role})` : ''}`)
         .join('\n')}`
     : '';
+  /**
+   * ลำดับตามแนวทางของ Google: เรื่อง/ตัวละคร → องค์ประกอบ → แสงสี → สไตล์ · บรรยายสิ่งที่อยากได้มากกว่าสิ่งที่ห้าม
+   * องค์ประกอบ แสง และที่ว่างชื่อเรื่องมาจากสูตรตามประเภท (core/flow-genres.js) ถ้าเข้าสูตร
+   */
+  const g = flowGenreFor({ ...(book || {}), contentMode: 'fiction' });
   const front = [
     `FRONT COVER ARTWORK of a best-selling ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` titled "${book.title}"` : ''} — it must make a reader in a bookshop stop and pick it up.`,
     premise ? `THE STORY: ${premise}` : '',
     moment ? `THE MOST VISUAL MOMENT: ${moment}` : '',
     cast,
-    'COMPOSITION: one striking, emotional key image like a movie poster — the main characters large and close to the viewer (waist-up or closer, filling the lower two thirds), caught in the central feeling of the story: a charged glance, a near-touch, a turning away, a secret. Strong silhouette, depth with a blurred atmospheric background of the story\'s place, dramatic directional light (golden hour, city night lights, rain, window light) with a clear glow and rim light on the faces.',
-    'The top third is calm, softly lit sky, wall, bokeh or gradient with nothing important in it — the title is typeset there. The bottom strip stays darker and calm for the author name.',
-    'NOT a stock photo, NOT two people sitting at a table, NOT smiling at the camera, NOT a flat everyday snapshot, NOT a collage of many small scenes.',
-    `STYLE: ${style}, cover-grade finish, luminous harmonious colour${hues ? ` built around ${hues}` : ''}, high detail on faces and hands.`,
+    g
+      ? `COMPOSITION (${g.key} cover convention): ${g.cover}. Built from this story's own characters, place and objects.`
+      : 'COMPOSITION: one striking, emotional key image like a movie poster — the main characters large and close to the viewer (waist-up or closer, filling the lower two thirds), caught in the central feeling of the story: a charged glance, a near-touch, a turning away, a secret. Strong silhouette, depth with a blurred atmospheric background of the story\'s place.',
+    `LIGHT AND COLOUR: ${g ? g.light : 'dramatic directional light (golden hour, city night lights, rain, window light) with a clear glow and rim light on the faces'}${hues ? `; accents of ${hues}` : ''}.`,
+    `${g ? `${g.titleSpace[0].toUpperCase()}${g.titleSpace.slice(1)}` : 'The top third is calm, softly lit sky, wall, bokeh or gradient'} — the title is typeset there. The bottom strip stays darker and calm for the author name.`,
+    'It reads as a professionally illustrated bestseller cover: one clear focal point, real emotion in faces and body language, a single designed moment (not a stock photo, not people posing at a table, not a collage).',
+    `STYLE: ${style}, cover-grade finish, high detail on faces and hands.`,
   ];
   const backSide = [
     `BACK COVER ARTWORK of the ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` "${book.title}"` : ''} — the same world, light and art style as the front cover (attached if available), a quieter companion image.`,
     premise ? `THE STORY: ${premise}` : '',
-    'COMPOSITION: an evocative place or small detail from the story (an empty street at night, a window with rain, two coffee cups, a door left open) — no main character faces. Soft, atmospheric, with the whole middle area calm and even so a text panel can sit on it.',
-    `STYLE: ${style}, cover-grade finish, colour harmonious with the front${hues ? ` (${hues})` : ''}.`,
+    `COMPOSITION: ${g ? g.back : 'an evocative place or small detail from the story (an empty street at night, a window with rain, two coffee cups, a door left open)'} — no main character faces. The whole middle area stays calm and even so a text panel can sit on it.`,
+    `LIGHT AND COLOUR: ${g ? g.light : 'soft atmospheric light'}${hues ? `; accents of ${hues}` : ''}.`,
+    `STYLE: ${style}, cover-grade finish.`,
   ];
   return (back ? backSide : front).filter(Boolean).join('\n');
+}
+
+/**
+ * ปกสารคดีโหมด Flow: ธรรมเนียมปกของประเภทนั้น วางไว้ก่อน prompt ปกของ Art Director (ซึ่งยาวและไม่ได้คิดเรื่องแนว)
+ * ไม่เข้าสูตรไหน = '' (ใช้ prompt เดิมตามปกติ)
+ */
+export function flowGenreCoverDirection(book, { back = false } = {}) {
+  const g = flowGenreFor(book || {});
+  if (!g) return '';
+  return [
+    `GENRE COVER CONVENTION (${g.key}) — follow this first, it overrides any conflicting direction below:`,
+    `COMPOSITION: ${back ? `${g.back} — the whole middle area stays calm so a text panel can sit on it` : g.cover}.`,
+    `LIGHT AND COLOUR: ${g.light}.`,
+    back ? '' : `TITLE SPACE: ${g.titleSpace}.`,
+    `STYLE: ${g.style}, cover-grade finish.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], styleKey = '', color = true, palette = [] } = {}) {
   const lang = book?.language === 'en' ? 'English' : 'Thai';
   const st = FIGURE_STYLES[styleKey];
-  const style = st?.brief || NOVEL_ART_STYLE;
+  const style = novelBrief(book, styleKey);
   const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
   const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
   const cast = people.length

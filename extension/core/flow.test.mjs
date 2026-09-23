@@ -315,10 +315,32 @@ test('นิยาย: ตัวละครครบทุกช่องที
   assert.ok(machine.includes("prompt = P.flowNovelCoverPrompt("));
   const cover = P.flowNovelCoverPrompt({ book: { title: 'ค', fictionGenre: 'โรแมนซ์' }, outline: { thesis: 'x' }, people: [{ name: 'ฟ้า' }] });
   assert.match(cover, /attached image 1 = ฟ้า/);
-  assert.match(cover, /NOT a stock photo, NOT two people sitting at a table/);
+  assert.match(cover, /not a stock photo, not people posing at a table/);
+  assert.match(cover, /romance cover convention/);
   assert.match(P.flowNovelCoverPrompt({ book: {}, back: true }), /no main character faces/);
   // ปกนิยายไม่ส่งรูปผู้เขียนให้ Flow (เคยถูกแปะรูปดิบลงปกหลัง) ให้ Typst วางแทน
   assert.match(machine, /!novelCover && j.kind !== 'interior'/);
   assert.match(P.backCoverCopyPrompt({ contentMode: 'fiction' }, {}), /ห้ามมี bullet/);
   assert.match(machine, /existing\.meta\?\.novelStyle !== P\.NOVEL_STYLE_V/);
+});
+
+/** ผู้ใช้ขอ: วิธีสร้างปกตามประเภทหนังสือสำหรับ Google Flow — ใช้เฉพาะโหมดนี้ */
+test('สูตรปกตามประเภทหนังสือ: ใช้เฉพาะเส้นทาง Flow และเดาประเภทถูก', async () => {
+  const { flowGenreFor, FLOW_GENRES } = await import('./flow-genres.js');
+  assert.equal(flowGenreFor({ contentMode: 'fiction', fictionGenre: 'fantasy', topic: 'นิยายรัก', outline: { thesis: 'ความรักของคนแปลกหน้า' } }).key, 'romance');
+  assert.equal(flowGenreFor({ contentMode: 'fiction', fictionGenre: 'fantasy', topic: 'จอมเวทกับมังกร ความรัก' }).key, 'fantasy');
+  assert.equal(flowGenreFor({ contentMode: 'fiction', fictionGenre: 'mystery' }).key, 'thriller');
+  assert.equal(flowGenreFor({ contentMode: 'prose', genre: 'how-to', topic: 'ทำอาหารไทย' }).key, 'food');
+  assert.equal(flowGenreFor({ contentMode: 'prose', genre: 'self' }).key, 'selfhelp');
+  for (const g of FLOW_GENRES) for (const k of ['style', 'cover', 'light', 'titleSpace', 'back']) assert.ok(g[k], `${g.key}.${k}`);
+  const P = await import('./prompts.js');
+  const thriller = { contentMode: 'fiction', fictionGenre: 'thriller', title: 't' };
+  assert.match(P.flowNovelCoverPrompt({ book: thriller }), /thriller cover convention/);
+  assert.match(P.characterSheetPrompt(thriller, { name: 'a' }, { styleKey: 'novel' }), /film-noir/);
+  assert.match(P.flowGenreCoverDirection({ contentMode: 'prose', genre: 'business' }), /GENRE COVER CONVENTION \(business\)/);
+  // โหมดอื่นไม่เรียกของพวกนี้เลย — ผู้เรียกมีแค่ ensureFlowCast / imagesViaFlow
+  for (const src of [await readFile(new URL('./export.js', import.meta.url), 'utf8'), await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8')]) {
+    assert.doesNotMatch(src, /flowGenreFor|flowGenreCoverDirection|flowNovelCoverPrompt/);
+  }
+  assert.match(machine, /if \(!fiction && j\.kind === 'cover'\) \{\n        const direction = P\.flowGenreCoverDirection/);
 });
