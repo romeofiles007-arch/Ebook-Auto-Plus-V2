@@ -60,6 +60,8 @@ import {
   frontCoverPrompt,
   backCoverPrompt,
   coverTextBaked,
+  backCoverTextBaked,
+  frontCoverTextInImage,
   sectionPrompt,
   contentDraftPrompt,
   contentDraftKey,
@@ -79,6 +81,7 @@ import { ITEM_KINDS, planItems, suggestItemSize, itemBatchPrompt, extractItems }
 import { countUnits } from '../core/thai.js';
 import { preflight } from '../core/preflight.js';
 import { compileBook } from '../typeset/compiler.js';
+import { pickRandomOpener } from '../typeset/template.js';
 import * as X from '../core/export.js';
 import * as W from '../core/workspace.js';
 import { listLibrary, removeFromLibrary } from '../core/cast-library.js';
@@ -708,6 +711,8 @@ function logMachine(e) {
       check: `กำลังตรวจภาพ ${pos} · ${label}`,
       generate: `กำลังสร้างภาพ ${pos} · ${label}`,
       retry: `กำลังลองสร้างใหม่ ${pos} · ${label} (ครั้งที่ ${e.attempt}/${e.maxAttempts})`,
+      // จังหวะการสั่ง Google Flow (machine.js flowPace) — ไม่ได้ค้าง กำลังเว้นระยะ
+      pace: `${e.why || 'เว้นจังหวะ'} ${pos} · ${label} — อีก ${e.waitS >= 90 ? `${Math.ceil(e.waitS / 60)} นาที` : `${e.waitS || 0} วินาที`}`,
       grab: `ภาพยังไม่ขึ้นในคำตอบ · กำลังรอแล้วไล่คว้าจากหน้าแชตให้เอง ${pos} · ${label}`,
       download: `กำลังดึงและปรับขนาดภาพ ${pos} · ${label}`,
       saved: `✓ บันทึกภาพ ${pos} · ${label}`,
@@ -2000,6 +2005,8 @@ const FICTION_GENRE_LABEL = {
   adventure: 'นิยายผจญภัย เป้าหมายชัด อุปสรรคต่อเนื่อง และสถานที่มีบทบาทกับเรื่อง',
   comingofage: 'นิยายเติบโต เน้นการเปลี่ยนมุมมองและตัวตนของตัวละครหลัก',
   literary: 'วรรณกรรมร่วมสมัย เน้นภาษา ชั้นเชิง ตัวละคร และธีมโดยไม่เสียแรงขับของเรื่อง',
+  // ผู้ใช้ขอ: นิยายสำหรับผู้สูงอายุ — ตัวละครวัยเดียวกับผู้อ่าน อ่านสบาย ไม่ซับซ้อนเกินจำ
+  senior: 'นิยายสำหรับผู้อ่านสูงวัย ตัวละครหลักวัยเกษียณหรือใกล้เคียง เรื่องอบอุ่นมีความหมาย เช่น ความทรงจำ ครอบครัว มิตรภาพ รักครั้งใหม่ การเริ่มต้นชีวิตช่วงใหม่ ภาษาเรียบง่าย ประโยคไม่ยาว เล่าตามลำดับเวลาเป็นหลัก ตัวละครไม่มากจนจำยาก ย้ำชื่อตัวละครให้จำได้ง่าย มีอารมณ์ขันอ่อนโยน ไม่ใช้ศัพท์วัยรุ่นหรือคำแสลง และไม่มีความรุนแรงโจ่งแจ้ง',
 };
 
 const DEPTH_LABEL = {
@@ -2189,6 +2196,10 @@ function readForm() {
     },
     contentMode,
     pagePattern: val('pagePattern', 'none'),
+    // หน้าเปิดบทแบบเต็มหน้า (typeset/template.js CHAPTER_OPENERS) · "สุ่ม" เลือกหนึ่งแบบต่อเล่มตอนสร้างเล่ม แล้วจดไว้
+    // ทั้งเล่มจึงแบบเดียวกันเสมอ และเปิดเล่มซ้ำก็ได้แบบเดิม ไม่สุ่มใหม่ทุกครั้งที่เรียงพิมพ์
+    chapterOpener: val('chapterOpener', 'lines') === 'random' ? pickRandomOpener() : val('chapterOpener', 'lines'),
+    chapterOpenerRandom: val('chapterOpener', 'lines') === 'random',
     // ภาพเลือกแหล่งได้ ส่วนเนื้อหายังใช้หน้าเว็บเสมอ
     imageSource: val('imageSource', 'web'),
     imageApiQuality: val('imageApiQuality', 'medium'),
@@ -2608,6 +2619,8 @@ function shouldAutoContinue({ unattended: on, busy, job, quietMs }) {
   if (job.step === 'done') return false;
   if (job.status === 'rate_limited') return false; // ชนลิมิตแล้ว กดต่อคือไปชนซ้ำ
   if (job.status === 'waiting_content_input') return false;
+  // Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" = พักก่อน กดต่อทันทีคือยิ่งโดน (machine.js stopFlowUnusual)
+  if (job.cooldownUntil && Date.now() < job.cooldownUntil) return false;
   return quietMs >= AUTO_CONTINUE_QUIET_MS;
 }
 
@@ -5077,8 +5090,9 @@ function phase2MissingNames(b, assets = []) {
     if (!asset) return true;
     // ปกจาก workflow รุ่นเก่าอาจมีข้อความฝังหรือขนาดผิด ต้องถือว่ายังขาดจนกว่าจะเป็น artwork รุ่นใหม่
     if ((name === 'cover-front.png' || name === 'cover-back.png') && b?.coverMode === 'auto') {
-      // ปกหน้าแบบ baked ตั้งใจให้มีตัวหนังสือ ห้ามเอาเกณฑ์ "artwork เปล่า" ไปตัดสินว่ายังขาด
-      const needsCleanArtwork = !(name === 'cover-front.png' && coverTextBaked(b));
+      // ปกแบบ baked ตั้งใจให้มีตัวหนังสือ ห้ามเอาเกณฑ์ "artwork เปล่า" ไปตัดสินว่ายังขาด (นิยาย Flow = ทั้งหน้าและหลัง)
+      const baked = name === 'cover-front.png' ? coverTextBaked(b) : b?.imageSource === 'flow' && backCoverTextBaked(b);
+      const needsCleanArtwork = !baked;
       return (needsCleanArtwork && !asset.meta?.artworkOnly) || (asset.meta?.generationVersion || 0) < 5;
     }
     return false;
@@ -5125,14 +5139,16 @@ async function renderCoverPreview() {
   coverPreviewUrl = URL.createObjectURL(asset.blob);
 
   // ปกที่ ChatGPT วาดตัวหนังสือมาให้แล้ว = ภาพนี้คือปกจริง ห้ามวาดข้อความซ้อนทับในตัวอย่าง
-  if (coverTextBaked(book)) {
+  if (frontCoverTextInImage(book)) {
     $('coverPreviewImg').src = coverPreviewUrl;
     ['coverPreviewTitle', 'coverPreviewSubtitle', 'coverPreviewAuthor'].forEach((id) =>
       $(id).classList.add('hidden'),
     );
     wrap.querySelector('.slotHead').textContent = 'ปกจริงที่จะใช้ในเล่ม';
     wrap.querySelector('.muted').textContent =
-      'ChatGPT วาดชื่อเรื่องมาในภาพแล้ว ระบบจะใช้ภาพนี้เป็นปกตรง ๆ ไม่พิมพ์อะไรทับอีก — ถ้าคำสะกดเพี้ยน ให้กดสร้างปกใหม่ หรือสลับไปโหมด “ให้ระบบพิมพ์ทับภาพ”';
+      book.imageSource === 'flow'
+        ? 'Google Flow สร้างชื่อเรื่องมาพร้อมภาพแบบโปสเตอร์ ระบบใช้ภาพนี้เป็นปกตรง ๆ ไม่พิมพ์อะไรทับ — ถ้าคำสะกดเพี้ยน ให้กดสร้างปกใหม่'
+        : 'ChatGPT วาดชื่อเรื่องมาในภาพแล้ว ระบบจะใช้ภาพนี้เป็นปกตรง ๆ ไม่พิมพ์อะไรทับอีก — ถ้าคำสะกดเพี้ยน ให้กดสร้างปกใหม่ หรือสลับไปโหมด “ให้ระบบพิมพ์ทับภาพ”';
     wrap.classList.remove('hidden');
     return;
   }
@@ -5389,11 +5405,14 @@ async function skipPhase2() {
  * แต่ภาพในเล่มใช้ prompt ที่แช่ไว้ตั้งแต่ตอนวางแผน กดสร้างใหม่กี่รอบก็ได้คำสั่งเดิม
  * ทางเดียวที่ได้ subject และ prompt ชุดใหม่คือวางแผนใหม่ทั้งชุด
  */
-async function replanFigures() {
+async function replanFigures(level = null) {
+  if (machineBusy) return phase2Notice('<b>ยังมีงานภาพทำอยู่</b>หยุดงานก่อน แล้วค่อยวางแผนภาพใหม่', true);
   if (!book?.id) return;
   book = await db.loadBook(book.id);
   if (!book) return;
-  if ((book.illustrationLevel || 'none') === 'none')
+  if (book.contentMode === 'items' && level === 'page')
+    return phase2Notice('<b>เล่มรายชิ้นใช้แผนภาพคนละแบบ</b>โหมดหน้าละภาพใช้กับนิยายและหนังสือทั่วไป', true);
+  if ((book.illustrationLevel || 'none') === 'none' && !level)
     return phase2Notice(
       '<b>เล่มนี้ไม่ได้ตั้งให้มีภาพในเล่ม</b>ปุ่มนี้ใช้กับภาพประกอบในเล่มเท่านั้น ปกไม่เกี่ยว',
       true,
@@ -5403,7 +5422,7 @@ async function replanFigures() {
   const boxes = (book.figures || []).filter((f) => f.kind === 'box').length;
   if (
     !ask(
-      `ให้ GPT วางแผนภาพในเล่มใหม่หรือไม่?
+      `ให้ GPT วางแผนภาพในเล่มใหม่${level === 'page' ? 'เป็น 1 หน้าเนื้อหา 1 ภาพ' : ''}หรือไม่?
 
 ` +
         `แผนเดิมจะถูกลบทั้งชุด: ภาพ ${planned} รูป และกล่องสรุป ${boxes} กล่อง ` +
@@ -5415,6 +5434,7 @@ async function replanFigures() {
     return;
 
   const removed = await clearFigurePlan(book);
+  if (level) book.illustrationLevel = level;
   await db.saveBook(book);
   await syncSharedProject(book.id);
   addEvent(
@@ -5423,6 +5443,17 @@ async function replanFigures() {
     `ภาพ ${removed.images} รูป · กล่อง ${removed.boxes} กล่อง · แก้เนื้อหา ${removed.sections} ตอน · ลบไฟล์ภาพ ${removed.assets} ไฟล์`,
   );
   status('ล้างแผนภาพเดิมแล้ว กำลังให้ GPT วางแผนภาพใหม่');
+  machineBusy = true;
+  try {
+    makeMachine();
+    await machine.figures();
+    await machine.save();
+  } catch (e) {
+    await db.saveBook(book);
+    return phase2Notice(`<b>วางแผนภาพใหม่ยังไม่สำเร็จ</b>${esc(e?.message || e)} · กดวางแผนภาพใหม่เพื่อลองอีกครั้ง`, true);
+  } finally {
+    machineBusy = false;
+  }
   await startPhase2();
 }
 
@@ -5821,6 +5852,78 @@ $('itemKind').innerHTML = Object.entries(ITEM_KINDS)
   .map(([k, v]) => `<option value="${k}"${k === 'quote' ? ' selected' : ''}>${v.label}</option>`)
   .join('');
 
+/**
+ * ตัวเลือกหน้าเปิดบทแบบมีภาพตัวอย่าง (ผู้ใช้ขอ: "ตอนคลิกเลือกให้มี pop up ตัวอย่างให้ดู แบบเล็กๆ")
+ * ค่าจริงยังอยู่ใน <select id="chapterOpener"> ที่ซ่อนไว้ — ส่วนที่อ่านค่า (val) จึงไม่ต้องเปลี่ยน
+ * การ์ดสร้างจาก option ของ select · ภาพตัวอย่างอยู่ที่ ui/openers/<ค่า>.webp (เรียงพิมพ์จริงด้วย Typst)
+ * เพิ่มแบบใหม่ = เพิ่ม option + ภาพหนึ่งไฟล์ · "สุ่ม" แสดงภาพสี่แบบแรกรวมกัน
+ */
+function setupOpenerPicker() {
+  const sel = $('chapterOpener');
+  const btn = $('chapterOpenerPick');
+  const pop = $('chapterOpenerPop');
+  if (!sel || !btn || !pop) return;
+  const opts = [...sel.options];
+  const split = (o) => {
+    const [name, ...rest] = o.textContent.split(' — ');
+    return { name: name.trim(), note: rest.join(' — ').trim() };
+  };
+  const real = opts.map((o) => o.value).filter((v) => !['random', 'simple'].includes(v));
+  const thumb = (v) =>
+    v === 'random'
+      ? `<span class="mix">${real.slice(0, 4).map((k) => `<img src="openers/${k}.webp" alt="">`).join('')}</span>`
+      : `<img src="openers/${v}.webp" alt="">`;
+  pop.innerHTML = opts
+    .map((o) => {
+      const { name, note } = split(o);
+      return `<button type="button" class="openerCard" role="radio" data-v="${o.value}" title="${esc(note)}"><span class="thumb">${thumb(o.value)}</span><b>${esc(name)}</b></button>`;
+    })
+    .join('');
+  const paint = () => {
+    const o = sel.selectedOptions[0] || opts[0];
+    const { name, note } = split(o);
+    const img = o.value === 'random' ? real[0] : o.value;
+    btn.innerHTML = `<img src="openers/${img}.webp" alt=""><span>${esc(name)}<small>${esc(note)}</small></span>`;
+    pop.querySelectorAll('.openerCard').forEach((c) => c.setAttribute('aria-checked', String(c.dataset.v === o.value)));
+  };
+  const close = (focusBtn = false) => {
+    if (pop.hidden) return;
+    pop.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    if (focusBtn) btn.focus();
+  };
+  const open = () => {
+    pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    (pop.querySelector('[aria-checked="true"]') || pop.querySelector('.openerCard'))?.focus();
+  };
+  btn.addEventListener('click', () => (pop.hidden ? open() : close()));
+  pop.addEventListener('click', (e) => {
+    const card = e.target.closest('.openerCard');
+    if (!card) return;
+    sel.value = card.dataset.v;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    paint();
+    close(true);
+  });
+  // ปิดเมื่อคลิกนอกป๊อปอัป หรือกด Esc · ลูกศรเลื่อนระหว่างการ์ด
+  document.addEventListener('click', (e) => {
+    if (!pop.hidden && !pop.contains(e.target) && !btn.contains(e.target)) close();
+  });
+  pop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') return close(true);
+    const cards = [...pop.querySelectorAll('.openerCard')];
+    const i = cards.indexOf(document.activeElement);
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (step && i >= 0) {
+      e.preventDefault();
+      cards[(i + step + cards.length) % cards.length].focus();
+    }
+  });
+  sel.addEventListener('change', paint);
+  paint();
+}
+
 function syncMode() {
   const mode = val('contentMode', 'prose');
   const items = mode === 'items';
@@ -6066,6 +6169,7 @@ function renderTextPrice() {
     illustrationLevel:
       val('figureMode', 'prompt') === 'auto' && val('illus', 'none') === 'none' ? 'light' : val('illus', 'none'),
     sections: (currentEstimate?.chapters || 0) * 4,
+    targetPages: Number(val('pages', '120')) || 120,
     knownFigures: book?.figures ? book.figures.filter((f) => f.kind === 'image').length : null,
   });
   const img = imgApi && planned.total
@@ -6390,7 +6494,8 @@ $('imagesNotReadyGo').onclick = async () => {
 $('coverConsultAgain').onclick = rethinkCoverWithGpt;
 $('phase2Stop').onclick = recoverPhase2Gate;
 $('phase2Bulk').onclick = () => $('bulkImgFile').click();
-$('phase2Replan').onclick = replanFigures;
+$('phase2Replan').onclick = () => replanFigures();
+$('phase2ReplanPage').onclick = () => replanFigures('page');
 $('bulkImgFile').onchange = async (e) => {
   const files = [...(e.target.files || [])];
   e.target.value = '';
@@ -6421,6 +6526,13 @@ $('phase2Prompts').onclick = async () => {
 $('figureMode').addEventListener('change', () => {
   // Auto หมายถึงต้องการให้ระบบสร้างภาพจริง หากยังเลือก "ไม่มีภาพ" อยู่ให้ปรับเป็นระดับพอดีทันที
   if ($('figureMode').value === 'auto' && $('illus').value === 'none') $('illus').value = 'light';
+});
+$('illus').addEventListener('change', () => {
+  if ($('illus').value === 'page' && $('figureStyle').value === 'box') {
+    $('figureStyle').value = val('contentMode', 'prose') === 'fiction' ? 'novel' : 'line';
+    showStyleNote();
+  }
+  updateEstimate();
 });
 $('title').addEventListener('keydown', (e) => e.key === 'Enter' && create());
 document.querySelectorAll('[data-export]').forEach((b) => (b.onclick = () => runExport(b.dataset.export)));
@@ -6810,7 +6922,7 @@ async function toggleCastLibrary(slot) {
   box.textContent = 'กำลังโหลดคลังตัวละคร…';
   const items = await listLibrary().catch(() => []);
   if (!items.length) {
-    box.textContent = 'คลังยังว่าง — ตัวละครจะถูกเก็บเข้าคลังอัตโนมัติเมื่อสร้างภาพต้นแบบนิยายด้วย Google Flow';
+    box.textContent = 'คลังยังว่าง — ยังไม่มีเล่มไหนมีภาพต้นแบบตัวละคร · ตัวละครจะเข้าคลังเองเมื่อทำนิยายด้วยโหมด Google Flow (ขั้นสร้างภาพ)';
     return;
   }
   box.innerHTML = items
@@ -7198,6 +7310,7 @@ $('lang').addEventListener('change', () => {
 updateEstimate();
 updateItemPlan();
 syncMode();
+setupOpenerPicker();
 $('audience').addEventListener('change', saveCreatorDefaults);
 
 /**

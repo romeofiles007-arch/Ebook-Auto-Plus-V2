@@ -137,14 +137,21 @@ async function ensureChatTab() {
   }
 
   if (!tab) {
-    // เปิดในหน้าต่างแยก ไม่ย่อลง เพื่อลดการถูกหน่วงของแท็บพื้นหลัง
-    const win = await chrome.windows.create({
-      url: 'https://chatgpt.com/',
-      focused: false,
-      width: 900,
-      height: 900,
-    });
-    tab = win.tabs[0];
+    /**
+     * ไม่มีแท็บ ChatGPT = เปิดเป็นแท็บใหม่ในหน้าต่างเดิม ไม่เปิดหน้าต่างใหม่ (ผู้ใช้สั่ง)
+     * เลือกหน้าต่างของ Studio ก่อน แล้วค่อยหน้าต่างที่ใช้ล่าสุด · ทุกเทิร์นสลับมาที่แท็บนี้เองอยู่แล้ว (sw.runTurn)
+     */
+    let windowId;
+    try {
+      const studioId = await S.get('studioTabId');
+      if (studioId != null) windowId = (await chrome.tabs.get(studioId)).windowId;
+    } catch {}
+    if (windowId == null) {
+      try {
+        windowId = (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
+      } catch {}
+    }
+    tab = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: false, ...(windowId != null ? { windowId } : {}) });
     await waitForComplete(tab.id);
   }
   // แท็บที่ถูกพักไว้ (discarded) หรือยังโหลดไม่จบ ยังฉีด content script ลงไปไม่ได้จริง
@@ -568,8 +575,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               const box = document.querySelector('#prompt-textarea');
               if (!box) return false;
               if (requireDraft) {
-                const norm = s => String(s || '').replace(/\s+/g,' ').trim();
-                if (norm(box.innerText) !== norm(expected)) return false;
+                /**
+                 * เทียบแบบหลวม (ต้องตรงกับ composerMatches ใน adapter/chatgpt.js) — ช่องพิมพ์แปลง markdown สด
+                 * ข้อความจึงไม่ตรงตัวอักษร เทียบเป๊ะแล้วไม่ยอมกด Enter เลย งานค้างซ้ำที่ขั้นคิดสารบัญ (เจอจริง)
+                 */
+                const loose = (v) => String(v || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
+                const same = (a, b) => { const g = loose(a), w = loose(b); if (!g || !w) return false; if (g === w) return true; const n = Math.min(40, w.length); return g.length >= w.length * 0.85 && g.length <= w.length * 1.15 && g.includes(w.slice(0, n)) && g.includes(w.slice(-n)); };
+                if (!same(box.innerText, expected)) return false;
                 const busy = [...document.querySelectorAll('[data-testid="stop-button"]')].some(b => {
                   // ChatGPT ค้างปุ่มวงกลมชื่อ Stop answering ไว้ได้แม้ภาพเสร็จแล้ว แต่ปุ่มนั้น disabled
                   // ผู้ใช้กด Enter เองส่งต่อได้ตามปกติ จึงนับว่า busy เฉพาะปุ่ม Stop ที่กดได้จริง
@@ -602,7 +614,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             args: [text, msg.enterOnly ? Number(msg.expectedAttachments || 0) : null],
             func: (expected, expectedAttachments) => {
               const box = document.querySelector('#prompt-textarea');
-              const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+              const loose = (v) => String(v || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
+              const same = (a, b) => { const g = loose(a), w = loose(b); if (!g || !w) return false; if (g === w) return true; const n = Math.min(40, w.length); return g.length >= w.length * 0.85 && g.length <= w.length * 1.15 && g.includes(w.slice(0, n)) && g.includes(w.slice(-n)); };
               if (expectedAttachments !== null) {
                 const form = box?.closest('form');
                 if (!form) return false;
@@ -610,7 +623,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 if (thumbs.length !== expectedAttachments || thumbs.some(img => !img.complete || !img.naturalWidth)) return false;
                 if (form.querySelector('[data-testid*="upload" i][aria-busy="true"], [data-testid*="upload" i] [role="progressbar"]')) return false;
               }
-              return !!box && document.activeElement === box && norm(box.innerText) === norm(expected);
+              return !!box && document.activeElement === box && same(box.innerText, expected);
             },
           });
           if (!verified?.result) throw new Error('composer_text_mismatch');

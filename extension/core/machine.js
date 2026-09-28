@@ -140,6 +140,7 @@ export function batchByBudget(items, sizeOf, budget) {
 
 const NO_COST_ERRORS = new Set([
   'prompt_not_sent',
+  'chat_paused',
   'new_thread_not_ready',
   'chat_page_not_ready',
   'adapter_unavailable',
@@ -151,6 +152,12 @@ const NO_COST_ERRORS = new Set([
   'composer_busy_stuck',
 ]);
 const MAX_FREE_RETRIES = 4;
+/** พักหลัง Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" ก่อนให้ตัวกดทำต่อให้เองปลุกงาน */
+const FLOW_UNUSUAL_COOLDOWN_MS = 45 * 60000;
+/** จังหวะการสั่ง Google Flow (flowPace) */
+const FLOW_GAP_MS = [20000, 45000];
+const FLOW_RETRY_WAIT_MS = [60000, 180000];
+const FLOW_HOURLY_CAP = 22;
 
 /**
  * "ChatGPT ยังทำเทิร์นก่อนหน้าอยู่" คือการรอ ไม่ใช่ความล้มเหลว
@@ -480,6 +487,7 @@ export class Machine {
     let unstuck = false;
     /** เคยเปิดห้องแชตใหม่ไปแล้วหรือยัง — ขั้นถัดจากห้องใหม่ที่ยังไม่หายคือโหลดแท็บใหม่ */
     let triedNewThread = !!opts.newThread;
+    let pausedRoomLeft = false;
     for (let i = 0; i <= MAX_RETRIES; i++) {
       let res;
       try {
@@ -539,6 +547,31 @@ ${P.NO_CITATION_RULE}
       if (res.meta?.error === 'outcome_unknown')
         throw new Halt(res.meta.detail || 'ยังยืนยันผลเทิร์นไม่ได้ หยุดเพื่อป้องกันการส่งซ้ำ', 'outcome_unknown');
       last = res;
+
+      /**
+       * แถบ "แชตหยุดชั่วคราว" (ลิมิตของห้องแชต — ผู้ใช้เจอจริง บัญชี Free): ข้อความยังไม่ได้ส่ง
+       * แถบบอกเองว่าเริ่มแชตใหม่แบบข้อความล้วนได้ทันที → เปิดห้องใหม่แล้วส่งใหม่หนึ่งครั้ง ไม่เสียโควตา
+       * ห้องใหม่ยังโดนอีก = ลิมิตของทั้งบัญชี → หยุดแบบชนลิมิต พร้อมเวลาที่ ChatGPT บอกว่าจะกลับมา
+       * ห้องเดิมที่ผู้ใช้สั่งให้ใช้ต่อ (threadMode reuse) เปลี่ยนห้องเองไม่ได้ → หยุดบอกผู้ใช้
+       */
+      if (res.meta?.error === 'chat_paused') {
+        const back = res.meta.resetAt ? ` · ChatGPT แจ้งว่าใช้ได้อีกครั้งเวลา ${res.meta.resetAt} น.` : '';
+        if (!pausedRoomLeft && this.book.threadMode !== 'reuse') {
+          pausedRoomLeft = true;
+          i--;
+          opts = { ...opts, newThread: true };
+          triedNewThread = true;
+          noteTrouble({ step: this.job.step, symptom: 'chat_paused', move: 'new_thread', detail: res.meta.detail || '', by: 'เครื่องผลิต' });
+          this.log('warn', `ห้องแชตนี้ถูกพักชั่วคราว (ชนลิมิตของห้อง${back}) — เปิดแชตใหม่แล้วส่งใหม่ ข้อความยังไม่ได้ส่งจึงไม่เสียโควตา`);
+          await sleep(2000);
+          continue;
+        }
+        throw new RateLimited(
+          this.book.threadMode === 'reuse'
+            ? `ห้องแชตที่ตั้งให้ใช้ต่อถูกพักชั่วคราว${back} — เปลี่ยนเป็นโหมดเปิดแชตใหม่ หรือรอเวลานั้นแล้วกดทำต่อ`
+            : `เปิดแชตใหม่แล้วยังถูกพัก = ชนลิมิตของบัญชี ChatGPT${back} — กดทำต่อหลังเวลานั้น`,
+        );
+      }
 
       /**
        * วงกลมที่ปุ่มส่งค้าง — โหลดหน้าใหม่เองหนึ่งครั้ง ไม่ต้องรอให้ใครมาสั่ง
@@ -1336,6 +1369,102 @@ ${P.NO_CITATION_RULE}
    * ขั้นนี้จึงได้ทั้งตำแหน่ง คำบรรยาย และ prompt ของทุกภาพเก็บไว้
    * ส่วนไฟล์ภาพจะมาจากไหนค่อยว่ากัน — อัปโหลดเอง สร้างในบัญชีรายเดือน หรือให้ระบบสร้างให้
    */
+  /**
+   * ภาพประกอบทุกหน้าเนื้อหา: ตัดแต่ละตอนตามพื้นที่ข้อความที่เหลือหลังวางภาพ
+   * แล้วให้เลือกภาพจากข้อความจริงของแต่ละช่วง ไม่ให้โมเดลเดาจำนวนหน้าจากสารบัญ
+   * ภาพวางท้ายช่วงของตัวเอง (paraAt) — ไม่ใช่ต้น/กลาง/ท้ายตอนแบบเดิม ซึ่งมีได้แค่สามตำแหน่ง
+   */
+  async pageFigurePlan() {
+    const cpp = Number(this.book.calibration?.charsPerPage) || 750;
+    const height = Number(this.book.trim?.heightMm) || 210;
+    const margins = this.book.typography?.marginsMm || {};
+    const usable = Math.max(100, height - (Number(margins.top) || 20) - (Number(margins.bottom) || 22));
+    // ภาพสูงได้ถึง 72 มม. และมีคำบรรยาย/ช่องไฟอีก ~14 มม. ตาม imagePageShare()
+    const pageUnits = Math.max(150, Math.round(cpp * Math.max(0.35, Math.min(0.75, (usable - 86) / usable))));
+    const lang = this.book.language || 'th';
+    const clip = (s, n) => {
+      const t = String(s).replace(/[*_`>]/g, '').replace(/\s+/g, ' ').trim();
+      return t.length > n ? `${t.slice(0, n)}…` : t;
+    };
+    const plain = (p) => !/^\s*(#{1,6}\s|!\[|:::)/.test(p);
+    const out = [];
+    for (const ch of this.book.outline?.chapters || []) {
+      const pages = [];
+      for (const s of ch.sections || []) {
+        const rec = await db.loadSection(this.book.id, s.id).catch(() => null);
+        if (!rec?.md) continue;
+        const paras = String(rec.md).split(/\n{2,}/);
+        const chunks = [];
+        let cur = [];
+        let units = 0;
+        paras.forEach((p, i) => {
+          if (!plain(p) || !p.trim()) return;
+          cur.push(i);
+          units += countUnits(p, lang);
+          if (units >= pageUnits) {
+            chunks.push(cur);
+            cur = [];
+            units = 0;
+          }
+        });
+        // เศษท้ายตอนที่มีเนื้อหาเป็นหน้าของตัวเอง: ต้องมีภาพ ไม่รวมกับหน้าก่อนจนหน้าสุดท้ายว่าง
+        if (cur.length) chunks.push(cur);
+        chunks.forEach((idx, k) =>
+          pages.push({
+            key: `${s.id}-${k + 1}`,
+            section: String(s.id),
+            page: k + 1,
+            of: chunks.length,
+            paraAt: idx[idx.length - 1] + 1,
+            text: clip(idx.map((i) => paras[i]).join(' '), 900),
+          }),
+        );
+      }
+      for (let b = 0; b < pages.length; b += 12) {
+        if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+        let todo = pages.slice(b, b + 12);
+        // ลองสองรอบ: รอบสองถามเฉพาะหน้าที่ยังไม่ได้ภาพ
+        for (let round = 0; round < 2 && todo.length; round++) {
+          const prompt = this.book.contentMode === 'fiction'
+            ? P.fictionPagePlanPrompt(this.book, this.book.outline, todo)
+            : P.prosePagePlanPrompt(this.book, this.book.outline, todo);
+          const res = await this.turnWithRetry(prompt, {
+            label: `วางแผนภาพทุกหน้า · บทที่ ${ch.n}${round ? ' (หน้าที่ยังขาด)' : ''}`,
+          });
+          const proposed = X.parseJson(res?.text || '')?.figures;
+          const byKey = new Map((Array.isArray(proposed) ? proposed : []).map((f) => [String(f?.key), f]));
+          const left = [];
+          for (const p of todo) {
+            const f = byKey.get(p.key);
+            if (!f?.subject) {
+              left.push(p);
+              continue;
+            }
+            out.push({
+              kind: 'image',
+              section: p.section,
+              placement: 'page',
+              page: p.page,
+              paraAt: p.paraAt,
+              caption: String(f.caption || ''),
+              subject: String(f.subject),
+              characters: (Array.isArray(f.characters) ? f.characters : []).map(String).filter(Boolean).slice(0, 3),
+              aspect: f.aspect,
+              width: 80,
+            });
+          }
+          todo = left;
+        }
+        if (todo.length) throw new Halt(`บทที่ ${ch.n}: วางแผนภาพรายหน้ายังขาด ${todo.length} หน้า (${todo.map((p) => p.key).join(', ')}) — หยุดเพื่อไม่ให้ส่งออกเล่มที่ภาพไม่ครบ แล้วกดทำต่อเพื่อลองใหม่`);
+      }
+    }
+    // เรียงตามตอนและตำแหน่ง เพื่อให้ offset ตอนแทรกหลายภาพในตอนเดียวกันถูกต้อง
+    out.sort((a, b) => cmpItem(a.section, b.section) || a.paraAt - b.paraAt);
+    if (!out.length) throw new Halt('โหมด 1 หน้า 1 ภาพ: ไม่พบข้อความเนื้อหาสำหรับวางแผนภาพ — หยุดก่อนส่งออกเล่มที่ไม่มีภาพ');
+    this.log('ok', `วางแผนภาพทุกหน้า: ${out.length} ภาพ (หนึ่งภาพต่อช่วงหน้าเนื้อหา)`);
+    return { figures: out };
+  }
+
   async figures() {
     const next = () => (this.job.step = this.book.runConsistency ? 'consistency' : 'fit');
     if (this.book.contentMode === 'items') {
@@ -1351,14 +1480,21 @@ ${P.NO_CITATION_RULE}
 
     const requestedStyle = this.book.figureStyle || 'box';
     const style = requestedStyle === 'box'
-      ? (this.book.figureMode === 'auto' ? (this.book.contentMode === 'fiction' ? 'sketch' : 'line') : (this.book.contentMode === 'fiction' ? 'sketch' : 'box'))
+      ? (this.book.figureMode === 'auto' || this.book.illustrationLevel === 'page'
+          ? (this.book.contentMode === 'fiction' ? 'sketch' : 'line')
+          : (this.book.contentMode === 'fiction' ? 'sketch' : 'box'))
       : requestedStyle;
     const basePrompt = P.figurePlanPrompt(this.book, this.book.outline, this.book.outline.chapters, style);
-    const res = await this.turnWithRetry(basePrompt, { label: 'วางแผนภาพประกอบ' });
-    let plan = X.parseJson(res.text);
+    // โหมด "ทุกหน้า": วางแผนจากข้อความจริงทีละหน้า ทั้งนิยายและหนังสือทั่วไป
+    const perPage = this.book.illustrationLevel === 'page';
+    let plan = perPage ? await this.pageFigurePlan() : null;
+    if (!perPage) {
+      const res = await this.turnWithRetry(basePrompt, { label: 'วางแผนภาพประกอบ' });
+      plan = X.parseJson(res.text);
+    }
     // turnWithRetry ลองซ้ำเฉพาะตอนเทิร์นพัง (timeout/error/empty) แต่ถ้า ChatGPT ตอบสำเร็จมาเป็น {"figures":[]}
     // (parse ผ่านแต่ไม่มีภาพเลย) มันไม่นับว่าพังจึงไม่ลองซ้ำ — ลองอีกครั้งเดียวแบบเน้นย้ำก่อนยอมแพ้เงียบ ๆ
-    if (!plan?.figures?.length) {
+    if (!perPage && !plan?.figures?.length) {
       this.log('warn', 'วางแผนภาพประกอบได้ 0 รูปจากครั้งแรก ลองย้ำอีกครั้งก่อนข้าม');
       const res2 = await this.turnWithRetry(
         `${basePrompt}\n\nคำตอบก่อนหน้าไม่มีภาพเลยสักรูป (figures ว่าง) เล่มนี้ตั้งค่าระดับภาพประกอบไว้ว่า "${this.book.illustrationLevel}" ต้องเลือกอย่างน้อย 1-2 ช่วงจากเนื้อหาจริงที่เขียนไปแล้วมาวางเป็นภาพ ห้ามตอบ figures ว่างอีก`,
@@ -1366,7 +1502,7 @@ ${P.NO_CITATION_RULE}
       );
       plan = X.parseJson(res2.text);
     }
-    if (!plan?.figures?.length) {
+    if (!perPage && !plan?.figures?.length) {
       this.log('warn', 'วางแผนภาพไม่สำเร็จหลังลองย้ำแล้ว ข้ามไปก่อน แก้เพิ่มเองได้ในโหมดแก้ไข');
       return next();
     }
@@ -1433,11 +1569,11 @@ ${P.NO_CITATION_RULE}
           widthMm = Math.round(heightMm * aspect.ratio * 10) / 10;
           widthPct = Math.max(40, Math.round((widthMm / textWidthMm) * 100));
         }
-        rec.md = insertFigureAt(
-          rec.md,
-          `![${f.caption || ''}](fig:${name} ${widthPct}% ${heightMm}mm)`,
-          f.placement,
-        );
+        const marker = `![${f.caption || ''}](fig:${name} ${widthPct}% ${heightMm}mm)`;
+        // ภาพรายหน้า: วางท้ายช่วงหน้าของตัวเอง · ภาพก่อนหน้าในตอนเดียวกันเลื่อนตำแหน่งไป n-1 ย่อหน้า
+        rec.md = Number.isInteger(f.paraAt)
+          ? insertFigureAfter(rec.md, marker, f.paraAt + (n - 1))
+          : insertFigureAt(rec.md, marker, f.placement);
         figures.push({
           id: `${f.section}-${n}`,
           section: f.section,
@@ -1445,6 +1581,9 @@ ${P.NO_CITATION_RULE}
           name,
           caption: f.caption || '',
           subject: f.subject || f.caption || '',
+          // ตัวละครที่อยู่ในภาพ (ชื่อตาม canon) — ตอนสร้างภาพแนบภาพต้นแบบของคนเหล่านี้เท่านั้น
+          characters: Array.isArray(f.characters) ? f.characters.map(String).filter(Boolean).slice(0, 3) : undefined,
+          page: f.page || undefined,
           placement: f.placement || 'middle',
           widthPct,
           widthMm,
@@ -2316,8 +2455,37 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
   }
 
   // 6) ลูปนับหน้า — หัวใจของระบบ
+  /**
+   * คำคมเปิดบทของหน้าเปิดบทแบบโปสเตอร์ — หนึ่งเทิร์นทั้งเล่ม หลังเขียนเนื้อหาเสร็จ ก่อนวัดจำนวนหน้า
+   * ล้มไม่เป็นไร: หน้าเปิดบทยังออกได้ครบ แค่ไม่มีคำคม (ไม่หยุดทั้งเล่มเพราะของประดับ)
+   */
+  async ensureChapterEpigraphs() {
+    // หน้าเปิดบทแบบเต็มหน้าทุกแบบ (typeset/template.js CHAPTER_OPENERS) · แบบเรียบไม่มีที่วางคำคม
+    if (!this.book.chapterOpener || this.book.chapterOpener === 'simple' || this.book.contentMode === 'items') return;
+    const chapters = this.book.outline?.chapters || [];
+    const have = this.book.chapterEpigraphs || {};
+    if (!chapters.length || chapters.every((c) => have[c.n]?.text)) return;
+    try {
+      const res = await this.turnWithRetry(P.chapterEpigraphPrompt(this.book, this.book.outline), { label: 'คำคมเปิดบท' });
+      const rows = X.parseJson(res.text)?.chapters || [];
+      const next = { ...have };
+      for (const r of rows) {
+        const n = Number(r?.n);
+        const text = String(r?.text || '').replace(/^["“”'‘’\s]+|["“”'‘’\s]+$/g, '').trim();
+        if (n && text) next[n] = { text, by: String(r?.by || '').replace(/^[-–—\s]+/, '').trim() };
+      }
+      this.book.chapterEpigraphs = next;
+      await this.save();
+      this.log('ok', `คำคมเปิดบท: ได้ ${Object.keys(next).length}/${chapters.length} บท`);
+    } catch (e) {
+      if (e instanceof RateLimited || e instanceof Halt) throw e;
+      this.log('warn', `เขียนคำคมเปิดบทไม่สำเร็จ (${e?.message || e}) — หน้าเปิดบทจะไม่มีคำคม`);
+    }
+  }
+
   async fit() {
     if (this.book.contentMode === 'items') return this.fitItems();
+    await this.ensureChapterEpigraphs();
     /**
      * Ebook Plus + Google Flow: ภาพเป็น "หน้าที่เพิ่มขึ้น" ไม่ใช่ส่วนที่หักออกจากเนื้อหา
      * ผู้ใช้สั่งชัด: เนื้อหาต้องเต็มตามจำนวนหน้าที่ตั้งไว้ ภาพจะทำให้เล่มหนาเกินเท่าไรก็ได้
@@ -3498,34 +3666,59 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       // ชื่อไฟล์มีเลขรุ่นสไตล์: Flow ใช้ภาพเดิมซ้ำตามชื่อ ถ้าชื่อเดิมจะได้ภาพสไตล์เก่ากลับมา
       const name = charRefName(i, P.NOVEL_STYLE_V);
       let asset = await db.loadAsset(this.book.id, name).catch(() => null);
-      if (asset?.blob && (asset.meta?.character !== c.name || !!asset.meta?.fromPhoto !== !!photoRef)) asset = null; // ตัวละครเปลี่ยนไปแล้ว วาดใหม่
-      if (!asset?.blob) {
-        this.log('ok', `วาดภาพต้นแบบตัวละคร ${i + 1}/${cast.length}: ${c.name}${photoRef ? ' (จากรูปที่แนบ)' : ''}`);
+      // ตัวละครเปลี่ยนไปแล้ว วาดใหม่ · ภาพที่วาดจากคำบรรยายเพราะ Flow ไม่รับรูปถ่าย (photoFallback) ใช้ต่อได้ ไม่ลองรูปเดิมซ้ำทุกรอบ
+      const sameSource = !!asset?.meta?.fromPhoto === !!photoRef || (photoRef && asset?.meta?.photoFallback);
+      if (asset?.blob && (asset.meta?.character !== c.name || !sameSource)) asset = null;
+      /**
+       * ตัวเอกที่ผู้ใช้แนบรูปมา ต้องได้ภาพต้นแบบใน "00 ตัวละคร" ก่อนสร้างภาพจริงเสมอ (ผู้ใช้สั่ง)
+       * เจอจริง: วาดจากรูปไม่ผ่าน → เดิมแนบรูปถ่ายดิบไปกับทุกฉากและปก ได้ภาพถ่ายปนภาพวาด และ Flow ปัดตกปกหน้า
+       * ตอนนี้: จากรูป (คงหน้า) → จากรูป (เป็นแรงบันดาลใจ คำขอเบากว่า) → จากคำบรรยายล้วน · ไม่ส่งรูปถ่ายดิบไปกับฉากอีก
+       */
+      const tries = photoRef ? [photoRef, photoRef, null] : [null];
+      for (let t = 0; !asset?.blob && t < tries.length; t++) {
+        const from = tries[t];
+        const fallback = !!photoRef && !from;
+        const inspired = !!from && t > 0;
+        this.log(
+          fallback ? 'warn' : 'ok',
+          fallback
+            ? `ตัวละคร ${c.name}: Flow ไม่รับรูปที่แนบ — วาดภาพต้นแบบจากคำบรรยายหน้าตาในรูปแทน`
+            : `วาดภาพต้นแบบตัวละคร ${i + 1}/${cast.length}: ${c.name}${from ? (inspired ? ' (ใช้รูปที่แนบเป็นแรงบันดาลใจ)' : ' (จากรูปที่แนบ)') : ''}${t ? ` · ครั้งที่ ${t + 1}` : ''}`,
+        );
+        await this.flowPace({ name, what: `ภาพต้นแบบตัวละคร ${c.name}` }, i, cast.length, { retryWait: t ? FLOW_RETRY_WAIT_MS[0] : 0 });
         const res = await flowCall(
           'generate',
           {
             name,
-            prompt: flowPrompt({ kind: 'character', prompt: P.characterSheetPrompt(this.book, c, { styleKey, color: P.figureColorOn(this.book), fromPhoto: !!photoRef }) }, { label: '3:4', loss: 0 }),
+            prompt: flowPrompt({ kind: 'character', prompt: P.characterSheetPrompt(this.book, c, { styleKey, color: P.figureColorOn(this.book), fromPhoto: !!from, photoAsInspiration: inspired }) }, { label: '3:4', loss: 0 }),
             ratio: '3:4',
-            refs: photoRef ? [photoRef] : [],
+            refs: from ? [from] : [],
             models: FLOW_MODELS,
             hires: false,
-            reuse: true,
+            reuse: t === 0,
             collection: FLOW_CAST_COLLECTION,
             refCollection: FLOW_REF_COLLECTION,
           },
           { timeoutMs: 9 * 60000 },
         );
         if (!res.ok) {
-          this.log('warn', `วาดภาพต้นแบบของ ${c.name} ไม่สำเร็จ (${res.error})${photoRef ? ' — ใช้รูปที่แนบแทน' : ' — ภาพที่มีตัวละครนี้จะไม่มีตัวอ้างอิงหน้าตา'}`);
           if (res.code === 'not_free') throw new Halt(res.error);
-          out.push({ ...c, ref: photoRef ? { ...photoRef, upload: true } : null });
-          continue;
+          // "พบกิจกรรมที่ผิดปกติ" ตั้งแต่ขั้นวาดตัวละคร = หยุดทั้งงานภาพ ไม่ลองแบบถัดไป (stopFlowUnusual)
+          if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(res.error || ''))
+            throw new Halt('Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" ตอนวาดภาพต้นแบบตัวละคร — หยุดสร้างภาพไว้ก่อน ไม่ลองซ้ำ · พักสัก 30–60 นาที แล้วกดทำต่อ');
+          this.log('warn', `วาดภาพต้นแบบของ ${c.name} ไม่สำเร็จ (${res.error})`);
+          continue; // รอก่อนลองแบบถัดไปอยู่ใน flowPace
         }
         const blob = await db.dataUrlToBlob(res.dataUrl);
-        await db.saveAsset(this.book.id, name, blob, { kind: 'character', character: c.name, from: 'flow', fromPhoto: !!photoRef, novelStyle: P.NOVEL_STYLE_V });
+        const meta = { kind: 'character', character: c.name, from: 'flow', fromPhoto: !!from, photoFallback: fallback, novelStyle: P.NOVEL_STYLE_V };
+        await db.saveAsset(this.book.id, name, blob, meta);
         await W.saveBookImage(this.book, name, blob, { folder: 'characters' });
-        asset = { blob, meta: { kind: 'character', character: c.name, from: 'flow', fromPhoto: !!photoRef, novelStyle: P.NOVEL_STYLE_V } };
+        asset = { blob, meta };
+      }
+      if (!asset?.blob) {
+        this.log('warn', `วาดภาพต้นแบบของ ${c.name} ไม่สำเร็จ — ภาพที่มีตัวละครนี้จะไม่มีตัวอ้างอิงหน้าตา (ไม่แนบรูปถ่ายดิบไปกับฉาก)`);
+        out.push({ ...c, ref: null });
+        continue;
       }
       // เก็บเข้าคลังตัวละครไว้ใช้เล่มต่อไป (ครั้งเดียวต่อภาพ · ภาพที่วาดไว้ก่อนมีคลังก็เก็บด้วย)
       if (!asset.meta?.inLibrary) {
@@ -3543,8 +3736,81 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     return out;
   }
 
-  async imagesViaFlow(jobs, genErrors) {
+  /**
+   * Google Flow แจ้ง "เราพบกิจกรรมที่ผิดปกติบางอย่าง" — หยุดทั้งคิวภาพทันที (ผู้ใช้ขอ: "เกิดแบบนี้เราจะหยุดก่อนได้ไหม")
+   * เจอจริง: ภาพล้มแบบนี้เต็มจอหลายใบ เพราะเดิมลองซ้ำภาพละสามครั้งแล้วเดินไปภาพถัดไปต่อ ยิ่งสั่งยิ่งถี่ ยิ่งโดน
+   * ไม่ลองซ้ำ ไม่เดินต่อ ไม่ย้อนรอบสอง · งานรอให้ผู้ใช้กดทำต่อหลังพักสักพัก แล้วเริ่มจากภาพนี้
+   */
+  async stopFlowUnusual(j, reason, jobs, index, genErrors) {
+    const why = 'Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" — หยุดสร้างภาพทั้งหมดไว้ก่อน ไม่ลองซ้ำ (ยิ่งสั่งถี่ยิ่งโดน) · พักสัก 30–60 นาที แล้วกดทำต่อ ระบบจะเริ่มจากภาพนี้';
+    genErrors?.set(j.name, reason);
+    noteTrouble({ step: 'images', symptom: 'flow_unusual_activity', move: 'stop', detail: `${j.what}: ${reason}`, by: 'Google Flow' });
+    this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${why}`);
+    this.book.imagePhase = {
+      ...(this.book.imagePhase || {}),
+      status: 'partial',
+      failedName: j.name,
+      failedWhat: j.what,
+      failedReason: why,
+      flowUnusualAt: Date.now(),
+      stoppedAt: Date.now(),
+      remaining: jobs.slice(index).map((x) => x.name),
+    };
+    this.job.step = 'gate_images';
+    this.job.status = 'waiting_human';
+    this.job.error = why;
+    // ตัวกดทำต่อให้เอง (studio.js shouldAutoContinue) ต้องไม่ปลุกงานกลับมาทันที — เว้น 45 นาที ผู้ใช้กดเองได้ตลอด
+    this.job.cooldownUntil = Date.now() + FLOW_UNUSUAL_COOLDOWN_MS;
+    await this.save();
+    this.emit({ type: 'image.progress', stage: 'failed', current: index + 1, total: jobs.length, name: j.name, what: j.what, reason: why });
+    return true;
+  }
+
+  /**
+   * จังหวะการสั่ง Google Flow — ไม่รัวคำขอต่อกัน (ผู้ใช้ตกลงแล้ว หลังโดน "พบกิจกรรมที่ผิดปกติ")
+   * เดิมได้ภาพแล้วสั่งภาพถัดไปทันที ภาพล้มลองซ้ำห่างกัน 3 วินาที — ถี่กว่าการใช้งานปกติมาก
+   *   - เว้นระหว่างคำขอ 20–45 วินาที (สุ่ม)
+   *   - ภาพล้ม: รอ 1 นาที แล้ว 3 นาที ก่อนลองใหม่
+   *   - ไม่เกิน FLOW_HOURLY_CAP คำขอต่อชั่วโมง (นับจากเวลาที่จดไว้ในเล่ม กดทำต่อก็ยังนับต่อ)
+   * ระหว่างรอส่งสถานะทุก 15 วินาที — หน้าจอเห็นเวลาที่เหลือ และนาฬิกาเฝ้าดูไม่เข้าใจผิดว่าค้าง
+   */
+  async flowPace(j, index, total, { retryWait = 0 } = {}) {
+    const now = Date.now();
+    const recent = (this.book.imagePhase?.flowRecent || []).filter((t) => now - t < 3600000);
+    let waitMs = 0;
+    let why = '';
+    const last = recent.at(-1) || 0;
+    const gap = FLOW_GAP_MS[0] + Math.random() * (FLOW_GAP_MS[1] - FLOW_GAP_MS[0]);
+    if (last && now - last < gap) {
+      waitMs = gap - (now - last);
+      why = 'เว้นจังหวะก่อนสั่ง Flow';
+    }
+    if (retryWait > waitMs) {
+      waitMs = retryWait;
+      why = 'รอบก่อนล้ม · รอก่อนลองใหม่';
+    }
+    if (recent.length >= FLOW_HOURLY_CAP) {
+      const until = recent[recent.length - FLOW_HOURLY_CAP] + 3600000;
+      if (until - now > waitMs) {
+        waitMs = until - now;
+        why = `ครบ ${FLOW_HOURLY_CAP} คำขอในหนึ่งชั่วโมง · พักจนครบชั่วโมง`;
+      }
+    }
+    if (waitMs > 1000) {
+      this.log('ok', `${j.what}: ${why} ${waitMs >= 90000 ? `${Math.round(waitMs / 60000)} นาที` : `${Math.round(waitMs / 1000)} วินาที`}`);
+      const end = Date.now() + waitMs;
+      while (Date.now() < end) {
+        if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+        this.emit({ type: 'image.progress', stage: 'pace', current: index + 1, total, name: j.name, what: j.what, why, waitS: Math.ceil((end - Date.now()) / 1000) });
+        await sleep(Math.min(15000, end - Date.now()));
+      }
+    }
+    this.book.imagePhase = { ...(this.book.imagePhase || {}), flowRecent: [...recent, Date.now()].slice(-60) };
+  }
+
+  async imagesViaFlow(jobs, genErrors, { retryPass = false } = {}) {
     const MAX_FLOW_ATTEMPTS = 3;
+    delete this.job.cooldownUntil; // เริ่มสร้างภาพรอบใหม่แล้ว ช่วงพักของรอบก่อนหมดหน้าที่
     this.log('ok', `สร้างภาพด้วย Google Flow (โหมดฟรี 0 เครดิต) ทีละรูป ${jobs.length} รูป — ภาพที่ได้จะถูกตั้งชื่อใน Flow ตามชื่อไฟล์ที่วางแผนไว้`);
 
     const prep = await flowCall(
@@ -3576,10 +3842,16 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       this.emit({ type: 'image.progress', stage: 'check', current: index + 1, total: jobs.length, name: j.name, what: j.what });
 
       const existing = await db.loadAsset(this.book.id, j.name).catch(() => null);
-      const coverNeedsCleanArtwork = existing && j.kind === 'cover' && !P.coverTextBaked(this.book) && !existing.meta?.artworkOnly;
+      /** ปกนี้ต้องมีตัวหนังสือสร้างมาในภาพไหม (นิยาย = โปสเตอร์หนัง ทั้งหน้าและหลัง) */
+      const textIn =
+        j.kind === 'cover' &&
+        (j.name === 'cover-front.png' ? P.coverTextBaked(this.book) : j.name === 'cover-back.png' && P.backCoverTextBaked(this.book));
+      const coverNeedsCleanArtwork = existing && j.kind === 'cover' && !textIn && !existing.meta?.artworkOnly;
+      // ปกนิยายที่วาดไว้เป็นภาพเปล่า (ก่อนเปลี่ยนเป็นโปสเตอร์มีตัวหนังสือ) วาดใหม่
+      const coverNeedsText = existing && textIn && !existing.meta?.textBaked;
       // นิยาย: ภาพที่วาดไว้ด้วยสไตล์รุ่นเก่า (ปกภาพถ่าย/สเก็ตช์ย้อมสี) วาดใหม่ให้เข้าชุดกันทั้งเล่ม · ลวดลายไม่เกี่ยว
       const staleNovelStyle = existing && fiction && j.kind !== 'pattern' && existing.meta?.from === 'flow' && existing.meta?.novelStyle !== P.NOVEL_STYLE_V;
-      if (existing && !coverNeedsCleanArtwork && !staleNovelStyle && (await validatePhase2Asset(existing, j)).ok) {
+      if (existing && !coverNeedsCleanArtwork && !coverNeedsText && !staleNovelStyle && (await validatePhase2Asset(existing, j)).ok) {
         this.log('ok', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: มีไฟล์ที่ผ่านตรวจแล้ว ข้ามการสร้างซ้ำ (${j.name})`);
         this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
         continue;
@@ -3616,9 +3888,19 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           const requested = this.book.figureStyle || 'box';
           const passage = P.figureContextText(rec?.md || rec?.text || '', fig.name, fig.placement);
           if (fiction) {
-            // ตัวละครที่ถูกเอ่ยถึงในฉากนี้ + ภาพต้นแบบของแต่ละคน (เรียงตามลำดับที่แนบ)
-            const people = castInText(castRefs, `${fig.subject || ''} ${fig.caption || ''} ${passage}`).filter((c) => c.ref);
-            for (const c of people) refs.push(c.ref.upload ? { name: c.ref.name, dataUrl: c.ref.dataUrl } : { tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
+            /**
+             * ตัวละครในภาพ (ผู้ใช้สั่งให้เคร่งครัด): ใช้รายชื่อจากแผนภาพก่อน — เป็นคนที่อยู่ในฉากจริง
+             * เดิมเดาจากชื่อที่ถูกเอ่ยในย่อหน้ารอบภาพ ซึ่งมักมีคนที่แค่ถูกพูดถึง จึงแนบภาพต้นแบบผิดคน
+             * แผนเก่าที่ไม่มีรายชื่อ: เดาจาก subject ก่อน แล้วค่อยถึงย่อหน้ารอบภาพ
+             */
+            const planned = Array.isArray(fig.characters) ? fig.characters : null;
+            const people = planned
+              ? planned.map((n) => castInText(castRefs, n, 1)[0]).filter(Boolean).filter((c, i, a) => a.findIndex((x) => x.name === c.name) === i)
+              : (castInText(castRefs, `${fig.subject || ''} ${fig.caption || ''}`).length
+                  ? castInText(castRefs, `${fig.subject || ''} ${fig.caption || ''}`)
+                  : castInText(castRefs, passage));
+            if (planned && people.length < planned.length) this.log('warn', `${j.what}: ไม่พบตัวละคร ${planned.filter((n) => !people.some((c) => c.name === n || n.includes(c.name))).join(', ')} ในรายชื่อ canon — วาดเฉพาะคนที่ตรงชื่อ`);
+            for (const c of people.filter((x) => x.ref)) refs.push(c.ref.upload ? { name: c.ref.name, dataUrl: c.ref.dataUrl } : { tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
             prompt = P.flowFictionFigurePrompt({
               book: this.book,
               fig,
@@ -3661,6 +3943,9 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           back,
           styleKey: P.novelStyleKey(this.book.figureStyle),
           palette: this.book.style?.palette || [],
+          textBaked: textIn,
+          // รูปผู้เขียนบนปกหลังยังให้เครื่องเรียงพิมพ์วาง (มุมซ้ายบน) — เว้นมุมนั้นไว้ไม่ให้ตัวหนังสือโดนทับ
+          authorPhotoSpot: back && (!!this.book.authorPhotoOnCover || (this.book.authorRefTargets || []).includes('cover-back')),
         });
       }
       // ปกสารคดีโหมด Flow: ธรรมเนียมปกของประเภทหนังสือมาก่อน (core/flow-genres.js)
@@ -3674,12 +3959,42 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         refs.push({ tile: 'cover-front.png', name: coverRef.name, dataUrl: coverRef.dataUrl });
         prompt += '\n\nThe attached image is the finished cover of this same book. Use it ONLY as a reference for palette, mood and visual language so this image belongs to the same world. Do NOT redraw it, do NOT copy its composition or subject, and do NOT put any text from it into this image.';
       }
-      prompt = flowPrompt({ ...j, prompt }, ratio);
+      prompt = flowPrompt({ ...j, prompt, textBaked: textIn }, ratio);
+      /**
+       * คำขอที่ Flow ปัดตก (tile "ล้มเหลว · พบกิจกรรมที่ผิดปกติ") ส่งซ้ำแบบเดิมก็ตกแบบเดิม
+       * เจอจริง: ปกหน้านิยายตกครบสามรอบด้วยคำขอเดียวกัน (แนบภาพต้นแบบหน้าตัวละคร) แล้วคิวเดินต่อ — ปกหลังที่ไม่แนบรูปผ่าน
+       * รอบสุดท้ายจึงส่งแบบไม่แนบภาพต้นแบบตัวละคร (ปกนิยายเขียน prompt ใหม่ไม่อ้างถึงรูปแนบ)
+       */
+      const castRefNames = new Set(castRefs.map((c) => c.ref?.name).filter(Boolean));
+      const plainRefs = refs.filter((r) => !castRefNames.has(r.name));
+      const plainPrompt =
+        plainRefs.length === refs.length
+          ? prompt
+          : novelCover
+            ? flowPrompt(
+                {
+                  ...j,
+                  prompt: P.flowNovelCoverPrompt({
+                    book: this.book,
+                    outline: this.book.outline,
+                    people: [],
+                    back: j.name === 'cover-back.png',
+                    styleKey: P.novelStyleKey(this.book.figureStyle),
+                    palette: this.book.style?.palette || [],
+                    textBaked: textIn,
+                    authorPhotoSpot: j.name === 'cover-back.png' && (!!this.book.authorPhotoOnCover || (this.book.authorRefTargets || []).includes('cover-back')),
+                  }),
+                  textBaked: textIn,
+                },
+                ratio,
+              )
+            : prompt;
 
       let saved = false;
       let flowError = '';
       for (let attempt = 1; attempt <= MAX_FLOW_ATTEMPTS && !saved; attempt++) {
         if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+        await this.flowPace(j, index, jobs.length, { retryWait: attempt > 1 ? FLOW_RETRY_WAIT_MS[attempt - 2] ?? FLOW_RETRY_WAIT_MS.at(-1) : 0 });
         this.emit({
           type: 'image.progress',
           stage: attempt === 1 ? 'generate' : 'retry',
@@ -3702,11 +4017,16 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           lastAttemptAt: Date.now(),
         };
         await this.save();
+        // Flow ปัดตกมาแล้ว และนี่คือรอบสุดท้าย = เปลี่ยนคำขอ (ไม่แนบภาพต้นแบบตัวละคร) แทนการส่งซ้ำแบบเดิม
+        const plain = !!flowError && attempt === MAX_FLOW_ATTEMPTS && plainRefs.length < refs.length;
+        const sendPrompt = plain ? plainPrompt : prompt;
+        const sendRefs = plain ? plainRefs : refs;
+        if (plain) this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: Flow ปัดตกคำขอเดิม — รอบนี้ส่งแบบไม่แนบภาพต้นแบบตัวละคร`);
         this.log(
           'ok',
           `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ส่งให้ Flow วาด ${ratio.label}` +
             (ratio.loss >= 0.01 ? ` (ตัดขอบลงช่องราว ${Math.round(ratio.loss * 100)}%)` : ' (ตรงช่องพอดี ไม่ต้องครอป)') +
-            (refs.length ? ` · แนบ${authorRef ? 'รูปผู้เขียน' : 'ปกหน้า'}เป็นตัวอ้างอิง` : '') +
+            (sendRefs.length ? ` · แนบ${authorRef ? 'รูปผู้เขียน' : 'ปกหน้า'}เป็นตัวอ้างอิง` : '') +
             (attempt > 1 ? ` · ครั้งที่ ${attempt}` : ''),
         );
 
@@ -3714,12 +4034,12 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           'generate',
           {
             name: j.name,
-            prompt,
+            prompt: sendPrompt,
             ratio: ratio.label,
-            refs,
+            refs: sendRefs,
             models: FLOW_MODELS,
             hires: true,
-            reuse: attempt > 1,
+            reuse: attempt > 1 && !plain,
             collection: flowCollectionFor(this.book, j),
             refCollection: FLOW_REF_COLLECTION,
           },
@@ -3729,13 +4049,16 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           flowError = res.error || 'Flow ไม่ส่งภาพกลับมา';
           this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${flowError}`);
           noteTrouble({ step: 'images', symptom: 'flow_failed', move: 'retry', detail: `${j.what}: ${flowError}`, by: 'Google Flow' });
+          // "พบกิจกรรมที่ผิดปกติ" = หยุดทั้งคิวทันที ลองซ้ำคือยิ่งโดน
+          if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(flowError)) {
+            return await this.stopFlowUnusual(j, flowError, jobs, index, genErrors);
+          }
           // ใช้เครดิตไม่ใช่ 0 = หยุดทั้งคิวทันที ห้ามลองซ้ำ
           if (res.code === 'not_free') {
             genErrors.set(j.name, flowError);
             break;
           }
-          await sleep(3000);
-          continue;
+          continue; // รอก่อนลองใหม่อยู่ใน flowPace (1 นาที แล้ว 3 นาที)
         }
         if (res.attachError) this.log('warn', `ภาพ ${j.name}: แนบรูปอ้างอิงใน Flow ไม่สำเร็จ (${res.attachError}) — วาดต่อโดยไม่มีรูปอ้างอิง`);
         if (res.hiresError) this.log('warn', `ภาพ ${j.name}: ขอไฟล์ 2K ไม่สำเร็จ (${res.hiresError}) — ใช้ไฟล์ 1K แทน`);
@@ -3759,8 +4082,8 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
               flowMediaId: res.mediaId || null,
               phase: 2,
               kind: j.kind || null,
-              artworkOnly: j.kind === 'cover' && !(j.name === 'cover-front.png' && P.coverTextBaked(this.book)),
-              textBaked: j.name === 'cover-front.png' && P.coverTextBaked(this.book),
+              artworkOnly: j.kind === 'cover' && !textIn,
+              textBaked: textIn,
               generationVersion: 5,
               novelStyle: fiction ? P.NOVEL_STYLE_V : null,
               targetWidthMm: j.widthMm || null,
@@ -3782,7 +4105,9 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           }
 
           if (j.name === 'cover-front.png') this._coverRef = undefined; // ภาพถัดไปต้องเห็นปกใบที่เพิ่งได้
-          if (j.name === 'cover-back.png' && P.backCoverTextBaked(this.book)) this.book.backCoverTextBaked = true;
+          // ธงบอกเครื่องเรียงพิมพ์ว่าภาพที่มีจริงมีตัวหนังสือแล้ว ไม่ต้องพิมพ์ทับ (frontCoverTextInImage / backCoverTextInImage)
+          if (j.name === 'cover-front.png') this.book.frontCoverTextBaked = textIn;
+          if (j.name === 'cover-back.png') this.book.backCoverTextBaked = textIn;
           saved = true;
           const dpi = candidate.meta?.effectiveDpi ? ` · ราว ${candidate.meta.effectiveDpi} dpi` : '';
           this.log(
@@ -3791,8 +4116,10 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
               (res.renamed ? ' · ตั้งชื่อใน Flow แล้ว' : ''),
           );
           this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
+          genErrors.delete(j.name);
           this.book.imagePhase = {
             ...(this.book.imagePhase || {}),
+            failures: (this.book.imagePhase?.failures || []).filter((f) => f.name !== j.name),
             status: 'running',
             completed: index + 1,
             remaining: jobs.slice(index + 1).map((x) => x.name),
@@ -3826,6 +4153,16 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           return true;
         }
       }
+    }
+    /**
+     * ภาพที่ Flow ปัดตกระหว่างคิว ย้อนกลับมาลองอีกรอบเมื่อคิวจบ (ผู้ใช้ทัก: "ปกหน้าทำไม่สำเร็จแล้ว ปล่อยผ่านเลยหรอ")
+     * เว้นระยะก่อน เพราะ "พบกิจกรรมที่ผิดปกติ" มักเกิดตอนสั่งถี่ · ถ้ายังไม่ได้ Final Check จะหยุดเล่มไว้ให้ผู้ใช้ ไม่ประกอบเล่มที่ขาดภาพ
+     */
+    const failed = jobs.filter((j) => genErrors.has(j.name));
+    if (!retryPass && failed.length && !this.stopRequested) {
+      this.log('warn', `ย้อนกลับไปสร้างภาพที่ Flow ปัดตกอีกรอบ: ${failed.map((j) => j.what).join(' · ')}`);
+      await sleep(20000);
+      return this.imagesViaFlow(failed, genErrors, { retryPass: true });
     }
     return false;
   }
@@ -5129,7 +5466,7 @@ function describeFigurePlacement(book, f) {
   const parts = [];
   if (chapter) parts.push(`บทที่ ${chapter.n} “${chapter.title}”`);
   parts.push(section ? `ตอน ${sectionId} “${section.title}”` : `ตอน ${sectionId}`);
-  parts.push(`${PLACEMENT_LABEL[f.placement] || 'กลางตอน'}${nth && nth !== '1' ? ` · ภาพที่ ${nth} ของตอนนี้` : ''}`);
+  parts.push(f.placement === 'page' && f.page ? `หน้าที่ ${f.page} ของตอนนี้` : `${PLACEMENT_LABEL[f.placement] || 'กลางตอน'}${nth && nth !== '1' ? ` · ภาพที่ ${nth} ของตอนนี้` : ''}`);
   return parts.join(' › ');
 }
 
@@ -5731,6 +6068,13 @@ function insertFigureAt(md, marker, placement = 'middle') {
   const ratio = { after_intro: 0.25, middle: 0.55, before_conclusion: 0.82 }[placement] || 0.55;
   const at = Math.min(parts.length - 1, Math.max(1, Math.round(parts.length * ratio)));
   parts.splice(at, 0, marker);
+  return parts.join('\n\n');
+}
+
+/** แทรกภาพหลังย่อหน้าที่ at (นับตามการแบ่งย่อหน้าเดียวกับ insertFigureAt) — ใช้กับภาพนิยายรายหน้า */
+function insertFigureAfter(md, marker, at) {
+  const parts = String(md).split(/\n{2,}/);
+  parts.splice(Math.min(parts.length, Math.max(1, at)), 0, marker);
   return parts.join('\n\n');
 }
 

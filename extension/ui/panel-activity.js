@@ -44,10 +44,20 @@ let crewState = null;
  * ส่วนตอนที่ระบบรอคนกด เหตุการณ์จะหยุดเอง หุ่นก็หยุดเองโดยไม่ต้องมีใครสั่ง
  */
 const MOTION_WINDOW_MS = 20000;
+/**
+ * ระหว่างที่งานยังเดินอยู่ (สถานะ working/waiting) ขั้นหนึ่งเงียบได้นานกว่า 20 วินาที
+ * เจอจริง: Flow สร้างภาพปกหนึ่งรูปไม่มีเหตุการณ์ส่งมาเลย หุ่น "นักออกแบบภาพ" จึงยืนนิ่งทั้งที่กำลังสร้างภาพ 2/17
+ * จึงให้ขยับต่อได้นานขึ้นเมื่องานยังไม่จบ — ถ้าเงียบเกินนี้ (Studio ปิด/ค้าง) หุ่นก็หยุดเอง
+ */
+const ACTIVE_RUN_WINDOW_MS = 180000;
+const ACTIVE_RUNS = new Set(['working', 'waiting']);
+let runKind = '';
+let runAt = 0;
 
 function paintCrewMotion() {
   if (!crewState) return;
-  const live = crewState.working !== false && Date.now() - lastAt < MOTION_WINDOW_MS;
+  const windowMs = ACTIVE_RUNS.has(runKind) ? ACTIVE_RUN_WINDOW_MS : MOTION_WINDOW_MS;
+  const live = crewState.working !== false && Date.now() - lastAt < windowMs;
   const activeIds = new Set(validCrewIds(crewState));
   $('panelCrew').classList.toggle('working', live);
   $('panelCrew').querySelector('strong').textContent = `${live ? (activeIds.size > 1 ? 'กำลังทำงานร่วมกัน · ' : 'กำลังทำงาน · ') : ''}${crewState.name}`;
@@ -65,16 +75,18 @@ function validCrewIds(crew) {
  * สองแผนกทำงานร่วมกัน = แบ่งฉากคนละครึ่ง แต่ละคนยืนในห้องของตัวเอง รอยต่อตรงกลางฟุ้ง (ผู้ใช้ขอ)
  * รูปห้องของแผนกที่สองอ่านจาก --crew-room ที่ธีมกำหนดไว้ให้แผนกนั้นอยู่แล้ว
  * จึงไม่ต้องจดชื่อไฟล์ห้องซ้ำที่นี่ — เปลี่ยนรูปห้องในธีมเมื่อไร ฉากแบ่งครึ่งก็เปลี่ยนตามเอง
+ * จุดบนทางที่คนยืน (--path-x/--path-y) ก็อ่านจากธีมแบบเดียวกัน
  */
-function roomImageOf(id) {
+function roomOf(id) {
   const probe = document.createElement('div');
   probe.className = 'crew-stage';
   probe.dataset.room = id;
   probe.style.display = 'none';
   document.body.append(probe);
-  const value = getComputedStyle(probe).getPropertyValue('--crew-room').trim();
+  const style = getComputedStyle(probe);
+  const [image, pathX, pathY] = ['--crew-room', '--path-x', '--path-y'].map((prop) => style.getPropertyValue(prop).trim());
   probe.remove();
-  return value;
+  return { image, pathX, pathY };
 }
 
 /** ค่าตัวแปรของห้องหนึ่งจากกฎของธีมแผงข้าง html[data-panel-room="…"] (เช่นสีประจำแผนก --panel-accent) */
@@ -117,10 +129,13 @@ function setDuoAccents(firstId, secondId) {
 }
 
 function setDuoRoom(el, secondId) {
-  const room = secondId ? roomImageOf(secondId) : '';
+  const { image: room, pathX, pathY } = secondId ? roomOf(secondId) : {};
   el.classList.toggle('duo', !!room);
-  if (room) el.style.setProperty('--crew-room2', room);
-  else el.style.removeProperty('--crew-room2');
+  const second = { '--crew-room2': room, '--path-x2': pathX, '--path-y2': pathY };
+  for (const [prop, value] of Object.entries(second)) {
+    if (room && value) el.style.setProperty(prop, value);
+    else el.style.removeProperty(prop);
+  }
   setDuoAccents(el.dataset.room, room ? secondId : '');
 }
 
@@ -149,6 +164,7 @@ function accept(event) {
   if (!event?.id) return;
   if (event.ceo) paintCeo(event.ceo);
   if (event.run) {
+    if (!runAt || (event.run.at || 0) >= runAt) { runKind = event.run.kind || ''; runAt = event.run.at || 0; }
     paintRunStatus({...event.run, actionLabel:event.run.action ? 'เปิด Studio เพื่อดำเนินการ' : ''});
     paintRunTimer(event.run);
     paintCeo(null, event.run);
@@ -265,6 +281,7 @@ new ResizeObserver(() => stickToBottom($('panelLog'), { instant: true })).observ
 chrome.runtime.onMessage.addListener((m) => { if (m.type === 'ui.activity') accept(m.event); });
 chrome.runtime.sendMessage({ type: 'ui.activitySnapshot' }).then((snapshot) => {
   paintCeo(snapshot?.ceo || null, snapshot?.run || null);
+  if (snapshot?.run && (snapshot.run.at || 0) >= runAt) { runKind = snapshot.run.kind || ''; runAt = snapshot.run.at || 0; }
   if (snapshot?.run) {
     paintRunStatus({...snapshot.run, actionLabel:snapshot.run.action ? 'เปิด Studio เพื่อดำเนินการ' : ''});
     paintRunTimer(snapshot.run); // เปิดแผงกลางงาน ต้องเห็นเวลาที่เดินมาแล้ว ไม่ใช่เริ่มนับใหม่

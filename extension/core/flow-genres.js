@@ -111,6 +111,17 @@ export const FLOW_GENRES = [
     titleSpace: 'open softly lit sky or bokeh across the top third for the title',
     back: 'an evocative quiet detail of their world (two cups, a rainy window, a street at dusk); calm middle area',
   },
+  // ผู้ใช้ขอ: นิยายสำหรับผู้สูงอายุ — ภาพอบอุ่น ชัด อ่านง่าย ตัวละครหลักเป็นผู้สูงวัยจริง ไม่ทำให้ดูหนุ่มสาว
+  {
+    key: 'senior',
+    fiction: true,
+    match: /ผู้สูงอายุ|สูงวัย|วัยเกษียณ|คุณตา|คุณยาย|senior|elderly|retire/i,
+    style: 'warm, gentle hand-painted storybook illustration with clear shapes, soft texture and natural colours; older characters drawn with dignity, real age and kind expressions',
+    cover: 'the older main character (or an older couple / friends) large and close, in a warm meaningful everyday place from the story, sharing a heartfelt moment — a smile, a held hand, a remembered photo',
+    light: 'soft warm afternoon or morning light, gentle high-key colours, clear contrast so faces read easily',
+    titleSpace: 'calm sky, wall or soft blur across the top third for a large, easy-to-read title',
+    back: 'a cosy quiet detail of their world (a garden bench, tea cups, an old photo album); calm middle area',
+  },
   {
     key: 'drama',
     fiction: true,
@@ -185,7 +196,7 @@ export const FLOW_GENRES = [
 ];
 
 /** ค่าในช่อง "ประเภท" ของหน้าตั้งค่า (studio.html #fictionGenre / #genre) → สูตร */
-const FICTION_SELECT = { romance: 'romance', fantasy: 'fantasy', scifi: 'scifi', mystery: 'thriller', thriller: 'thriller', horror: 'horror', drama: 'drama', adventure: 'adventure', comingofage: 'drama', literary: 'drama' };
+const FICTION_SELECT = { romance: 'romance', fantasy: 'fantasy', scifi: 'scifi', mystery: 'thriller', thriller: 'thriller', horror: 'horror', drama: 'drama', adventure: 'adventure', comingofage: 'drama', literary: 'drama', senior: 'senior' };
 const NONFICTION_SELECT = { 'how-to': 'howto', workbook: 'howto', self: 'selfhelp', business: 'business', explainer: 'explainer', textbook: 'explainer', case: 'explainer' };
 // หัวเรื่องบอกชัดกว่าช่องประเภทกว้าง ๆ (หนังสือทำอาหารที่เลือก "How-to" ควรได้ปกแบบหนังสืออาหาร)
 const SUBJECT_FIRST = ['food', 'spiritual'];

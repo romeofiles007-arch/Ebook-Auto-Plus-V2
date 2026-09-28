@@ -146,7 +146,7 @@ test('failed Enter reports an uncertain send rather than claiming no input occur
   assert.equal(result.enterAttempted, true);
 });
 
-async function sendBlock({ image = true, native = { ok: false, enterAttempted: false }, receipt = null, disconnected = false } = {}) {
+async function sendBlock({ image = true, native = { ok: false, enterAttempted: false }, receipt = null, disconnected = false, provesNothing = false } = {}) {
   const start = adapterSource.indexOf("report(turnId, 'sending', 'กำลังกดส่ง");
   const end = adapterSource.indexOf("report(turnId,'submitted'", start);
   const calls = [];
@@ -157,6 +157,7 @@ async function sendBlock({ image = true, native = { ok: false, enterAttempted: f
     chrome: { runtime: { sendMessage: async msg => { calls.push(msg); if (disconnected) throw new Error('worker disconnected'); return native; } } },
     waitForDom: async fn => fn(), findUserReceipt: () => receipt,
     nothingWasSent: () => true, composerMatches: () => true, stopButtonVisible: () => false,
+    location: { href: 'https://chatgpt.com/c/1' }, chatProvesNothingSent: () => provesNothing, chatPausedNotice: () => null,
     clickSend: async () => { calls.push('DOM click'); return {}; },
   };
   const result = await vm.runInNewContext(`(async () => { ${adapterSource.slice(start, end)} return { status: 'submitted' }; })()`, context);
@@ -190,6 +191,13 @@ test('an uncertain Enter can still complete when its matching user receipt exist
   assert.equal(result.status, 'submitted');
 });
 
+/** เจอจริง: งานหยุดซ้ำที่ขั้นคิดสารบัญ ทั้งที่บทสนทนาว่างและ Prompt ค้างในช่องพิมพ์ */
+test('uncertain send becomes a free retry when the chat proves nothing was sent', async () => {
+  const { calls, result } = await sendBlock({ native: { ok: false, enterAttempted: true }, provesNothing: true });
+  assert.equal(calls.includes('DOM click'), false);
+  assert.equal(result.meta.error, 'prompt_not_sent');
+});
+
 test('a disconnected image sender stops without assuming the full draft is safe to resend', async () => {
   const { calls, result } = await sendBlock({ disconnected: true });
   assert.equal(calls.includes('DOM click'), false);
@@ -212,6 +220,7 @@ async function imageSubmission({ ready = true } = {}) {
     chrome: { runtime: { sendMessage: async msg => { calls.push(msg.enterOnly ? 'Enter only' : 'other send'); return { ok: true }; } } },
     waitForDom: async fn => fn(), findUserReceipt: () => ({}),
     nothingWasSent: () => false, composerMatches: () => true, stopButtonVisible: () => false,
+    location: { href: 'https://chatgpt.com/c/1' }, chatProvesNothingSent: () => false, chatPausedNotice: () => null,
     clickSend: async () => { throw new Error('image must not click DOM send'); },
   };
   const result = await vm.runInNewContext(`(async () => { ${adapterSource.slice(start, end)} return { status: 'submitted' }; })()`, context);
@@ -329,7 +338,9 @@ test('browser-native Enter is attempted before the fragile DOM button', () => {
   const block = adapterSource.slice(start, end);
   assert.ok(block.indexOf("type:'sw.forceSend'") >= 0);
   assert.ok(block.indexOf("type:'sw.forceSend'") < block.indexOf('clickSend('));
-  assert.match(block, /native\?\.ok[\s\S]*outcome_unknown[\s\S]*ไม่กดซ้ำ/);
+  // Enter ที่ยืนยันไม่ได้ ห้ามกดซ้ำ — ออกทาง unconfirmed() ซึ่งเป็น outcome_unknown เว้นแต่บทสนทนาพิสูจน์ได้ว่ายังไม่ส่ง
+  assert.match(block, /native\?\.ok[\s\S]*unconfirmed\('เบราว์เซอร์กด Enter แล้ว[^']*ไม่กดซ้ำ/);
+  assert.match(block, /chatProvesNothingSent\(userMessagesBefore, urlBefore\)[\s\S]*error:'outcome_unknown'/);
 });
 
 /**

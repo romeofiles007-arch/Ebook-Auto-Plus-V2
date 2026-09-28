@@ -189,9 +189,27 @@
   // จำเฉพาะเทิร์นภาพที่ดึง bytes สำเร็จแล้ว เพื่อปลด spinner ที่ค้างก่อนส่งภาพถัดไปได้อย่างปลอดภัย
   let completedImageTurn = null;
   const normalizePrompt = (text) => String(text || '').replace(/\s+/g, ' ').trim();
+  /**
+   * ช่องพิมพ์ยังถือ Prompt ของเราอยู่ไหม — เทียบแบบหลวม ไม่ใช่ตรงทุกตัวอักษร
+   *
+   * เจอจริง (ค้างซ้ำหลายรอบที่ขั้นคิดสารบัญ): ช่องพิมพ์ของ ChatGPT จัดรูป Prompt ยาวที่มีโค้ดบล็อก ``` ใหม่
+   * ข้อความจึงไม่ตรงตัวอักษรกับที่วาง ตัวเช็คเดิม (เท่ากันเป๊ะ) ตอบว่า "ช่องพิมพ์เปลี่ยน" ทั้งที่ Prompt ยังค้างอยู่ในช่อง
+   * บทสนทนายังว่าง → ถูกตีเป็น "ผลไม่แน่นอน ห้ามส่งซ้ำ" แล้วงานหยุด · กดทำต่อก็วนกลับมาที่เดิม
+   * เทียบโดยตัดช่องว่างและ ` ทิ้ง แล้วดูต้น-ท้ายและความยาว — ยังจับได้ถ้าข้อความถูกวางซ้ำสองชุดหรือถูกแทนที่
+   */
+  // ช่องพิมพ์รุ่นใหม่แปลง markdown สด (``` ** # - 1.) เป็นรูปแบบ แล้วสัญลักษณ์เหล่านั้นหายจากข้อความ
+  // จึงเทียบเฉพาะตัวอักษร ตัวเลข และสระ/วรรณยุกต์ (\p{M} — ห้ามตัดทิ้ง ไม่งั้นภาษาไทยเสียรูป) · ป้ายภาษาโค้ดบล็อกตัดทิ้ง
+  // ต้องตรงกับ sw.js (sw.forceSend) ซึ่งใช้เกณฑ์เดียวกัน
+  const loosePrompt = (text) => String(text || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
   const composerMatches = (prompt) => {
     const box = $(S.composer);
-    return !!box && normalizePrompt(box.innerText || box.textContent) === normalizePrompt(prompt);
+    if (!box) return false;
+    const got = loosePrompt(box.innerText || box.textContent);
+    const want = loosePrompt(prompt);
+    if (!got || !want) return false;
+    if (got === want) return true;
+    const n = Math.min(40, want.length);
+    return got.length >= want.length * 0.85 && got.length <= want.length * 1.15 && got.includes(want.slice(0, n)) && got.includes(want.slice(-n));
   };
 
   /**
@@ -401,6 +419,28 @@
 
   function report(turnId, phase, detail, note) {
     chrome.runtime.sendMessage({ type: 'gpt.progress', turnId, phase, detail, note }).catch(() => {});
+  }
+
+  /**
+   * แถบ "แชตหยุดชั่วคราว" — ลิมิตของห้องแชตนี้ ไม่ใช่ของทั้งบัญชี (ผู้ใช้เจอจริง บัญชี Free)
+   *   "แชตหยุดชั่วคราวจนกว่าการใช้งานจะรีเซ็ตเวลา 16:03 · คุณใช้ถึงลิมิตสำหรับแชตที่มีการวิเคราะห์ข้อมูลแล้ว
+   *    เริ่มแชตใหม่แบบข้อความเท่านั้นหรืออัปเกรด…" + ปุ่ม "แชตใหม่"
+   * ปุ่มส่งเป็นสีเทา กด Enter ก็ไม่ไป — เดิมไม่มีวลีไหนตรง (ลิมิตเดิมรู้จักแค่ "ถึงขีดจำกัด" "ใช้ครบแล้ว")
+   * งานจึงวนส่งไม่ออกแล้วหยุด ทั้งที่ห้องใหม่แบบข้อความล้วนใช้ได้ทันที
+   * คืน { text, resetAt } ถ้าเจอ · อ่านเฉพาะแถบนอกข้อความสนทนาและนอกช่องพิมพ์ (เนื้อหนังสืออาจมีคำพวกนี้)
+   */
+  const CHAT_PAUSED =
+    /แชตหยุดชั่วคราว|แชทหยุดชั่วคราว|หยุดชั่วคราวจนกว่า|ใช้ถึงลิมิต|ถึงลิมิตสำหรับ|chat (?:is )?paused|paused until|reached (?:the |your )?limit for (?:chats?|conversations?)|start a new (?:text[- ]only )?chat/i;
+  function chatPausedNotice() {
+    for (const el of $$('[role="alert"], [role="dialog"], [aria-live], [class*="banner" i], [class*="toast" i], form ~ div, main div')) {
+      if (el.closest('[data-message-author-role]') || el.closest(S.composer)) continue;
+      if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+      const t = (el.innerText || '').trim();
+      if (!t || t.length > 400 || !CHAT_PAUSED.test(t)) continue;
+      const m = /(\d{1,2})[:.](\d{2})/.exec(t);
+      return { text: t.replace(/\s+/g, ' '), resetAt: m ? `${m[1].padStart(2, '0')}:${m[2]}` : '' };
+    }
+    return null;
   }
 
   function hitLimit() {
@@ -1139,10 +1179,41 @@
    * การพับตัดท้ายเสมอ หัวข้อความจึงเป็นลายเซ็นที่รอด และยังเข้มพอ:
    * ต้องขึ้นต้นตรงกัน 120 ตัวอักษรแรก และต้องเป็นข้อความที่เพิ่งโผล่ใหม่เท่านั้น
    */
+  /**
+   * บทสนทนาพิสูจน์ได้ไหมว่า "ยังไม่มีอะไรถูกส่งออกไปเลย"
+   *
+   * เจอจริง (งานหยุดซ้ำที่ขั้นคิดสารบัญ ผู้ใช้: "ทำไมไม่แก้ปัญหานี้ให้จบ"): Prompt ค้างอยู่ในช่องพิมพ์ บทสนทนาว่าง
+   * แต่ข้อความในช่องพิมพ์ไม่ตรงกับ Prompt (ของรอบก่อนค้างปนอยู่) → ถูกตีเป็น outcome_unknown ซึ่งหยุดทั้งงานทันที
+   * บันไดกู้ที่มีอยู่แล้ว (ลองใหม่ → ห้องใหม่ → โหลดแท็บใหม่) ล้างช่องพิมพ์ที่เสียได้ แต่ไม่เคยได้ทำงาน
+   *
+   * ตัดสินจากบทสนทนา ไม่ใช่จากช่องพิมพ์: ไม่มีปุ่มหยุด · ไม่มีข้อความผู้ใช้ใหม่ (ทั้ง id · ลำดับเทิร์น · จำนวน)
+   * · ที่อยู่หน้าไม่เปลี่ยน (ห้องใหม่ได้ /c/<id> ทันทีที่ส่ง) — ครบทุกข้อ = ไม่มีอะไรออกไปแน่นอน ส่งใหม่ไม่ซ้อน
+   */
+  function chatProvesNothingSent(before, urlBefore) {
+    if (stopButtonVisible()) return false;
+    if (urlBefore && location.href !== urlBefore) return false;
+    const all = $$('[data-message-author-role="user"]');
+    if (all.length > before.length) return false;
+    const oldKeys = new Set(before.map((row) => row.key).filter(Boolean));
+    const seen = Number(before?.maxTurn ?? -1);
+    for (const node of all) {
+      const key = userMessageKey(node);
+      if (key && !oldKeys.has(key)) return false;
+      const turn = turnIndexOf(node);
+      if (Number.isFinite(turn) && turn > seen) return false;
+    }
+    return true;
+  }
+
   function findUserReceipt(prompt, before) {
     const expected = normalizeMessage(prompt);
     const head = expected.slice(0, 120);
-    const sameMessage = (text) => text === expected || (!!head && text.startsWith(head));
+    // ข้อความที่ส่งแล้วถูกแสดงแบบ markdown ได้เหมือนช่องพิมพ์ — เทียบหลวมแบบเดียวกับ composerMatches เป็นทางที่สอง
+    // เกณฑ์เดียวกับ loosePrompt (เขียนซ้ำในนี้ให้ฟังก์ชันนี้ใช้ได้ด้วยตัวเอง)
+    const loose = (t) => String(t || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
+    const looseHead = loose(prompt).slice(0, 60);
+    const sameMessage = (text) =>
+      text === expected || (!!head && text.startsWith(head)) || (!!looseHead && loose(text).startsWith(looseHead));
     const all = $$('[data-message-author-role="user"]');
     const matches = all.filter(node =>
       sameMessage(userReceiptText(node, before.itemReceipt === true)));
@@ -2184,6 +2255,9 @@
         completedImageTurn = null;
       }
       if (hitLimit()) return { turnId, status: 'rate_limited', text: '' };
+      // ห้องนี้ถูกพักไว้ (ลิมิตของห้อง) — ยังไม่พิมพ์อะไรเลย ให้เครื่องเปิดห้องใหม่แล้วส่งใหม่ (ไม่เสียโควตา)
+      const pausedAtStart = chatPausedNotice();
+      if (pausedAtStart) return { turnId, status: 'error', text: '', meta: { error: 'chat_paused', detail: pausedAtStart.text, resetAt: pausedAtStart.resetAt } };
 
       const modelBefore = currentModel();
       if (opts.expectModel && modelBefore && !modelBefore.includes(opts.expectModel)) {
@@ -2288,9 +2362,31 @@
         }
       }
 
+      // แถบ "แชตหยุดชั่วคราว" ขึ้นระหว่างพิมพ์ — ปุ่มส่งถูกปิดแล้ว ยังไม่ได้ส่งอะไร
+      const pausedBeforeSend = chatPausedNotice();
+      if (pausedBeforeSend) return { turnId, status: 'error', text: '', meta: { error: 'chat_paused', detail: pausedBeforeSend.text, resetAt: pausedBeforeSend.resetAt } };
+
       report(turnId, 'sending', 'กำลังกดส่ง และรอยืนยันข้อความในบทสนทนา');
       const sendStartedAt = Date.now();
+      const urlBefore = location.href;
       let fresh = null, sendError = '';
+      /**
+       * ทางออกเดียวของทุกจุดที่ "ยังยืนยันไม่ได้" ก่อนเห็นข้อความของเราในบทสนทนา
+       * บทสนทนาพิสูจน์ได้ว่ายังไม่มีอะไรออกไป → prompt_not_sent (ไม่เสียโควตา เครื่องลองใหม่ → ห้องใหม่ → โหลดแท็บใหม่ ได้เอง)
+       * พิสูจน์ไม่ได้จริง ๆ → outcome_unknown ตามเดิม (หยุดไว้กันงานซ้อน)
+       */
+      const unconfirmed = (detail) => {
+        // แถบ "แชตหยุดชั่วคราว" ขึ้นระหว่างส่ง = ปุ่มส่งถูกปิด ข้อความไม่ได้ออกไป · เปิดห้องใหม่
+        const paused = chatPausedNotice();
+        if (paused && chatProvesNothingSent(userMessagesBefore, urlBefore))
+          return {turnId,status:'error',text:'',meta:{error:'chat_paused',detail:paused.text,resetAt:paused.resetAt,sendMs:Date.now()-sendStartedAt}};
+        return unconfirmedPlain(detail);
+      };
+      const unconfirmedPlain = (detail) => chatProvesNothingSent(userMessagesBefore, urlBefore)
+        ? {turnId,status:'error',text:'',meta:{error:'prompt_not_sent',
+            detail:`${detail} · แต่บทสนทนาไม่มีข้อความใหม่และไม่มีการตอบ = ยังไม่ได้ส่งแน่นอน — ล้างช่องพิมพ์แล้วส่งใหม่ได้`,
+            sendMs:Date.now()-sendStartedAt}}
+        : {turnId,status:'error',text:'',meta:{error:'outcome_unknown',detail,sendMs:Date.now()-sendStartedAt}};
 
       /**
        * ใช้ input ของเบราว์เซอร์กด Enter เป็นทางหลัก เหมือนผู้ใช้วาง Prompt แล้วกดส่งเอง
@@ -2321,27 +2417,26 @@
           fresh = await waitForDom(()=>findUserReceipt(prompt,userMessagesBefore),{timeoutMs:15000});
           // Enter ถูกกดไปแล้ว ถ้ายังหาใบเสร็จไม่เจอ ผลลัพธ์ไม่แน่นอน ห้ามไปคลิกซ้ำ
           // Prompt ยังอยู่ในช่องพิมพ์ครบ = Enter ไม่ติด ไม่ต้องเดา และลองใหม่ได้ปลอดภัย
-          if (!fresh && native?.ok && nothingWasSent(prompt)) return {turnId,status:'error',text:'',meta:{
-            error:'send_action_not_accepted',
-            detail:'กด Enter แล้วแต่ Prompt ยังอยู่ในช่องพิมพ์ครบและยังไม่มีการตอบ — คำสั่งไม่ได้ถูกส่ง ลองใหม่ได้',
-            sendMs:Date.now()-sendStartedAt,
-          }};
-          if (!fresh) return {turnId,status:'error',text:'',meta:{
-            error:'outcome_unknown',
-            detail:'เบราว์เซอร์กด Enter แล้ว แต่ยังจับข้อความที่ส่งไม่ได้ — ไม่กดซ้ำเพื่อป้องกันงานซ้อน',
-            sendMs:Date.now()-sendStartedAt,
-          }};
+          /**
+           * Enter ไม่ส่ง แต่ Prompt ยังค้างอยู่ครบ = ยังไม่มีอะไรออกไป
+           * งานข้อความไปต่อที่ปุ่มส่งบนหน้า (ข้างล่าง) — เจอจริง: ช่องพิมพ์จบด้วยกล่องโค้ด ``` Enter จึงกลายเป็นขึ้นบรรทัดใหม่
+           * ส่งไม่ออกทุกรอบ แล้วงานหยุด · งานภาพไม่ใช้ปุ่มบนหน้า คืนให้เครื่องลองใหม่เหมือนเดิม
+           */
+          if (!fresh && native?.ok && nothingWasSent(prompt)) {
+            if (opts.wantImages) return {turnId,status:'error',text:'',meta:{
+              error:'send_action_not_accepted',
+              detail:'กด Enter แล้วแต่ Prompt ยังอยู่ในช่องพิมพ์ครบและยังไม่มีการตอบ — คำสั่งไม่ได้ถูกส่ง ลองใหม่ได้',
+              sendMs:Date.now()-sendStartedAt,
+            }};
+            sendError = 'กด Enter แล้วไม่ส่ง (Prompt ยังค้างในช่องพิมพ์) — ใช้ปุ่มส่งแทน';
+          } else if (!fresh) return unconfirmed('เบราว์เซอร์กด Enter แล้ว แต่ยังจับข้อความที่ส่งไม่ได้ — ไม่กดซ้ำเพื่อป้องกันงานซ้อน');
         }
       } catch (e) {
         sendError = e?.message || String(e);
         if (opts.wantImages) {
           // A lost worker connection does not prove Enter was never dispatched.
           fresh = await waitForDom(()=>findUserReceipt(prompt,userMessagesBefore),{timeoutMs:15000});
-          if (!fresh) return {turnId,status:'error',text:'',meta:{
-            error:'outcome_unknown',
-            detail:`ช่องทางกด Enter ขาดการเชื่อมต่อ (${sendError}) — ยังยืนยันไม่ได้และไม่ส่งซ้ำ`,
-            sendMs:Date.now()-sendStartedAt,
-          }};
+          if (!fresh) return unconfirmed(`ช่องทางกด Enter ขาดการเชื่อมต่อ (${sendError}) — ยังยืนยันไม่ได้และไม่ส่งซ้ำ`);
         }
       }
 
@@ -2368,10 +2463,7 @@
       if (!fresh && (stopButtonVisible() || !composerMatches(prompt))) {
         // Empty/replaced composer is ambiguous, NOT evidence that nothing was sent.
         fresh = await waitForDom(()=>findUserReceipt(prompt,userMessagesBefore),{timeoutMs:15000});
-        if (!fresh) return {turnId,status:'error',text:'',meta:{
-          error:'outcome_unknown', detail:'ช่องพิมพ์เปลี่ยนหรือเริ่มตอบแล้ว แต่ยังจับข้อความที่ส่งไม่ได้ — ไม่ส่งซ้ำ',
-          sendMs:Date.now()-sendStartedAt,
-        }};
+        if (!fresh) return unconfirmed('ช่องพิมพ์เปลี่ยนหรือเริ่มตอบแล้ว แต่ยังจับข้อความที่ส่งไม่ได้ — ไม่ส่งซ้ำ');
       }
       // ทางสำรองก็เช่นกัน — ช่องพิมพ์ที่ยังเต็มคือคำตอบ ไม่ใช่คำถาม
       if (!fresh && nothingWasSent(prompt)) return {turnId,status:'error',text:'',meta:{
@@ -2379,11 +2471,7 @@
         detail:`ส่งไม่ออกและ Prompt ยังอยู่ในช่องพิมพ์ครบ · ${sendError || 'ไม่พบข้อความใหม่'} — คำสั่งไม่ได้ถูกส่ง ลองใหม่ได้`,
         sendMs:Date.now()-sendStartedAt,
       }};
-      if (!fresh) return {turnId,status:'error',text:'',meta:{
-        error:'outcome_unknown',
-        detail:`ยังยืนยันข้อความที่ส่งไม่ได้ · ช่องทางสำรอง: ${sendError || 'ไม่พบข้อความใหม่'} · เก็บงานไว้โดยไม่ยิงซ้ำ`,
-        sendMs:Date.now()-sendStartedAt,
-      }};
+      if (!fresh) return unconfirmed(`ยังยืนยันข้อความที่ส่งไม่ได้ · ช่องทางสำรอง: ${sendError || 'ไม่พบข้อความใหม่'} · เก็บงานไว้โดยไม่ยิงซ้ำ`);
       // ตั้งแต่วินาทีนี้มีข้อความผู้ใช้รายการใหม่แล้ว หลักฐานของภาพเทิร์นก่อนจึงหมดหน้าที่
       completedImageTurn = null;
       report(turnId,'submitted',`ยืนยันข้อความตรงกับ Prompt แล้ว · ${((Date.now()-sendStartedAt)/1000).toFixed(1)} วินาที`);

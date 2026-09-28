@@ -7,7 +7,7 @@
  */
 
 import { prepareForTypeset, THAI_GAP } from '../core/thai.js';
-import { coverTextBaked, backCoverTextBaked } from '../core/prompts.js';
+import { frontCoverTextInImage, backCoverTextInImage } from '../core/prompts.js';
 import { referenceLines, REFERENCE_STYLES } from '../core/references.js';
 import { stripEchoedHeading } from '../core/extract.js';
 import { itemTypeSize, ITEM_BLOCK_KINDS } from '../core/items.js';
@@ -312,11 +312,19 @@ export function buildDocument({ book, outline, sections, opts = {} }) {
   const secById = new Map(sections.map((s) => [s.id, s]));
   const body = [];
   const isFiction = book.contentMode === 'fiction';
+  // หน้าเปิดบทแบบโปสเตอร์ — เล่มเก่าที่ไม่มีค่านี้ใช้แบบเรียบตามเดิม
+  const poster = !!chapterOpenerKey(book);
+  const TT = (v) => inline(prepareForTypeset(v || '', lang));
 
   for (const ch of outline.chapters) {
     // เล่มสารคดีเคยขึ้นบทด้วยชื่อบทเปล่า ๆ ไม่มีเลข สารบัญจึงเป็นรายการชื่อยาว ๆ ที่ไล่ลำดับไม่ได้
     // และผู้อ่านที่เปิดกลางเล่มไม่มีทางรู้ว่าตัวเองอยู่บทไหนของกี่บท
     const chapterTitle = `${lang === 'th' ? 'บทที่' : 'Chapter'} ${ch.n}${ch.title ? ` · ${ch.title}` : ''}`;
+    if (poster) {
+      // เลข ชื่อ และคำคมของบทนี้ ให้กฎแสดงหัวบทอ่าน (หัวบทยังเป็น "บทที่ N · ชื่อ" สำหรับสารบัญและหัวกระดาษ)
+      const ep = book.chapterEpigraphs?.[ch.n] || {};
+      body.push(`#chapter-meta.update((n: "${ch.n}", nt: "${String(ch.n).replace(/[0-9]/g, (d) => "๐๑๒๓๔๕๖๗๘๙"[d])}", title: [${TT(ch.title || chapterTitle)}], quote: ${ep.text ? `[${TT(ep.text)}]` : 'none'}, by: ${ep.text && ep.by ? `[${TT(ep.by)}]` : 'none'}))`);
+    }
     body.push(`= ${inline(prepareForTypeset(chapterTitle, lang))}`, '');
     for (let sceneIndex = 0; sceneIndex < ch.sections.length; sceneIndex++) {
       const s = ch.sections[sceneIndex];
@@ -339,7 +347,7 @@ export function buildDocument({ book, outline, sections, opts = {} }) {
   return `
 #set document(title: ${str(outline.title)}, author: ${str(book.author || '')})
 
-${patternPreamble(opts)}#set page(
+${poster ? openerPreamble() : ''}${patternPreamble(opts)}#set page(
   width: ${mm(trim.widthMm + bleed * 2)},
   height: ${mm(trim.heightMm + bleed * 2)},
   margin: (
@@ -384,12 +392,12 @@ ${patternPreamble(opts)}#set page(
 
 // บทใหม่ขึ้นหน้าใหม่ (ขึ้นหน้าขวาเฉพาะเมื่อตั้ง chapterStartRight สำหรับงานพิมพ์) และเว้นช่วงนำสายตา
 // เดิมบังคับหน้าขวาเสมอ นิยายที่บทสั้นจึงมีหน้าว่างทุกหน้าคู่ ครึ่งเล่มเป็นกระดาษเปล่า (ผู้ใช้เจอจริง)
-#show heading.where(level: 1): it => {
+${poster ? chapterOpenerRule(book, t, book.chapterStartRight === true, opts) : `#show heading.where(level: 1): it => {
   pagebreak(${book.chapterStartRight === true ? 'to: "odd", ' : ''}weak: true)${markPatternPage(opts)}
   v(${round((trim.heightMm - t.marginsMm.top - t.marginsMm.bottom) * 0.16)}mm)
   block(text(size: ${pt(t.sizePt * 1.6)}, weight: 600, it.body))
   v(1em)
-}
+}`}
 #show heading.where(level: 2): it => block(text(size: ${pt(t.sizePt * 1.2)}, weight: 600, it.body))
 #show heading.where(level: 3): it => block(text(size: ${pt(t.sizePt * 1.08)}, weight: 600, it.body))
 
@@ -399,7 +407,12 @@ ${fm}
 // ---------- เนื้อหา ----------
 #set page(
   numbering: "1",
-  number-align: center,
+  number-align: center,${poster ? `
+  // หน้าเปิดบทแบบโปสเตอร์ไม่มีเลขหน้าบนพื้นสี
+  footer: context {
+    if opener-pages.final().contains(here().page()) { return }
+    align(center, counter(page).display("1"))
+  },` : ''}
   header: context {
     let p = counter(page).get().first()
     let opens = query(heading.where(level: 1)).any(h => h.location().page() == p)
@@ -713,6 +726,209 @@ function pageBackground(opts) {
     : '';
 }
 
+/**
+ * หน้าเปิดบทแบบเต็มหน้า — ชุดแบบให้ผู้ใช้เลือก หรือสุ่ม (ผู้ใช้: "เราเลือกแบบเองได้มั้ย เดี๋ยวจะหามาให้ และมีแบบสุ่มด้วย")
+ * ทุกแบบใช้โครงเดียวกัน: ขึ้นหน้าใหม่ · ทั้งหน้าเป็นก้อนเดียวแยกหน้าไม่ได้ · หน้านี้ไม่มีเลขหน้า · เนื้อหาเริ่มหน้าถัดไป
+ * แต่ละแบบเขียนเฉพาะ "เนื้อในก้อน" (ตัวแปร m = เลข ชื่อ คำคม ผู้พูด ของบทนั้น)
+ * ไม่มีพื้นสี (ผู้ใช้: "สีไม่ต้อง") — ตัวหนังสือสีเข้มบนพื้นกระดาษ ใช้ได้ทั้งพิมพ์ขาวดำและ ebook
+ *
+ * เพิ่มแบบใหม่: ใส่ในตารางนี้ + ตัวเลือกใน studio.html (#chapterOpener) — ตัวสุ่มเห็นแบบใหม่เอง
+ */
+const OPENER_INK = '#1A1A1A';
+const OPENER_SOFT = '#4A4A4A';
+export const CHAPTER_OPENERS = {
+  // แบบจากหนังสือตัวอย่างที่ผู้ใช้ส่งมา: เลขใหญ่ · เส้นหนา · ชื่อบท · เส้นหนา · คำคมตัวห่าง · –ผู้พูด
+  lines: {
+    label: 'เส้นคู่ — เลขบทใหญ่ ชื่อบทระหว่างเส้นหนา คำคมตัวห่าง',
+    body: (t, ink, soft) => `
+      set align(center)
+      v(6%)
+      // กล่องตัวเลขเอาแค่ความสูงตัวเลขจริง (cap-height ถึง baseline) ให้เส้นแนบใต้เลขแบบตัวอย่าง
+      text(size: ${pt(t.sizePt * 6.4)}, weight: 900, fill: rgb("${ink}"), top-edge: "cap-height", bottom-edge: "baseline", m.n)
+      v(${pt(t.sizePt * 0.55)})
+      line(length: 100%, stroke: 3pt + rgb("${ink}"))
+      v(${pt(t.sizePt * 1.1)})
+      text(size: ${pt(t.sizePt * 2.1)}, weight: 700, fill: rgb("${ink}"), m.title)
+      v(${pt(t.sizePt * 1.1)})
+      line(length: 100%, stroke: 3pt + rgb("${ink}"))
+      if m.quote != none {
+        v(${pt(t.sizePt * 2.2)})
+        block(width: 90%, text(size: ${pt(t.sizePt * 1.02)}, tracking: 0.26em, fill: rgb("${soft}"), m.quote))
+        if m.by != none {
+          v(${pt(t.sizePt * 1.4)})
+          text(size: ${pt(t.sizePt * 1.02)}, fill: rgb("${soft}"))[–#m.by]
+        }
+      }`,
+  },
+  // ชิดซ้าย: เลขใหญ่ชิดซ้าย · เส้นสั้น · ชื่อบทชิดซ้าย · คำคมมีเส้นตั้งนำหน้า
+  left: {
+    label: 'ชิดซ้าย — เลขบทใหญ่ชิดซ้าย เส้นสั้น คำคมมีเส้นตั้งนำ',
+    body: (t, ink, soft) => `
+      set align(left)
+      v(14%)
+      text(size: ${pt(t.sizePt * 7)}, weight: 900, fill: rgb("${ink}"), top-edge: "cap-height", bottom-edge: "baseline", m.n)
+      v(${pt(t.sizePt * 0.9)})
+      line(length: 28%, stroke: 4pt + rgb("${ink}"))
+      v(${pt(t.sizePt * 1.2)})
+      block(width: 92%, text(size: ${pt(t.sizePt * 2.2)}, weight: 700, fill: rgb("${ink}"), m.title))
+      if m.quote != none {
+        v(${pt(t.sizePt * 3)})
+        block(width: 88%, inset: (left: ${pt(t.sizePt * 0.9)}), stroke: (left: 2pt + rgb("${soft}")), {
+          text(size: ${pt(t.sizePt * 1.02)}, fill: rgb("${soft}"), m.quote)
+          if m.by != none {
+            v(${pt(t.sizePt * 0.9)})
+            text(size: ${pt(t.sizePt * 0.92)}, weight: 600, fill: rgb("${soft}"))[–#m.by]
+          }
+        })
+      }`,
+  },
+  // มินิมอล: "บทที่ 11" ตัวเล็กตัวห่าง · ชื่อบทกลางหน้า · เส้นบางสั้น · คำคมตัวเล็ก
+  minimal: {
+    label: 'มินิมอล — "บทที่" ตัวเล็กตัวห่าง ชื่อบทกลางหน้า เส้นบางสั้น',
+    body: (t, ink, soft, lang) => `
+      set align(center)
+      v(26%)
+      text(size: ${pt(t.sizePt * 0.95)}, tracking: 0.35em, fill: rgb("${soft}"))[${lang === 'th' ? 'บทที่' : 'CHAPTER'} #m.n]
+      v(${pt(t.sizePt * 1.3)})
+      block(width: 86%, text(size: ${pt(t.sizePt * 2)}, weight: 600, fill: rgb("${ink}"), m.title))
+      v(${pt(t.sizePt * 1.4)})
+      line(length: 16%, stroke: 0.8pt + rgb("${ink}"))
+      if m.quote != none {
+        v(${pt(t.sizePt * 1.8)})
+        block(width: 78%, text(size: ${pt(t.sizePt * 0.95)}, fill: rgb("${soft}"), m.quote))
+        if m.by != none {
+          v(${pt(t.sizePt * 1)})
+          text(size: ${pt(t.sizePt * 0.88)}, tracking: 0.12em, fill: rgb("${soft}"))[–#m.by]
+        }
+      }`,
+  },
+  // เลขจาง: เลขบทยักษ์สีจางเป็นฉากหลัง ชื่อบทตัวใหญ่วางทับกลางหน้า
+  watermark: {
+    label: 'เลขจาง — เลขบทยักษ์สีจางเป็นฉากหลัง ชื่อบทวางทับ',
+    body: (t, ink, soft) => `
+      set align(center)
+      v(10%)
+      box(width: 100%, height: ${pt(t.sizePt * 15 * 0.72)}, {
+        place(center + top, text(size: ${pt(t.sizePt * 15)}, weight: 900, fill: rgb("#E4E4E4"), top-edge: "cap-height", bottom-edge: "baseline", m.n))
+        place(center + horizon, block(width: 90%, text(size: ${pt(t.sizePt * 2.2)}, weight: 700, fill: rgb("${ink}"), m.title)))
+      })
+      if m.quote != none {
+        v(${pt(t.sizePt * 2.4)})
+        block(width: 82%, text(size: ${pt(t.sizePt * 1)}, fill: rgb("${soft}"), m.quote))
+        if m.by != none {
+          v(${pt(t.sizePt * 1)})
+          text(size: ${pt(t.sizePt * 0.92)}, fill: rgb("${soft}"))[–#m.by]
+        }
+      }`,
+  },
+  // คลาสสิก: "บทที่ ๑๑" เลขไทย · ลายประดับ · ชื่อบท · ลายประดับ · คำคม
+  classic: {
+    label: 'คลาสสิก — "บทที่ ๑๑" เลขไทย มีลายประดับคั่น',
+    body: (t, ink, soft, lang) => `
+      set align(center)
+      v(20%)
+      text(size: ${pt(t.sizePt * 1.3)}, tracking: 0.2em, fill: rgb("${soft}"))[${lang === 'th' ? 'บทที่ #m.nt' : 'Chapter #m.n'}]
+      v(${pt(t.sizePt * 0.9)})
+      // ลายประดับวาดด้วยรูปทรง — ฟอนต์ไทยที่ฝังไว้ไม่มีอักขระลายดอกไม้ (เคยออกมาเป็นกล่องว่าง)
+      stack(dir: ltr, spacing: 6pt, line(length: 22pt, stroke: 0.6pt + rgb("${soft}")), move(dy: -2.5pt, rotate(45deg, square(size: 5pt, fill: rgb("${soft}")))), line(length: 22pt, stroke: 0.6pt + rgb("${soft}")))
+      v(${pt(t.sizePt * 0.9)})
+      block(width: 100%, text(size: ${pt(t.sizePt * 2)}, weight: 600, fill: rgb("${ink}"), m.title))
+      v(${pt(t.sizePt * 1)})
+      text(size: ${pt(t.sizePt * 1)}, tracking: 0.6em, fill: rgb("${soft}"))[• • •]
+      if m.quote != none {
+        v(${pt(t.sizePt * 1.8)})
+        block(width: 76%, text(size: ${pt(t.sizePt * 0.98)}, fill: rgb("${soft}"), m.quote))
+        if m.by != none {
+          v(${pt(t.sizePt * 0.9)})
+          text(size: ${pt(t.sizePt * 0.9)}, fill: rgb("${soft}"))[–#m.by]
+        }
+      }`,
+  },
+  // กรอบ: ชื่อบทอยู่ในกรอบเส้นคู่ เลขบทวางบนขอบกรอบ
+  frame: {
+    label: 'กรอบ — ชื่อบทอยู่ในกรอบเส้นคู่ เลขบทบนขอบกรอบ',
+    body: (t, ink, soft) => `
+      set align(center)
+      v(16%)
+      block(width: 92%, stroke: 1.2pt + rgb("${ink}"), inset: 4pt,
+        block(width: 100%, stroke: 0.5pt + rgb("${ink}"), inset: (x: ${pt(t.sizePt * 1.2)}, y: ${pt(t.sizePt * 2)}), {
+          text(size: ${pt(t.sizePt * 3.2)}, weight: 900, fill: rgb("${ink}"), top-edge: "cap-height", bottom-edge: "baseline", m.n)
+          v(${pt(t.sizePt * 1.3)})
+          text(size: ${pt(t.sizePt * 1.9)}, weight: 700, fill: rgb("${ink}"), m.title)
+        }))
+      if m.quote != none {
+        v(${pt(t.sizePt * 2.2)})
+        block(width: 80%, text(size: ${pt(t.sizePt * 0.98)}, fill: rgb("${soft}"), m.quote))
+        if m.by != none {
+          v(${pt(t.sizePt * 0.9)})
+          text(size: ${pt(t.sizePt * 0.9)}, fill: rgb("${soft}"))[–#m.by]
+        }
+      }`,
+  },
+  // นิตยสาร: เลขเล็กมุมบนพร้อมเส้นยาว · คำคมกลางหน้า · ชื่อบทตัวใหญ่ชิดขวาค่อนลงล่าง
+  editorial: {
+    label: 'นิตยสาร — เลขเล็กมุมบน ชื่อบทตัวใหญ่ชิดขวาค่อนล่าง',
+    body: (t, ink, soft) => `
+      set align(left)
+      grid(columns: (auto, 1fr), column-gutter: ${pt(t.sizePt * 0.7)}, align: horizon,
+        text(size: ${pt(t.sizePt * 1.6)}, weight: 700, fill: rgb("${ink}"), m.n),
+        line(length: 100%, stroke: 1pt + rgb("${ink}")))
+      if m.quote != none {
+        v(${pt(t.sizePt * 4.5)})
+        block(width: 80%, text(size: ${pt(t.sizePt * 1)}, fill: rgb("${soft}"), m.quote))
+        if m.by != none {
+          v(${pt(t.sizePt * 0.8)})
+          text(size: ${pt(t.sizePt * 0.9)}, fill: rgb("${soft}"))[–#m.by]
+        }
+        v(${pt(t.sizePt * 3.5)})
+      } else {
+        v(${pt(t.sizePt * 13)})
+      }
+      align(right, block(width: 100%, align(right, text(size: ${pt(t.sizePt * 2.2)}, weight: 800, fill: rgb("${ink}"), m.title))))
+      v(${pt(t.sizePt * 0.8)})
+      align(right, line(length: 40%, stroke: 3pt + rgb("${ink}")))`,
+  },
+};
+
+/** แบบที่ใช้จริงของเล่มนี้ · 'simple'/ไม่ตั้ง = หัวบทแบบเรียบเดิม · 'poster' (รุ่นแรก) = เส้นคู่ */
+export function chapterOpenerKey(book) {
+  const v = book?.chapterOpener;
+  if (!v || v === 'simple') return '';
+  if (v === 'poster') return 'lines';
+  return CHAPTER_OPENERS[v] ? v : 'lines';
+}
+
+/** ตัวสุ่ม: เลือกหนึ่งแบบต่อเล่ม (ทั้งเล่มแบบเดียวกัน ไม่สลับไปมาระหว่างบท) */
+export function pickRandomOpener(rand = Math.random) {
+  const keys = Object.keys(CHAPTER_OPENERS);
+  return keys[Math.floor(rand() * keys.length) % keys.length];
+}
+
+/** ประกาศ state ของหน้าเปิดบท — ต้องอยู่ก่อน #set page เพราะส่วนท้ายหน้าอ่านค่านี้ */
+function openerPreamble() {
+  return `#let chapter-meta = state("chapter-meta", (n: "", nt: "", title: [], quote: none, by: none))
+#let opener-pages = state("opener-pages", ())
+`;
+}
+
+function chapterOpenerRule(book, t, startRight, opts) {
+  const style = CHAPTER_OPENERS[chapterOpenerKey(book)] || CHAPTER_OPENERS.lines;
+  return `#show heading.where(level: 1): it => {
+  pagebreak(${startRight ? 'to: "odd", ' : ''}weak: true)${markPatternPage(opts)}
+  // อ่านเลขหน้าก่อน แล้วค่อยส่งค่าเข้า update — here() ในฟังก์ชันของ update ถูกเรียกทีหลังตอน .final() ซึ่งไม่มีบริบทหน้า (Typst ฟ้อง)
+  context { let pg = here().page(); opener-pages.update(pages => pages + (pg,)) }
+  context {
+    let m = chapter-meta.get()
+    // ทั้งหน้าเปิดบทเป็นก้อนเดียวที่แยกหน้าไม่ได้ — เจอในตัวอย่าง: เลขบทค้างหน้าหนึ่ง ที่เหลือล้นไปอีกหน้า
+    // บรรทัดของฟอนต์ไทยสูงกว่าที่ตาเห็นมาก (ขอบ ascender/descender) จึงบีบระยะบรรทัดของชื่อบทและคำคมเอง
+    set par(first-line-indent: 0pt, justify: false, leading: 0.35em, spacing: 0pt)
+    block(breakable: false, width: 100%, {${style.body(t, OPENER_INK, OPENER_SOFT, book.language || 'th')}
+    })
+  }
+  pagebreak()
+}`;
+}
+
 function frontMatter(book, outline, opts = {}) {
   const has = (k) => (book.frontMatter || []).includes(k);
   const lang = book.language || 'th';
@@ -747,7 +963,7 @@ function frontMatter(book, outline, opts = {}) {
     const coverH = book.trim?.heightMm || 210;
 
     // ปกที่ ChatGPT วาดตัวหนังสือมาให้แล้ว ห้ามพิมพ์ทับซ้ำ ไม่งั้นจะได้ชื่อเรื่องสองชั้น
-    if (coverTextBaked(book)) {
+    if (frontCoverTextInImage(book)) {
       parts.push(`#page(margin: 0pt)[
   #image("/img/${coverName}", width: 100%, height: 100%, fit: "cover")
 ]`);
@@ -887,7 +1103,7 @@ function backCoverPage(book, outline, opts = {}) {
    * ตัวตัดสินที่ถูกต้องคือ "เล่มนี้สั่งให้วาดตัวอักษรลงภาพหรือเปล่า" ซึ่งเป็นคำถามเดียว
    * กับที่ใช้ตอนประกอบ prompt — ไม่ใช่ "ไฟล์เดินทางเข้ามาทางไหน"
    */
-  const textInImage = !!book.backCoverTextBaked || backCoverTextBaked(book);
+  const textInImage = backCoverTextInImage(book);
 
   const photoBlock = showAuthorPhoto
     ? `#place(top + left, dx: 12mm, dy: 14mm)[

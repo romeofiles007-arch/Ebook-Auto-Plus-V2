@@ -82,20 +82,21 @@
     คนที่เพิ่งเปิดมาไม่มีทางรู้ว่าต้องเลือกอะไรก่อน และเลือกผิดคือเจอปัญหาคนละชุดกันทั้งเส้นทาง
   -->
   <div id="modePicker" class="modePicker" data-step="mode">
-    <button type="button" class="modeCard" data-mode="flow">
+    <!-- การ์ดบอกแค่สั้น ๆ ว่าเหมาะกับใคร — รายละเอียดเชิงเทคนิคอยู่ใน title (ผู้ใช้: "ละเอียดเกินไป ดูยาก ไม่น่ากด") -->
+    <button type="button" class="modeCard" data-mode="flow" title="เขียนด้วย ChatGPT ฟรี · วาดปกและภาพประกอบด้วย Google Flow (โหมด 0 เครดิต) ไม่จำกัดจำนวน · ต้องล็อกอิน flow.google.com ไว้ในเบราว์เซอร์นี้">
       <b>ChatGPT + Google Flow</b>
-      <span class="modeWhat">เขียนด้วย ChatGPT ฟรี · วาดปกและภาพประกอบด้วย Google Flow ฟรี</span>
-      <span class="modeNote">ภาพไม่จำกัดจำนวน (โหมด 0 เครดิต) · ได้ไฟล์ 2K ตรงสัดส่วนช่องภาพ ตั้งชื่อตามตำแหน่งในเล่มแล้วใส่ให้เอง · ต้องล็อกอิน flow.google.com ไว้ในเบราว์เซอร์นี้</span>
+      <span class="modeWhat">ทำหนังสือพร้อมภาพ ฟรีทั้งเล่ม</span>
+      <span class="modeTags"><i class="good">ฟรี</i><i>ต้องล็อกอิน Google Flow</i></span>
     </button>
-    <button type="button" class="modeCard" data-mode="plus">
+    <button type="button" class="modeCard" data-mode="plus" title="เขียนและสร้างภาพผ่านหน้าเว็บ ChatGPT บัญชีเดียว · มีลิมิตข้อความต่อรอบ และช้ากว่าทาง API">
       <b>ChatGPT Plus</b>
-      <span class="modeWhat">เขียนและสร้างภาพ ผ่านหน้าเว็บบัญชีเดียว</span>
-      <span class="modeNote">ไม่ต้องสลับบัญชี แต่ยังมีลิมิตข้อความต่อรอบ และช้ากว่าทาง API เพราะต้องขับหน้าเว็บจริง</span>
+      <span class="modeWhat">ใช้บัญชี ChatGPT Plus ที่มีอยู่</span>
+      <span class="modeTags"><i class="good">บัญชีเดียวจบ</i><i>มีลิมิตต่อรอบ</i></span>
     </button>
-    <button type="button" class="modeCard" data-mode="api">
+    <button type="button" class="modeCard" data-mode="api" title="เขียนและสร้างภาพผ่าน OpenAI API จ่ายตามใช้จริง · ไม่มีลิมิตข้อความ ไม่ต้องเปิดแท็บ ChatGPT ค้างไว้ · ต้องใส่ API key">
       <b>OpenAI API</b>
-      <span class="modeWhat">เขียนและสร้างภาพ ผ่าน API จ่ายตามใช้จริง</span>
-      <span class="modeNote">เร็วที่สุดและไม่มีลิมิตข้อความ ไม่ต้องเปิดแท็บ ChatGPT ค้างไว้ · ต้องใส่ API key</span>
+      <span class="modeWhat">เร็วที่สุด จ่ายตามที่ใช้</span>
+      <span class="modeTags"><i class="good">เร็วที่สุด</i><i>ต้องใส่ API key</i></span>
     </button>
   </div>
   <div id="modePickerNote" class="muted"></div>
@@ -289,6 +290,24 @@
       </select>
       <div class="muted">ChatGPT จะวาดลายตามแนวของเล่ม แล้วระบบลดความเข้มให้เองก่อนพิมพ์ใต้ตัวหนังสือทุกหน้า</div>
     </div>
+    <div class="field openerField">
+      <label for="chapterOpenerPick">หน้าเปิดบท</label>
+      <!-- ตัวเลือกจริงอยู่ใน select (ซ่อน) · ปุ่มกับป๊อปอัปภาพตัวอย่างสร้างจาก option ใน studio.js (setupOpenerPicker) -->
+      <button type="button" id="chapterOpenerPick" class="openerPick" aria-haspopup="dialog" aria-expanded="false"></button>
+      <div id="chapterOpenerPop" class="openerPop" role="dialog" aria-label="เลือกแบบหน้าเปิดบท" hidden></div>
+      <select id="chapterOpener" class="openerSelect" tabindex="-1" aria-hidden="true">
+        <option value="lines" selected>เส้นคู่ — เลขบทใหญ่ ชื่อบทระหว่างเส้นหนา คำคมตัวห่าง</option>
+        <option value="left">ชิดซ้าย — เลขบทใหญ่ชิดซ้าย เส้นสั้น คำคมมีเส้นตั้งนำ</option>
+        <option value="minimal">มินิมอล — "บทที่" ตัวเล็กตัวห่าง ชื่อบทกลางหน้า</option>
+        <option value="watermark">เลขจาง — เลขบทยักษ์สีจางเป็นฉากหลัง ชื่อบทวางทับ</option>
+        <option value="classic">คลาสสิก — "บทที่ ๑๑" เลขไทย มีลายประดับคั่น</option>
+        <option value="frame">กรอบ — ชื่อบทอยู่ในกรอบเส้นคู่</option>
+        <option value="editorial">นิตยสาร — เลขเล็กมุมบน ชื่อบทตัวใหญ่ชิดขวาค่อนล่าง</option>
+        <option value="random">สุ่ม — ระบบเลือกให้หนึ่งแบบต่อเล่ม</option>
+        <option value="simple">เรียบ — ชื่อบทบนหน้าแรกของเนื้อหา (ไม่มีหน้าเปิดบท)</option>
+      </select>
+      <div class="muted">แบบเต็มหน้า: หนึ่งหน้าต่อบท เนื้อหาเริ่มหน้าถัดไป · ทั้งเล่มใช้แบบเดียวกัน · คำคมเป็นประโยคเด่นจากบทนั้น (คำพูดคนดังใส่ชื่อเฉพาะเมื่อมั่นใจว่าถูกต้อง)</div>
+    </div>
     <div class="field">
       <label for="contentMode">ชนิดของเนื้อหา</label>
       <select id="contentMode">
@@ -410,6 +429,7 @@
           <option value="adventure">ผจญภัย</option>
           <option value="comingofage">Coming of Age</option>
           <option value="literary">วรรณกรรมร่วมสมัย</option>
+          <option value="senior">นิยายสำหรับผู้สูงอายุ</option>
         </select>
       </div>
       <div class="field">
@@ -442,7 +462,7 @@
     <div class="castSeeds">
       <div class="authorRefHead">ตัวละครหลัก — ใส่หรือไม่ใส่ก็ได้ ช่องที่ว่าง ChatGPT กรอกให้</div>
       <div id="castSeeds"></div>
-      <div class="muted">แนบรูป = ChatGPT อ่านรูปแล้วเขียนรูปลักษณ์ให้ และรูปนั้นเป็นต้นแบบหน้าตาตัวละครทุกภาพในเล่ม · ไม่แนบ = ChatGPT คิดตัวละครให้ แล้ว Google Flow วาดภาพต้นแบบให้เอง</div>
+      <div class="muted">แนบรูป = Google Flow วาดตัวละครจากรูปนั้นเป็นภาพต้นแบบก่อน แล้วใช้คุมหน้าตาทุกภาพในเล่ม · ไม่แนบ = ChatGPT คิดตัวละครให้ แล้ว Flow วาดภาพต้นแบบให้ · ภาพต้นแบบทุกตัวถูกเก็บเข้า "คลัง" ใช้ซ้ำในเล่มต่อไปได้</div>
     </div>
     <div class="muted">ระบบจะสร้าง Story Bible เก็บตัวละคร ความสัมพันธ์ กฎของโลก ไทม์ไลน์ และปมที่ยังไม่คลี่คลาย เพื่อกันเรื่องหลุดระหว่างบท</div>
   </details>
@@ -553,10 +573,11 @@
       <div class="field">
         <label for="illus">ภาพประกอบในเล่ม</label>
         <select id="illus">
-          <option value="none" selected>ไม่มี</option>
+          <option value="none">ไม่มี</option>
           <option value="light">พอประมาณ (1 ภาพต่อ 2-3 ตอน)</option>
           <option value="rich">เยอะ (ราว 1 ภาพต่อตอน)</option>
-          <option value="max">มากที่สุดเท่าที่ควรเป็นภาพ (ทุกตอน 1–3 ภาพ · เหมาะกับ Google Flow)</option>
+          <option value="max" selected>มากที่สุดเท่าที่ควรเป็นภาพ (ทุกตอน 1–3 ภาพ · เหมาะกับ Google Flow)</option>
+          <option value="page">1 หน้าเนื้อหา 1 ภาพ — วางตามข้อความของแต่ละหน้า</option>
         </select>
       </div>
       <div class="field">
@@ -574,17 +595,17 @@
       <div class="field">
         <label for="figureMode">ไฟล์ภาพในเล่มมาจากไหน</label>
         <select id="figureMode">
-          <option value="prompt" selected>เว้นช่องพร้อม Prompt ในเล่ม — ผมไปสร้างและวางเอง</option>
+          <option value="prompt">เว้นช่องพร้อม Prompt ในเล่ม — ผมไปสร้างและวางเอง</option>
           <option value="upload">ผมมีภาพอยู่แล้ว จะอัปโหลดเอง</option>
-          <option value="auto">2 Phase — วาง Prompt ตอนนี้ แล้วเปลี่ยนบัญชีให้ระบบสร้างและแทรกอัตโนมัติ</option>
+          <option value="auto" selected>2 Phase — วาง Prompt ตอนนี้ แล้วเปลี่ยนบัญชีให้ระบบสร้างและแทรกอัตโนมัติ</option>
         </select>
       </div>
       <div class="field">
         <label for="coverMode">ปกหน้า–ปกหลัง</label>
         <select id="coverMode">
-          <option value="prompt" selected>ระบบเขียน prompt ให้ — ผมไปสร้างเอง</option>
+          <option value="prompt">ระบบเขียน prompt ให้ — ผมไปสร้างเอง</option>
           <option value="upload">ผมมีปกอยู่แล้ว จะอัปโหลดเอง</option>
-          <option value="auto">2 Phase — เตรียม Prompt ตอนนี้ แล้วเปลี่ยนบัญชีให้ ChatGPT สร้างให้</option>
+          <option value="auto" selected>2 Phase — เตรียม Prompt ตอนนี้ แล้วเปลี่ยนบัญชีให้ ChatGPT สร้างให้</option>
           <option value="none">ไม่ทำปก เอาแต่เนื้อใน</option>
         </select>
         <label class="muted"><input type="checkbox" id="authorPhotoCover"> เพิ่มรูปผู้เขียนบนปกหลัง (อัปโหลดรูปจริงภายหลัง)</label>
@@ -810,6 +831,7 @@
       <button id="phase2Bulk" class="inline"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg>อัปโหลดหลายรูปพร้อมกัน</button>
       <button id="phase2Folder" class="inline" title="อ่านไฟล์รูปที่วางไว้ในโฟลเดอร์รับรูปของโครงการ แล้วใส่เข้าช่องตามชื่อไฟล์"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg>ดึงรูปจากโฟลเดอร์โครงการ</button>
       <button id="phase2Replan" class="inline" title="ล้างแผนภาพในเล่มทิ้งแล้วให้ GPT วางใหม่จากเนื้อหาที่เขียนจริง ใช้กับเล่มเก่าที่วางแผนไว้ก่อนกติกาภาพชุดปัจจุบัน — ปกและตัวหนังสือในเล่มไม่ถูกแตะ"><svg class="i" aria-hidden="true"><use href="#i-image"/></svg>วางแผนภาพใหม่</button>
+      <button id="phase2ReplanPage" class="inline" title="เปลี่ยนเล่มนี้เป็นโหมด 1 หน้าเนื้อหา 1 ภาพ แล้ววางแผนจากข้อความที่เขียนไว้"><svg class="i" aria-hidden="true"><use href="#i-image"/></svg>เปลี่ยนเป็นหน้าละภาพ</button>
       <input type="file" id="bulkImgFile" accept="image/*" multiple hidden>
     </div>
   </div>

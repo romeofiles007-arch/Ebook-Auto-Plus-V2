@@ -333,7 +333,10 @@ button.reviewIssue:hover{border-color:#8bd7aa}
 .modeCard.sel{border-color:#8bd7aa;background:#223a2a;box-shadow:0 0 0 3px #8bd7aa22}
 .modeCard b{font-size:15px;color:#fff}
 .modeCard .modeWhat{font-size:12.5px;font-weight:600;color:#d0e2d0}
-.modeCard .modeNote{font-size:11.5px;font-weight:400;color:#c0d2bf;line-height:1.55;white-space:normal}
+.modeCard .modeWhat{font-size:14px;line-height:1.45}
+.modeTags{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.modeTags i{font-style:normal;font-size:11.5px;line-height:1;padding:5px 8px;border-radius:999px;border:1px solid #ffffff2e;background:#00000026;color:#dcebdd}
+.modeTags i.good{border-color:#8bd7aa80;background:#8bd7aa26;color:#c9f2d7;font-weight:700}
 .modeCard.sel .modeWhat{color:#d8f3df}
 #modePickerNote{margin-bottom:6px;line-height:1.6}
 .sourceAdvanced{margin:0}
@@ -479,3 +482,24 @@ html input,html select,html textarea{border-color:color-mix(in srgb,var(--scene-
 html button{background:color-mix(in srgb,var(--scene-accent,#8bd7aa) 26%,#1c261e)}
 html button.primary{background:var(--scene-accent,#70c89d);color:#15201a}
 html .bar{background:color-mix(in srgb,var(--scene-accent,#8bd7aa) 16%,#1a221c)}
+/* ตัวเลือกหน้าเปิดบทแบบมีภาพตัวอย่าง (ผู้ใช้ขอ: "ตอนคลิกเลือกให้มี pop up ตัวอย่างให้ดู แบบเล็กๆ") */
+.openerField{position:relative}
+.openerSelect{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.openerPick{display:flex;align-items:center;gap:10px;width:100%;margin:0;padding:6px 10px 6px 6px;border:1px solid #536f59;border-radius:10px;background:#16251b;color:#e3efe0;text-align:left;cursor:pointer}
+.openerPick:hover,.openerPick[aria-expanded="true"]{border-color:#8bd7aa}
+.openerPick img{width:34px;height:48px;object-fit:cover;border-radius:3px;background:#fff;flex:none}
+.openerPick span{flex:1;min-width:0;font-size:13.5px;font-weight:600}
+.openerPick small{display:block;font-weight:400;font-size:11.5px;color:#c0d2bf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.openerPick::after{content:"▾";color:#c0d2bf}
+.openerPop{position:absolute;z-index:40;top:calc(100% + 6px);left:0;width:min(560px,92vw);padding:12px;border:1px solid #6f9577;border-radius:12px;background:#12201a;box-shadow:0 14px 34px #000a;display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.openerPop[hidden]{display:none}
+.openerCard{display:flex;flex-direction:column;gap:5px;margin:0;padding:6px;border:1px solid transparent;border-radius:9px;background:#1b2e22;color:#e3efe0;cursor:pointer;text-align:center}
+.openerCard:hover,.openerCard:focus-visible{border-color:#8bd7aa;outline:none}
+.openerCard[aria-checked="true"]{border-color:#8bd7aa;box-shadow:0 0 0 2px #8bd7aa55}
+.openerCard .thumb{position:relative;width:100%;aspect-ratio:420/596;border-radius:4px;overflow:hidden;background:#fff}
+.openerCard .thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .15s ease}
+.openerCard:hover .thumb img{transform:scale(1.04)}
+.openerCard .mix{display:grid;grid-template-columns:1fr 1fr;gap:2px;width:100%;height:100%;background:#1b2e22}
+.openerCard .mix img{height:100%;object-fit:cover}
+.openerCard b{font-size:12.5px;font-weight:700}
+@media(prefers-reduced-motion:reduce){.openerCard .thumb img{transition:none}.openerCard:hover .thumb img{transform:none}}

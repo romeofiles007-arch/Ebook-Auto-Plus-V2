@@ -14,7 +14,19 @@
 .dept .crew-art{align-self:center}
 .dept.active .crew-strip,.crew-stage.working .crew-strip,.crew-roster .working .crew-strip{animation:crew-frames 2.4s steps(8,end) infinite}
 @keyframes crew-frames{to{transform:translateX(-100%)}}
-.crew-stage{position:relative;display:flex;gap:12px;align-items:center;min-width:0;min-height:132px;padding:7px 12px 7px 4px;isolation:isolate;overflow:hidden;border-bottom:1px solid #5c795f;background:linear-gradient(90deg,#163c2933 0%,#163c2977 48%,#163c29cc 92%),linear-gradient(180deg,#0000,#163c2944),var(--crew-room) center/cover no-repeat;transition:background-image .18s ease-out}
+.crew-stage{position:relative;container-type:inline-size;display:flex;gap:12px;align-items:center;min-width:0;min-height:132px;padding:7px 12px 7px 4px;isolation:isolate;overflow:hidden;border-bottom:1px solid #5c795f;background:#163c29;--foot:49px;--path-x:.25;--path-y:.82}
+/* ตัวละครยืนบนทางในฉาก: แต่ละห้องบอกจุดบนทาง (--path-x/--path-y เป็นสัดส่วนของรูป 1672×941)
+   ฉากถูกขยายและเลื่อนให้จุดนั้นอยู่ใต้เท้าคนพอดี (--foot = กึ่งกลางตัวจากซ้าย, เท้าห่างขอบล่าง 7px) โดยรูปยังคลุมเต็มแผง */
+.crew-stage::after{content:"";position:absolute;inset:0;z-index:-2;pointer-events:none;--w:max(480px,(100cqw + 16px - var(--foot)) / (1 - var(--path-x)));background:linear-gradient(90deg,#163c2922 0%,#163c2966 48%,#163c29cc 92%),linear-gradient(180deg,#0000,#163c2933),var(--crew-room) left calc(var(--foot) - var(--path-x) * var(--w)) bottom calc(7px - (1 - var(--path-y)) * var(--w) * .5628)/var(--w) auto no-repeat}
+.crew-stage[data-room="research"]{--path-x:.25;--path-y:.82}
+.crew-stage[data-room="planner"]{--path-x:.2;--path-y:.8}
+.crew-stage[data-room="writer"]{--path-x:.22;--path-y:.84}
+.crew-stage[data-room="editor"]{--path-x:.42;--path-y:.88}
+.crew-stage[data-room="art"]{--path-x:.42;--path-y:.86}
+.crew-stage[data-room="proof"]{--path-x:.12;--path-y:.9}
+.crew-stage[data-room="layout"]{--path-x:.2;--path-y:.86}
+.crew-stage[data-room="ship"]{--path-x:.42;--path-y:.82}
+.crew-stage .crew-active-art{align-self:flex-end}
 .crew-active-art{display:flex;align-items:center;gap:5px;flex-shrink:0}.crew-active-art:has(.crew-art:nth-child(2)) .crew-art{width:72px}
 .crew-description{min-width:0;position:relative;z-index:1;text-shadow:0 2px 7px #000,0 0 2px #000}.crew-description strong{display:block;font-size:15px;color:#fff}.crew-description span{display:block;line-height:1.6;font-size:13px;color:#e3eee2;overflow-wrap:anywhere}
 .crew-roster{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding:2px 3px}.crew-roster .crew-sprite{width:30px;border-radius:4px}.crew-roster>[data-crew]{opacity:.55;border-radius:4px}.crew-roster>.current{opacity:1;outline:2px solid var(--glow);outline-offset:1px;box-shadow:0 0 8px color-mix(in srgb,var(--glow) 55%,#0000)}
@@ -41,8 +53,13 @@
 
 /* สองแผนกทำงานร่วมกัน: ฉากแบ่งตามแผนก — ยืนติดกันเหมือนเดิม แต่คนแรกยืนบนห้องของตัวเอง คนที่สองยืนบนห้องของตัวเอง
    รอยต่อฟุ้งอยู่ระหว่างสองคน (หุ่นกว้าง 72px ต่อคน) ห้องที่สองคลุมส่วนที่เหลือของแผง รวมถึงข้อความ */
-.crew-stage.duo::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,#163c2933 0%,#163c2977 48%,#163c29cc 92%),linear-gradient(180deg,#0000,#163c2944),var(--crew-room2) center/cover no-repeat;-webkit-mask-image:linear-gradient(90deg,transparent 52px,#000 108px);mask-image:linear-gradient(90deg,transparent 52px,#000 108px)}
-@media(max-width:480px){.crew-stage.duo::before{-webkit-mask-image:linear-gradient(90deg,transparent 40px,#000 88px);mask-image:linear-gradient(90deg,transparent 40px,#000 88px)}}
+.crew-stage.duo{--foot:38px;--foot2:118px}
+.crew-stage.duo::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;--w:max(480px,(100cqw + 16px - var(--foot2)) / (1 - var(--path-x2,.25)));background:linear-gradient(90deg,#163c2922 0%,#163c2966 48%,#163c29cc 92%),linear-gradient(180deg,#0000,#163c2933),var(--crew-room2) left calc(var(--foot2) - var(--path-x2,.25) * var(--w)) bottom calc(7px - (1 - var(--path-y2,.82)) * var(--w) * .5628)/var(--w) auto no-repeat;-webkit-mask-image:linear-gradient(90deg,transparent 62px,#000 94px);mask-image:linear-gradient(90deg,transparent 62px,#000 94px)}
+/* สองคน: แต่ละคนยืนที่จุดบนทางของห้องตัวเอง (--foot / --foot2) ห่างกันพอให้เห็นห้องทั้งสอง รอยต่อฟุ้งอยู่ระหว่างสองคน ข้อความเริ่มหลังคนที่สอง */
+.crew-stage.duo .crew-active-art{position:absolute;inset:0;pointer-events:none}
+.crew-stage.duo .crew-active-art .crew-art{position:absolute;bottom:7px;width:64px;left:calc(var(--foot) - 32px)}
+.crew-stage.duo .crew-active-art .crew-art:nth-child(2){left:calc(var(--foot2) - 32px)}
+.crew-stage.duo .crew-description{margin-left:calc(var(--foot2) + 26px)}
 /* แผงข้าง: หลายคนทำงานร่วมกัน = แบ่งสี — เส้นใต้ฉากและแถบความคืบหน้าไล่จากสีแผนกแรกไปแผนกที่สอง (สีตั้งจาก setDuoAccents) */
 html[data-panel-duo] .crew-stage.duo{border-bottom:2px solid transparent;border-image:linear-gradient(90deg,var(--panel-accent-a),var(--panel-accent-b)) 1}
 html[data-panel-duo] .bar i{background:linear-gradient(90deg,var(--panel-accent-a),var(--panel-accent-b))}

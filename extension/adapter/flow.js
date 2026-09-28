@@ -609,6 +609,11 @@
     }
   }
 
+  /**
+   * "เราพบกิจกรรมที่ผิดปกติบางอย่าง" — Google เห็นว่าบัญชีนี้สั่งสร้างถี่/ผิดปกติ (ผู้ใช้เจอเต็มจอหลายใบ)
+   * ต่างจากภาพล้มธรรมดา: ลองซ้ำคือยิ่งสั่งถี่ ยิ่งโดน · ต้องหยุดทั้งคิวแล้วเว้นระยะ (machine.js)
+   */
+  const UNUSUAL_TEXT = /unusual activity|กิจกรรมที่ผิดปกติ|ผิดปกติบางอย่าง|suspicious activity/i;
   const FAIL_TEXT = /fail|couldn.?t|unable|policy|violat|ไม่สำเร็จ|ล้มเหลว|ไม่สามารถ|นโยบาย|ละเมิด|ผิดพลาด/i;
 
   /**
@@ -654,8 +659,9 @@
           const img = tileImg(mine);
           if (id && img.complete && img.naturalWidth > 0) return { tile: mine, id };
           if (!id && !isPending(mine) && FAIL_TEXT.test(statusText(mine, prompt))) {
-            const e = new Error(`Flow สร้างภาพไม่สำเร็จ: ${statusText(mine, prompt).slice(0, 200) || 'ไม่ทราบสาเหตุ'}`);
-            e.code = 'generation_failed';
+            const why = statusText(mine, prompt);
+            const e = new Error(`Flow สร้างภาพไม่สำเร็จ: ${why.slice(0, 200) || 'ไม่ทราบสาเหตุ'}`);
+            e.code = UNUSUAL_TEXT.test(why) ? 'unusual_activity' : 'generation_failed';
             throw e;
           }
           return null;
@@ -679,7 +685,7 @@
         );
         if (alert) {
           const e = new Error(`Flow แจ้งว่า: ${text(alert).slice(0, 200)}`);
-          e.code = 'generation_failed';
+          e.code = UNUSUAL_TEXT.test(text(alert)) ? 'unusual_activity' : 'generation_failed';
           throw e;
         }
         return null;

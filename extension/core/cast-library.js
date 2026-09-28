@@ -40,8 +40,38 @@ export async function saveToLibrary({ name, role = '', appearance = '', blob, bo
   return file;
 }
 
+/**
+ * เก็บภาพต้นแบบตัวละครที่มีอยู่แล้วในทุกเล่มเข้าคลัง (ผู้ใช้ทัก: "ไม่เห็นบันทึกตัวละครให้เลย")
+ * เดิมเก็บเข้าคลังเฉพาะตอนขั้นสร้างภาพของ Flow วิ่ง — เล่มที่วาดตัวละครไว้ก่อนมีคลัง หรือภาพครบแล้วไม่วิ่งขั้นนั้นอีก
+ * จึงไม่มีตัวละครเข้าคลังสักตัว · ภาพที่เก็บแล้วติดธง inLibrary ไม่เก็บซ้ำ (ลบออกจากคลังแล้วจะไม่เด้งกลับมา)
+ */
+let backfilled = null;
+export function backfillLibrary() {
+  backfilled ||= (async () => {
+    let added = 0;
+    const books = await db.listBooks().catch(() => []);
+    for (const book of books || []) {
+      if (!book?.id || book.id === CAST_LIBRARY) continue;
+      const rows = await db.loadAssets(book.id).catch(() => []);
+      const cast = [...(book.outline?.cast || []), ...(book.bible?.characters || [])].filter((c) => c && typeof c === 'object');
+      for (const r of rows || []) {
+        const m = r?.meta || {};
+        if (m.kind !== 'character' || m.inLibrary || !r.blob?.size || !m.character) continue;
+        const c = cast.find((x) => x.name === m.character) || {};
+        const saved = await saveToLibrary({ name: m.character, role: c.role, appearance: c.appearance, blob: r.blob, book });
+        if (!saved) continue;
+        await db.saveAsset(book.id, r.name, r.blob, { ...m, inLibrary: saved }).catch(() => {});
+        added++;
+      }
+    }
+    return added;
+  })().catch(() => 0);
+  return backfilled;
+}
+
 /** ตัวละครทั้งหมดในคลัง ใหม่สุดก่อน */
 export async function listLibrary() {
+  await backfillLibrary();
   const rows = await db.loadAssets(CAST_LIBRARY).catch(() => []);
   return (rows || [])
     .filter((r) => r?.blob && r.meta?.kind === 'cast-library')

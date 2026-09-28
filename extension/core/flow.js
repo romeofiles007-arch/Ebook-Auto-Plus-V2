@@ -60,9 +60,12 @@ export function flowPrompt(job, ratio) {
    * เจอจริง: สั่ง "ปกหลังของหนังสือ" แล้ว Flow วาดหนังสือทั้งเล่มวางบนโต๊ะ ถ่ายจากมือถือ เห็นขอบโต๊ะและกางเกงคนถ่าย
    */
   if (job?.kind === 'cover') {
+    // ปกที่ตัวหนังสือสร้างมาพร้อมภาพ (นิยายแนวโปสเตอร์หนัง) ห้ามมีคำสั่ง "ห้ามมีตัวอักษร" มาขัดกัน
     parts.unshift(
       'THIS IMAGE IS THE FLAT PRINTED COVER SURFACE ITSELF, filling the frame edge to edge. It is NOT a photograph of a book, NOT a 3D mockup: no table, no desk, no hands holding it, no book edges or spine, no perspective, no shadow around it, no background around the cover. ' +
-        'ARTWORK ONLY: absolutely no title, no author name, no letters of any kind — the real title is typeset on top later. Shop signs, screens, papers and labels in the scene are blank or show only abstract shapes. Leave calm, uncluttered space in the top third for the title.',
+        (job.textBaked
+          ? 'The ONLY text in the image is the exact typography listed in this prompt, designed into the cover. Shop signs, screens, papers and labels in the scene are blank or show only abstract shapes.'
+          : 'ARTWORK ONLY: absolutely no title, no author name, no letters of any kind — the real title is typeset on top later. Shop signs, screens, papers and labels in the scene are blank or show only abstract shapes. Leave calm, uncluttered space in the top third for the title.'),
     );
   }
   const edge =

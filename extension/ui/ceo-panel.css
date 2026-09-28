@@ -1,6 +1,9 @@
-.ceo-panel{position:relative;display:flex;align-items:center;gap:12px;min-width:0;min-height:132px;margin:14px 0 10px;padding:6px 12px 7px 4px;overflow:hidden;border-bottom:1px solid #73a783;background:linear-gradient(90deg,#163c2922 0%,#163c2988 48%,#163c29d9 92%),linear-gradient(180deg,#0000,#163c2944),url('crew/rooms/ceo-night.jpg') center/cover no-repeat}
+.ceo-panel{position:relative;container-type:inline-size;display:flex;align-items:center;gap:12px;min-width:0;min-height:132px;margin:14px 0 10px;padding:6px 12px 7px 4px;overflow:hidden;border-bottom:1px solid #73a783;background:#163c29}
+/* The veranda is drawn at a known scale so the CEO can sit on the low table at the left: its top is 550/941 of the image, its width 410/1672. */
+.ceo-panel::before{content:'';position:absolute;inset:0;--ceo-bg:max(100cqw + 16px,440px);background:linear-gradient(90deg,#163c2900 0%,#163c2900 26%,#163c2988 50%,#163c29d9 92%),linear-gradient(180deg,#0000,#163c2944),url('crew/rooms/ceo-night.jpg') left 0 top calc(104px - var(--ceo-bg) * .3289)/var(--ceo-bg) auto no-repeat}
 .ceo-panel>div{position:relative;z-index:1}
-.ceo-scene{flex:0 0 128px;width:128px;height:118px;overflow:hidden}
+.ceo-panel>div:not(.ceo-scene){padding-left:calc(max(100cqw + 16px,440px) * .245 - 4px)}
+.ceo-panel>.ceo-scene{position:absolute;z-index:1;left:calc(max(100cqw + 16px,440px) * .118 - 40px);top:30px;width:80px;height:74px;overflow:visible}
 .ceo-portrait{display:block;width:100%;height:100%;background:url('crew/ceo-cat-awake-8.png') 0 center/800% 100% no-repeat;animation:ceo-idle 6s steps(1,end) infinite;filter:drop-shadow(0 8px 8px #1e443077)}
 .ceo-panel strong{display:block;font-size:13px;color:#fff;text-shadow:0 2px 7px #000,0 0 2px #000}
 .ceo-detail{display:block;font-size:12px;line-height:1.6;color:#e3eee2;margin-top:5px;overflow-wrap:anywhere;text-shadow:0 2px 7px #000,0 0 2px #000}
@@ -20,5 +23,4 @@
 @keyframes ceo-idle{0%,100%{background-position-x:0%}25%{background-position-x:14.285714%}50%{background-position-x:28.571429%}75%{background-position-x:42.857143%}}
 @keyframes ceo-sparkle{0%,100%{opacity:.25;transform:translateY(4px) scale(.7)}50%{opacity:1;transform:translateY(-6px) scale(1.15)}}
 @keyframes ceo-sleep{0%,100%{opacity:.4;transform:translateY(2px)}50%{opacity:1;transform:translateY(-4px)}}
-@media(max-width:340px){.ceo-scene{flex-basis:104px;width:104px;height:104px}.ceo-panel{gap:7px;padding-left:0;background-position:58% center}}
 @media(prefers-reduced-motion:reduce){.ceo-panel .ceo-portrait,.ceo-panel .ceo-sleep,.ceo-panel .ceo-sparkle{animation:none}}

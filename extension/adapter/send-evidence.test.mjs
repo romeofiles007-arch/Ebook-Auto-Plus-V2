@@ -46,3 +46,25 @@ test('สายภาพได้บันไดกู้เท่ากับ�
   // ครั้งเดียวต่อรูป
   assert.match(loop, /imgUnstuck = true;/);
 });
+
+/**
+ * เจอจริง (ค้างซ้ำที่ขั้นคิดสารบัญ): ช่องพิมพ์จัดรูป Prompt ที่มี ``` ใหม่ ข้อความจึงไม่ตรงตัวอักษร
+ * ตัวเช็คแบบเท่ากันเป๊ะตอบว่า "ช่องพิมพ์เปลี่ยน" ทั้งที่ Prompt ค้างอยู่และบทสนทนายังว่าง → งานหยุดทุกครั้งที่กดทำต่อ
+ */
+test('ช่องพิมพ์ที่จัดรูป Prompt ใหม่ ยังนับว่าเป็น Prompt เดิม · วางซ้ำสองชุดหรือถูกแทนที่ไม่นับ', async () => {
+  const vm = await import('node:vm');
+  const start = adapter.indexOf('const loosePrompt');
+  const src = adapter.slice(start, adapter.indexOf('};', adapter.indexOf('const composerMatches')) + 2);
+  const ctx = { box: { innerText: '' }, S: {} };
+  ctx.$ = () => ctx.box;
+  vm.runInNewContext(`${src}\nthis.composerMatches = composerMatches;`, ctx);
+  const prompt = 'วางโครงนิยาย\n\n```json\n{\n  "title": "คืนวันศุกร์",\n  "chapters": [1, 2, 3],\n  "elastic": true\n}\n```\nตอบเป็น JSON เท่านั้น ' + 'ก'.repeat(300);
+  ctx.box.innerText = prompt.replace(/```json\n/, '').replace(/\n```/, '').replace(/\n+/g, '\n');
+  assert.equal(ctx.composerMatches(prompt), true, 'จัดรูปใหม่ (ตัด ``` · ขึ้นบรรทัดต่าง) ยังเป็น Prompt เดิม');
+  ctx.box.innerText = prompt + prompt;
+  assert.equal(ctx.composerMatches(prompt), false, 'วางซ้ำสองชุดไม่นับ');
+  ctx.box.innerText = 'ข้อความอื่นทั้งหมด';
+  assert.equal(ctx.composerMatches(prompt), false, 'ถูกแทนที่ไม่นับ');
+  ctx.box.innerText = '';
+  assert.equal(ctx.composerMatches(prompt), false, 'ช่องว่างไม่นับ');
+});

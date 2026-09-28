@@ -146,6 +146,7 @@ export function plannedImageCount({
   figureMode = 'prompt',
   illustrationLevel = 'light',
   sections = 0,
+  targetPages = 0,
   knownFigures = null,
 }) {
   const covers = coverMode === 'auto' ? 2 : 0;
@@ -158,7 +159,9 @@ export function plannedImageCount({
     if (Number.isFinite(knownFigures)) figures = knownFigures;
     else {
       const perSections = { light: 3, rich: 1.5, max: 0.75 }[illustrationLevel] || 3;
-      figures = illustrationLevel === 'none' ? 0 : Math.round(sections / perSections);
+      figures = illustrationLevel === 'none' ? 0
+        : illustrationLevel === 'page' ? Math.max(1, Math.round(targetPages * 2))
+        : Math.round(sections / perSections);
     }
   }
   return { covers, pattern, figures, total: covers + pattern + figures };

@@ -38,6 +38,7 @@ const FICTION_GENRE_NAME = {
   romance: 'โรแมนติก', fantasy: 'แฟนตาซี', scifi: 'ไซไฟ', mystery: 'สืบสวน', thriller: 'ทริลเลอร์',
   horror: 'สยองขวัญ', drama: 'ดราม่า', adventure: 'ผจญภัย', comingofage: 'Coming of Age (เรื่องการเติบโต)',
   literary: 'วรรณกรรมร่วมสมัย',
+  senior: 'นิยายสำหรับผู้สูงอายุ',
 };
 const fictionGenreName = (key) => FICTION_GENRE_NAME[key] || key || 'นิยาย';
 const FICTION_POV = {
@@ -1557,6 +1558,8 @@ export const FIGURE_STYLES = {
  */
 export function figurePlanPrompt(book, outline, chapters, style) {
   if (book.contentMode === 'fiction') return fictionFigurePlanPrompt(book, outline, chapters, style);
+  // แผนรายหน้าถูกสร้างจากข้อความจริงใน pageFigurePlan; prompt นี้ใช้เฉพาะระดับทั่วไป
+  if (book.illustrationLevel === 'page') book = { ...book, illustrationLevel: 'max' };
   const boxOnly = style === 'box';
 
   /**
@@ -1666,6 +1669,74 @@ ${boxOnly ? '- เล่มนี้เลือกใช้เฉพาะก�
 \`\`\``;
 }
 
+/**
+ * ตัวละครในภาพนิยายต้องถูกคนเสมอ (ผู้ใช้สั่ง: "ต้องเคร่งครัด ตัวละครต้องถูกต้อง")
+ * แผนภาพต้องบอกชื่อคนที่อยู่ในภาพตรงตามรายชื่อ canon — ตอนสร้างภาพแนบภาพต้นแบบของคนเหล่านี้เท่านั้น
+ * เดิมเดาจากชื่อที่ถูกเอ่ยในย่อหน้ารอบภาพ ซึ่งมักมีชื่อคนที่ไม่ได้อยู่ในฉาก จึงแนบคนผิดเข้าไป
+ */
+const FICTION_CAST_RULE = `- characters: รายชื่อตัวละครที่ "อยู่ในภาพจริง" ณ moment นั้น สะกดตรงตามรายชื่อ canon ข้างบนทุกตัวอักษร ห้ามใส่คนที่ถูกเอ่ยถึงแต่ไม่ได้อยู่ในฉาก ไม่เกิน 3 คน
+  ถ้าเป็นภาพที่ไม่มีตัวละครหลัก (ฉาก สถานที่ สิ่งของ) ให้ใส่ [] — subject ต้องตรงกับรายชื่อนี้ (จำนวนคนในภาพ ใครทำอะไร)`;
+
+/**
+ * ภาพประกอบนิยายทุกหน้า — แต่ละหน้าหนึ่งภาพ จากเหตุการณ์เด่นของหน้านั้น (ผู้ใช้ขอ)
+ * ระบบตัดแต่ละฉากเป็นช่วงยาวเท่าหนึ่งหน้าเอง แล้วส่งข้อความจริงของแต่ละหน้าไปให้เลือก moment
+ * ไม่ให้โมเดลกะหน้าเอง เพราะมันไม่รู้ว่าหน้าหนึ่งยาวเท่าไร และจะรวบหลายหน้าเป็นภาพเดียว
+ */
+export function fictionPagePlanPrompt(book, outline, pages = []) {
+  const cast = (book.bible?.characters || outline?.cast || [])
+    .map((c) => (typeof c === 'string' ? `- ${c}` : `- ${c.name}${c.appearance ? `: ${c.appearance}` : c.role ? `: ${c.role}` : ''}`))
+    .join('\n');
+  return `เลือกภาพประกอบนิยาย "หน้าละหนึ่งภาพ" จากเหตุการณ์เด่นของแต่ละหน้า
+
+ชื่อเรื่อง: ${outline?.title || book.topic}
+แนว: ${book.genreBrief || book.fictionGenre || 'fiction'}
+ตัวละคร canon (ใช้ชื่อตามนี้เท่านั้น):
+${cast || '- ไม่มีตัวละครที่ต้องเห็นในภาพ'}
+
+ข้อความจริงของแต่ละหน้า
+${pages.map((p) => `[${p.key}] ตอน ${p.section} · หน้า ${p.page}/${p.of}\n${p.text}`).join('\n\n')}
+
+หลักการ
+- ตอบให้ครบทุกหน้าข้างบน หน้าละหนึ่งภาพพอดี ใช้ key ของหน้านั้น
+- เลือก "เหตุการณ์เด่นที่สุดของหน้านั้น" — การกระทำ การเผชิญหน้า การค้นพบ หรืออารมณ์ที่พลิก ที่เกิดขึ้นในข้อความหน้านั้นจริง ไม่ใช่เหตุการณ์ของหน้าอื่น
+- ภาพที่อยู่ติดกันต้องต่างกันจริง: เปลี่ยนระยะกล้อง มุมมอง หรือจุดสนใจ ถ้าหน้าไหนเหตุการณ์ต่อเนื่องจากหน้าก่อน ให้จับรายละเอียดใหม่ของหน้านั้น (มือ สีหน้า สิ่งของ ปฏิกิริยาของอีกคน)
+- subject เป็นภาษาอังกฤษ บอกตัวละคร การกระทำ สีหน้า สถานที่ แสง มุมกล้อง ให้ตรงกับข้อความหน้านั้น
+- ห้ามสปอยล์สิ่งที่ยังไม่เกิด ณ หน้านั้น · ห้ามมีตัวหนังสือในภาพ
+${FICTION_CAST_RULE}
+- aspect เลือก "4:3", "3:2" หรือ "16:9"
+
+ตอบ JSON ในบล็อกโค้ดเดียว
+\`\`\`json
+{"figures":[{"key":"${pages[0]?.key || '1.1-1'}","caption":"","subject":"English description of this page's key moment","characters":["ชื่อตัวละคร"],"aspect":"3:2"}]}
+\`\`\``;
+}
+
+/** เลือกภาพจากข้อความจริงของแต่ละหน้าในหนังสือทั่วไป ไม่ให้โมเดลเดาจำนวนหน้าจากสารบัญ */
+export function prosePagePlanPrompt(book, outline, pages = []) {
+  return `เลือกภาพประกอบหนังสือ "หนึ่งหน้าเนื้อหา หนึ่งภาพ" จากข้อความจริงของแต่ละหน้า
+
+ชื่อหนังสือ: ${outline?.title || book.topic}
+แนว: ${book.genreBrief || book.genre || 'หนังสือทั่วไป'}
+กลุ่มผู้อ่าน: ${book.audience || 'ผู้อ่านทั่วไป'}
+
+ข้อความจริงของแต่ละหน้า
+${pages.map((p) => `[${p.key}] ตอน ${p.section} · หน้า ${p.page}/${p.of}\n${p.text}`).join('\n\n')}
+
+กติกา
+- ตอบให้ครบทุก key ข้างบน หน้าละหนึ่งภาพพอดี ห้ามรวมหลายหน้าเป็นภาพเดียวหรือข้ามหน้า
+- เลือกสิ่งที่ผู้อ่านควรเห็นจากเนื้อหาหน้านั้นจริง: ขั้นตอน วัตถุ สถานการณ์ ตัวอย่าง หรือผลลัพธ์ที่มองเห็นได้
+- ถ้าหน้าเป็นแนวคิดนามธรรม ให้ใช้สถานการณ์หรือตัวอย่างที่ข้อความหน้านั้นกล่าวถึงจริง ห้ามแต่งเหตุการณ์หรือข้อมูลใหม่
+- ภาพติดกันต้องต่างกันที่สิ่งที่เห็น ไม่ใช่แค่เปลี่ยนมุมกล้อง และไม่ใช้ภาพคนโพสท่าหรือภาพตกแต่งลอย ๆ
+- subject เป็นภาษาอังกฤษ บรรยายสิ่งที่จะวาดให้ชัด: ใครทำอะไร กับอุปกรณ์หรือสถานที่ใด และภาพช่วยให้เข้าใจอะไร
+- ห้ามใส่คำอธิบาย ตัวหนังสือ หรือข้อเท็จจริงที่ไม่ได้อยู่ในเนื้อหาลงในภาพ; คำบรรยายใต้ภาพเขียนสั้น ๆ เป็นภาษาไทยได้
+- aspect เลือก "4:3", "3:2" หรือ "16:9"
+
+ตอบ JSON ในบล็อกโค้ดเดียว
+\`\`\`json
+{"figures":[{"key":"${pages[0]?.key || '1.1-1'}","caption":"","subject":"English description of a concrete visual from this page","aspect":"3:2"}]}
+\`\`\``;
+}
+
 function fictionFigurePlanPrompt(book, outline, chapters, style) {
   const per = {
     light: '1 ภาพต่อ 2-3 ฉาก',
@@ -1695,6 +1766,7 @@ ${chapters.map((c) => `บทที่ ${c.n} ${c.title}\n${(c.sections || []).m
 - วางหลังผู้อ่านรู้บริบทพอที่จะเข้าใจภาพแล้ว
 - เลือก aspect เฉพาะ "4:3", "3:2", "16:9"
 - ความหนาแน่นประมาณ ${per}
+${FICTION_CAST_RULE}
 ${style === 'box' ? '- ผู้ใช้เลือกสไตล์ box ซึ่งไม่เหมาะกับนิยาย ให้เปลี่ยนทุกภาพเป็น kind "image" และใช้ subject แบบภาพเล่าเรื่องแทน' : ''}
 
 ตอบ JSON ในบล็อกโค้ดเดียว
@@ -1707,6 +1779,7 @@ ${style === 'box' ? '- ผู้ใช้เลือกสไตล์ box ซ�
       "placement": "middle",
       "caption": "คำบรรยายสั้นแบบไม่สปอยล์ หรือเว้นว่าง",
       "subject": "English visual description of the exact story moment, characters and environment",
+      "characters": ["ชื่อตัวละครที่อยู่ในภาพ ตรงตามรายชื่อ canon"],
       "width": 80,
       "aspect": "3:2"
     }
@@ -1860,14 +1933,17 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
  * ภาพต้นแบบตัวละคร (นิยาย · Google Flow) — วาดครั้งเดียวต่อตัวละคร แล้วแนบไปกับทุกภาพที่ตัวละครนั้นอยู่
  * ไม่มีภาพนี้ Flow จะคิดหน้าตาใหม่ทุกรูป ตัวเอกหน้าไม่เหมือนกันทั้งเล่ม (ผู้ใช้ทักมา)
  */
-export function characterSheetPrompt(book, c, { styleKey = '', color = true, fromPhoto = false } = {}) {
+export function characterSheetPrompt(book, c, { styleKey = '', color = true, fromPhoto = false, photoAsInspiration = false } = {}) {
   const st = FIGURE_STYLES[styleKey];
   const style = novelBrief(book, styleKey);
   return [
     `Character reference sheet for the ${book?.language === 'en' ? 'English' : 'Thai'} novel${book?.title ? ` "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
     `CHARACTER: ${c.name}${c.role ? ` — ${c.role}` : ''}.`,
     // รูปจริงที่ผู้ใช้แนบ: ใช้หน้าตาจากรูป แต่วาดเป็นสไตล์ของเล่ม — แนบรูปถ่ายตรง ๆ ไปกับฉาก ภาพออกมาเป็นภาพถ่ายปนภาพวาด
-    fromPhoto
+    // รอบสำรองเมื่อ Flow ไม่รับคำขอแบบ "คงหน้าคนในรูป": ใช้รูปเป็นแรงบันดาลใจ วาดเป็นตัวละครใหม่ที่คล้าย
+    fromPhoto && photoAsInspiration
+      ? `USE THE ATTACHED PHOTO AS INSPIRATION for an ORIGINAL illustrated character: similar hairstyle and hair colour, similar build, age and outfit colours, a similar overall look — drawn fresh in the STYLE below, not a copy of the photo, not a photograph.${c.appearance ? ` Notes: ${c.appearance}` : ''}`
+      : fromPhoto
       ? 'THE ATTACHED PHOTO IS THIS CHARACTER: keep the face, facial features, hairstyle, glasses and build clearly recognisable, but DRAW them in the STYLE below — do not output a photograph, do not copy the photo background.'
       : c.appearance ? `APPEARANCE (must match exactly): ${c.appearance}` : 'APPEARANCE: an ordinary, believable person who fits the role; give them a distinctive, memorable face, hairstyle and outfit.',
     'Show ONE person only: full body, standing, front view, relaxed neutral pose, face clearly visible, in full colour (skin, hair and outfit in natural colours), plain light background, even soft light.',
@@ -1886,7 +1962,46 @@ export function characterSheetPrompt(book, c, { styleKey = '', color = true, fro
  * เจอจริง: ได้ภาพถ่ายสต็อก "หนุ่มสาวนั่งโต๊ะคาเฟ่" ไม่มีจุดเด่น ไม่มีอารมณ์ ไม่มีที่วางชื่อเรื่อง — ผู้ใช้: "ใช้ไม่ได้เลย"
  * โมเดลเล็กทำตามคำสั่งสั้นที่ชัดได้ดีกว่า: ขายอารมณ์ของเรื่อง · องค์ประกอบแบบโปสเตอร์ · เว้นที่ชื่อเรื่อง · สไตล์เดียวกับทั้งเล่ม
  */
-export function flowNovelCoverPrompt({ book, outline, people = [], back = false, styleKey = 'novel', palette = [] } = {}) {
+/**
+ * ตัวอักษรบนปกนิยายโหมด Flow — ส่งข้อความตรงตัวอักษร ห้ามโมเดลแต่งเอง (โมเดลภาพชอบ "เขียนใหม่ให้สวย" แล้วสะกดผิด)
+ * ปกหน้า: ชื่อเรื่อง ชื่อรอง ชื่อผู้เขียน แบบโปสเตอร์หนัง · ปกหลัง: คำโปรยที่เขียนไว้แล้ว + ชื่อผู้เขียน
+ */
+function flowNovelCoverText(book, outline, back, { authorPhotoSpot = false } = {}) {
+  const thai = (book?.language || 'th') === 'th';
+  const q = (v) => JSON.stringify(String(v || '').replace(/\s+/g, ' ').trim());
+  const exact = thai
+    ? 'The text is Thai: copy every Thai letter, vowel and tone mark exactly as given, in a clean, highly legible Thai display typeface — no invented glyphs, no missing marks, no Latin transliteration, no decorative distortion of the letterforms.'
+    : 'Copy the text exactly as given — same spelling, same words.';
+  if (!back) {
+    const title = String(outline?.title || book?.title || book?.topic || '').trim();
+    const subtitle = String(outline?.subtitle || '').trim();
+    const author = String(book?.author || '').trim();
+    return [
+      'TYPOGRAPHY — this is a finished movie-poster-style book cover with the lettering designed INTO the image (nothing is typeset on top later). Render exactly this text and nothing else:',
+      `- TITLE: ${q(title)}`,
+      subtitle ? `- SUBTITLE (smaller, under the title): ${q(subtitle)}` : '',
+      author ? `- AUTHOR (small, like a film poster's billing line, at the top or bottom edge): ${q(author)}` : '',
+      exact,
+      'Design the title like a theatrical film poster: big, bold and cinematic, integrated with the image (lit by the same light, with a glow, texture or shadow that fits the genre), sitting in the calm area so it reads instantly even as a small thumbnail. Clear hierarchy: the title dominates, subtitle and author are much smaller.',
+      'No other words anywhere: no invented tagline, no credits block, no release date, no publisher, no logo, no watermark. Signs, papers and screens in the scene stay blank.',
+    ].filter(Boolean).join('\n');
+  }
+  const c = book?.backCoverCopy || {};
+  const author = String(book?.author || '').trim();
+  return [
+    'TYPOGRAPHY — this is a finished movie-poster-style back cover with the text designed INTO the image (nothing is typeset on top later). Render exactly this text and nothing else:',
+    c.hook ? `- HEADLINE (large, bold): ${q(c.hook)}` : '',
+    c.body ? `- PARAGRAPH (normal weight, comfortable line spacing): ${q(c.body)}` : '',
+    c.closing ? `- CLOSING LINE (smaller, under the paragraph): ${q(c.closing)}` : '',
+    author ? `- AUTHOR NAME (small, at the bottom): ${q(author)}` : '',
+    exact,
+    'Lay it out like the back of a film poster or a premium novel: headline first, paragraph under it, closing line last, on the calm middle area with strong contrast (light text over a darkened area, or dark text over a light one) and generous margins, so every word is readable.',
+    authorPhotoSpot ? 'Keep the upper-left corner (about the top 25% × left 30%) empty and calm — an author photo is placed there later; no text in that corner.' : '',
+    'No other words anywhere: no barcode, ISBN, price, publisher, logo, website or watermark.',
+  ].filter(Boolean).join('\n');
+}
+
+export function flowNovelCoverPrompt({ book, outline, people = [], back = false, styleKey = 'novel', palette = [], textBaked = false, authorPhotoSpot = false } = {}) {
   const lang = book?.language === 'en' ? 'English' : 'Thai';
   const genre = book?.fictionGenre || book?.genreBrief || book?.genre || '';
   const digest = book?.coverDigest || {};
@@ -1906,7 +2021,7 @@ export function flowNovelCoverPrompt({ book, outline, people = [], back = false,
    */
   const g = flowGenreFor({ ...(book || {}), contentMode: 'fiction' });
   const front = [
-    `FRONT COVER ARTWORK of a best-selling ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` titled "${book.title}"` : ''} — it must make a reader in a bookshop stop and pick it up.`,
+    `${textBaked ? 'MOVIE-POSTER-STYLE FRONT COVER' : 'FRONT COVER ARTWORK'} of a best-selling ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` titled "${book.title}"` : ''} — it must make a reader in a bookshop stop and pick it up.`,
     premise ? `THE STORY: ${premise}` : '',
     moment ? `THE MOST VISUAL MOMENT: ${moment}` : '',
     cast,
@@ -1914,16 +2029,18 @@ export function flowNovelCoverPrompt({ book, outline, people = [], back = false,
       ? `COMPOSITION (${g.key} cover convention): ${g.cover}. Built from this story's own characters, place and objects.`
       : 'COMPOSITION: one striking, emotional key image like a movie poster — the main characters large and close to the viewer (waist-up or closer, filling the lower two thirds), caught in the central feeling of the story: a charged glance, a near-touch, a turning away, a secret. Strong silhouette, depth with a blurred atmospheric background of the story\'s place.',
     `LIGHT AND COLOUR: ${g ? g.light : 'dramatic directional light (golden hour, city night lights, rain, window light) with a clear glow and rim light on the faces'}${hues ? `; accents of ${hues}` : ''}.`,
-    `${g ? `${g.titleSpace[0].toUpperCase()}${g.titleSpace.slice(1)}` : 'The top third is calm, softly lit sky, wall, bokeh or gradient'} — the title is typeset there. The bottom strip stays darker and calm for the author name.`,
+    `${g ? `${g.titleSpace[0].toUpperCase()}${g.titleSpace.slice(1)}` : 'The top third is calm, softly lit sky, wall, bokeh or gradient'} — ${textBaked ? 'the title is designed there' : 'the title is typeset there'}. The bottom strip stays darker and calm for the author name.`,
     'It reads as a professionally illustrated bestseller cover: one clear focal point, real emotion in faces and body language, a single designed moment (not a stock photo, not people posing at a table, not a collage).',
     `STYLE: ${style}, cover-grade finish, high detail on faces and hands.`,
+    textBaked ? flowNovelCoverText(book, outline, false) : '',
   ];
   const backSide = [
-    `BACK COVER ARTWORK of the ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` "${book.title}"` : ''} — the same world, light and art style as the front cover (attached if available), a quieter companion image.`,
+    `${textBaked ? 'MOVIE-POSTER-STYLE BACK COVER' : 'BACK COVER ARTWORK'} of the ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` "${book.title}"` : ''} — the same world, light and art style as the front cover (attached if available), a quieter companion image.`,
     premise ? `THE STORY: ${premise}` : '',
-    `COMPOSITION: ${g ? g.back : 'an evocative place or small detail from the story (an empty street at night, a window with rain, two coffee cups, a door left open)'} — no main character faces. The whole middle area stays calm and even so a text panel can sit on it.`,
+    `COMPOSITION: ${g ? g.back : 'an evocative place or small detail from the story (an empty street at night, a window with rain, two coffee cups, a door left open)'} — no main character faces. The whole middle area stays calm and even so ${textBaked ? 'the blurb text reads cleanly on it' : 'a text panel can sit on it'}.`,
     `LIGHT AND COLOUR: ${g ? g.light : 'soft atmospheric light'}${hues ? `; accents of ${hues}` : ''}.`,
     `STYLE: ${style}, cover-grade finish.`,
+    textBaked ? flowNovelCoverText(book, outline, true, { authorPhotoSpot }) : '',
   ];
   return (back ? backSide : front).filter(Boolean).join('\n');
 }
@@ -1952,12 +2069,20 @@ export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], 
   const style = novelBrief(book, styleKey);
   const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
   const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+  /**
+   * ตัวละครต้องถูกคน (ผู้ใช้สั่งให้เคร่งครัด): บอกจำนวนคนแน่นอน ใครเป็นใคร ภาพต้นแบบไหนเป็นของใคร
+   * คนที่ไม่มีภาพต้นแบบก็ยังบอกรูปลักษณ์ ไม่ปล่อยให้โมเดลเดาหน้าตาเอง
+   */
+  let attached = 0;
   const cast = people.length
-    ? `CHARACTERS IN THIS PICTURE — each one has an attached reference sheet, in this order. Keep every face, hairstyle, body type and outfit IDENTICAL to their sheet:\n${people
+    ? `CHARACTERS IN THIS PICTURE — exactly ${people.length} named character${people.length > 1 ? 's' : ''}, no more, no fewer:\n${people
         // ตัวละครที่ผู้ใช้แนบรูปจริง: รูปคือความจริง ไม่ใส่คำบรรยายที่ ChatGPT แต่งเองซึ่งอาจขัดกับรูป
-        .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.appearance && !c.photo ? ` (${c.appearance})` : ''}`)
-        .join('\n')}\nNobody else from the cast appears unless the text requires it. The reference sheets show only what the characters look like — do not copy their pose or plain background.`
-    : '';
+        .map((c) => {
+          const look = c.appearance && !c.photo ? ` (${c.appearance})` : '';
+          return c.ref ? `- ${c.name} = attached image ${++attached}${look}` : `- ${c.name}${look || ' (no reference sheet — keep them consistent with this description)'}`;
+        })
+        .join('\n')}\nSTRICT: each character must be the SAME PERSON as their reference sheet — identical face, age, skin tone, hairstyle and hair colour, body type and outfit. Never swap faces between characters, never merge two characters into one, never add another cast member. Background extras (if the scene needs them) stay small, blurred and clearly not any of these characters. The reference sheets show only what the characters look like — do not copy their pose or plain background.`
+    : 'No main characters in this picture — show the place or objects of this moment; any person visible is a small, unidentifiable background figure.';
   return [
     `Story illustration for a ${lang} novel${book?.title ? ` titled "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
     fig?.subject ? `THE MOMENT TO DRAW: ${fig.subject}` : '',
@@ -2105,10 +2230,19 @@ function coverArtworkSpec(book = {}) {
  *             ตัวอักษรคมและสะกดถูกเสมอ แต่หน้าตาเหมือนเอาข้อความไปแปะบนภาพ
  */
 /**
- * Google Flow (Nano Banana) วาดตัวอักษรไทยเพี้ยน — ชื่อหนังสือบนปกออกมาเป็น "ะเอมมีม + รุ้กดียะาไล" (ผู้ใช้เจอจริง)
- * โหมด Flow จึงให้ภาพเป็น artwork ล้วนเสมอ แล้วให้ Typst เรียงพิมพ์ชื่อ/คำโปรยทับ ซึ่งสะกดถูกทุกตัว
+ * Google Flow (Nano Banana) เคยวาดตัวอักษรไทยเพี้ยน — ชื่อหนังสือบนปกออกมาเป็น "ะเอมมีม + รุ้กดียะาไล" (ผู้ใช้เจอจริง)
+ * สารคดีโหมด Flow จึงยังเป็น artwork ล้วน แล้วให้ Typst เรียงพิมพ์ชื่อทับ
+ * นิยายโหมด Flow ผู้ใช้สั่ง: ปกหน้า-หลังแนวโปสเตอร์หนัง ตัวหนังสือสร้างมาพร้อมภาพ ไม่วางทับทีหลัง
  */
-export const coverTextBaked = (book) => book?.imageSource !== 'flow' && (book?.coverTextMode || 'baked') === 'baked';
+export const coverTextBaked = (book) =>
+  book?.imageSource === 'flow' ? book?.contentMode === 'fiction' : (book?.coverTextMode || 'baked') === 'baked';
+
+/**
+ * ภาพปกหน้าที่มีอยู่จริงมีชื่อเรื่องวาดอยู่แล้วไหม — ใช้ตัดสินตอนเรียงพิมพ์/ส่งออกว่าจะพิมพ์ชื่อทับหรือไม่
+ * โหมด Flow ดูธงที่ตั้งตอนบันทึกภาพ: เล่มเก่าที่ปกยังเป็น artwork ล้วนต้องได้ชื่อพิมพ์ทับเหมือนเดิม จนกว่าจะวาดปกใหม่
+ */
+export const frontCoverTextInImage = (book) =>
+  book?.imageSource === 'flow' ? !!book?.frontCoverTextBaked : coverTextBaked(book);
 
 function bakedCoverTextRule(book, outline) {
   const title = (outline?.title || book?.topic || '').trim();
@@ -2235,6 +2369,40 @@ ${cast ? `ตัวละครหลัก\n${cast}` : ''}
 \`\`\``;
 }
 
+/**
+ * คำคมเปิดบท สำหรับหน้าเปิดบทแบบโปสเตอร์ (ผู้ใช้ส่งตัวอย่าง: เลข 11 · ชื่อบท · คำคม "–แบลส์ ปาสกาล")
+ * เขียนหลังเนื้อหาเสร็จ จึงอ้างสาระที่บทนั้นเขียนจริงได้ · หนึ่งเทิร์นทั้งเล่ม
+ * กันคำคมปลอม: คำพูดของคนจริงใส่ชื่อได้เฉพาะเมื่อมั่นใจทั้งถ้อยคำและผู้พูด ไม่งั้นใช้ประโยคเด่นจากบทเองโดยไม่ใส่ชื่อ
+ * นิยายไม่ยืมคำคนดัง — ใช้ประโยคจากเรื่องเอง
+ */
+export function chapterEpigraphPrompt(book, outline = {}) {
+  const fiction = book?.contentMode === 'fiction';
+  const thai = (book?.language || 'th') === 'th';
+  const rows = (outline.chapters || [])
+    .map((c) => {
+      const gist = (c.sections || []).map((s) => book?.bible?.sectionSummaries?.[s.id]).filter(Boolean).join(' ').slice(0, 500);
+      return `บทที่ ${c.n} ${c.title || ''}${gist ? `\n  สาระที่เขียนจริง: ${gist}` : c.purpose ? `\n  เป้าหมายของบท: ${c.purpose}` : ''}`;
+    })
+    .join('\n');
+  return `เขียน "คำคมเปิดบท" สำหรับหน้าเปิดบทของ${fiction ? 'นิยาย' : 'หนังสือ'}เล่มนี้ บทละหนึ่งคำคม
+
+${fiction ? 'นิยาย' : 'หนังสือ'}: ${outline.title || book?.topic || ''}
+บททั้งหมด
+${rows}
+
+กติกา
+- ภาษา${thai ? 'ไทย' : 'อังกฤษ'} ยาว 1–3 บรรทัด (ไม่เกิน 25 คำ) อ่านแล้วสะดุดใจ และตรงกับแก่นของบทนั้นจริง
+${fiction
+    ? '- นิยาย: ใช้ประโยคเด่นหรือบทพูดจากเนื้อเรื่องของบทนั้นเอง (เรียบเรียงให้คมได้) ห้ามยืมคำพูดคนดัง · by ใส่ชื่อตัวละครที่พูด หรือเว้นว่าง ""\n- ห้ามสปอยล์สิ่งที่เกิดท้ายบท'
+    : '- ใช้คำพูดของบุคคลจริงได้ "เฉพาะเมื่อมั่นใจเต็มร้อยว่าถ้อยคำและผู้พูดถูกต้อง" และแปลเป็นไทยอย่างซื่อตรง · by = ชื่อผู้พูดภาษาไทย\n- ถ้าไม่มั่นใจแม้แต่นิดเดียว ห้ามแต่งคำพูดแล้วใส่ชื่อคนดัง ให้เขียนประโยคเด่นจากสาระของบทนั้นเอง และเว้น by ว่าง ""'}
+- คำคมแต่ละบทต้องไม่ซ้ำกัน ห้ามใส่เครื่องหมายคำพูด ห้ามขึ้นต้นด้วย "บทนี้"
+
+ตอบเป็น JSON ในบล็อกโค้ดเดียวชนิด json ห้ามมีข้อความนอกบล็อก
+\`\`\`json
+{"chapters":[{"n":1,"text":"...","by":""}]}
+\`\`\``;
+}
+
 export function backCoverCopyPrompt(book, outline = {}) {
   if (book?.contentMode === 'fiction') return novelBackCoverCopyPrompt(book, outline);
   const chapters = (outline.chapters || [])
@@ -2301,7 +2469,12 @@ ${thai ? '- The text is Thai. Reproduce every Thai character, tone mark and vowe
  * แล้วโยนไฟล์กลับมา เราไม่มีทางรู้ว่าภาพนั้นมีตัวอักษรจริงไหม จึงต้องพิมพ์ทับให้แทน
  */
 export const backCoverTextBaked = (book = {}) =>
-  book?.imageSource !== 'flow' && !!book?.backCoverCopy?.hook && (book?.coverMode || 'prompt') === 'auto';
+  !!book?.backCoverCopy?.hook &&
+  (book?.imageSource === 'flow' ? book?.contentMode === 'fiction' : (book?.coverMode || 'prompt') === 'auto');
+
+/** ภาพปกหลังที่มีอยู่จริงมีคำโปรยวาดอยู่แล้วไหม (เหตุผลเดียวกับ frontCoverTextInImage) */
+export const backCoverTextInImage = (book = {}) =>
+  book?.imageSource === 'flow' ? !!book?.backCoverTextBaked : !!book?.backCoverTextBaked || backCoverTextBaked(book);
 
 export function backCoverPrompt(style, book = {}) {
   /**

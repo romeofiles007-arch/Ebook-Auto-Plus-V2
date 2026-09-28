@@ -8,7 +8,7 @@ import * as db from './db.js';
 import { syncItemEdit, isItemBook } from './item-edit.js';
 import { backMatterSections, referenceProblem } from './references.js';
 import { stripZwsp } from './thai.js';
-import { coverTextBaked, backCoverTextBaked } from './prompts.js';
+import { frontCoverTextInImage, backCoverTextInImage } from './prompts.js';
 import { authorRefSummary, authorRefFor } from './imageRef.js';
 import { coverGeometry } from './budget.js';
 import { packAssets, toPdf } from '../typeset/compiler.js';
@@ -227,7 +227,7 @@ export async function exportCover(book, { frontDataUrl, backDataUrl, authorDataU
 }
 
 function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
-  const baked = coverTextBaked(book);
+  const baked = frontCoverTextInImage(book);
   const bleed = book.trim.bleedMm || 3;
   const t = book.typography;
   const titleText = book.outline?.title || '';
@@ -296,7 +296,7 @@ function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
       ${authorPhotoBlock}
       // คำโปรยต้องมีพื้นทึบรอง ไม่งั้นตัวอักษรจะจมไปกับลายของภาพปกหลัง
       // ถ้าภาพปกหลังวาดตัวอักษรมาให้แล้ว ก็ไม่ต้องวางซ้ำ
-      ${book.backCoverTextBaked || backCoverTextBaked(book) ? '' : `#place(top + left, dx: ${bleed + 12}mm, dy: ${backTextY}mm)[
+      ${backCoverTextInImage(book) ? '' : `#place(top + left, dx: ${bleed + 12}mm, dy: ${backTextY}mm)[
         #block(width: ${panelW - 24}mm, fill: rgb("${paperCol}F0"), inset: (x: 7mm, y: 6mm), radius: 3mm)[
           #set par(leading: 0.62em, spacing: 0.7em, first-line-indent: 0pt)
           #text(size: ${t.sizePt}pt, fill: rgb("${inkCol}"))[${JSON.stringify(book.blurb || '')}]
