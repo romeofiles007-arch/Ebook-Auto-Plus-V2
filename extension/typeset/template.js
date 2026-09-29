@@ -344,6 +344,13 @@ export function mdToTypst(md, baseLevel = 3, have = new Set(), t = { sizePt: 15 
   return out.join('\n');
 }
 
+/** นิยาย: คำว่า "จบ" กลางหน้า · หนังสืออื่น: ขีดแนวนอนสั้นกลางหน้า */
+export function endMark(isFiction, lang = 'th', t = { sizePt: 15 }) {
+  return isFiction
+    ? `#v(2.4em)\n#block(breakable: false, width: 100%)[#align(center)[#text(size: ${pt((t.sizePt || 15) * 1.25)}, weight: 600)[${lang === 'th' ? 'จบ' : 'THE END'}]]]`
+    : `#v(2em)\n#align(center)[#line(length: 28%, stroke: 0.8pt + luma(110))]`;
+}
+
 // ---------- เอกสารทั้งเล่ม ----------
 export function buildDocument({ book, outline, sections, opts = {} }) {
   // ชื่อภาพที่มีไฟล์จริงแล้ว ใช้ตัดสินว่าจะวาดภาพหรือวาดกรอบว่างแทน
@@ -396,6 +403,14 @@ export function buildDocument({ book, outline, sections, opts = {} }) {
       }
     }
   }
+
+  /**
+   * เครื่องหมายจบเล่ม หลังเนื้อหาตอนสุดท้าย (ก่อนส่วนท้ายเล่ม)
+   * ผู้ใช้: "สำหรับนิยาย ถ้าจบก็ให้เขียนด้วยว่า จบ เพราะจะได้รู้ว่าเขียนจบมั้ย ส่วนหนังสืออื่น ๆ ให้ทำเป็นขีดกลางแนวนอน"
+   * ใส่เฉพาะเมื่อตอนสุดท้ายมีเนื้อหาแล้ว — เล่มที่ยังเขียนไม่ครบจะไม่มีคำว่า "จบ" หลอกตา
+   */
+  const lastId = outline.chapters.at(-1)?.sections?.at(-1)?.id;
+  if (lastId && String(secById.get(lastId)?.md || '').trim()) body.push(endMark(isFiction, lang, t), '');
 
   // ภาพที่สร้างและบันทึกแล้วต้องมีคำสั่งวางภาพในต้นฉบับ Typst จริง
   // มิฉะนั้น PDF จะส่งออกสำเร็จทั้งที่ภาพแทรกหายไปโดยไม่มีข้อผิดพลาด
@@ -565,7 +580,7 @@ export function buildItemsDocument({ book, outline, items, opts = {} }) {
     `#item-piece(${pieceAlign}, by: ${it.attribution ? `[${inline(prepareForTypeset(it.attribution, lang))}]` : 'none'})[${itemText(it.md ?? it.text ?? '', lang)}]`;
 
   // จัดตำแหน่งแนวตั้งด้วยสัดส่วน — ล่างมากกว่าบนเล็กน้อย ให้ก้อนข้อความอยู่ที่กึ่งกลางทางสายตา
-  const pageOf = (inner) => `#page[
+  const pageOf = (inner, bg = '') => `#page(${bg})[
   ${top ? '#v(12mm)' : '#v(1fr)'}
   ${inner}
   ${top ? '#v(1fr)' : '#v(1.3fr)'}
@@ -576,11 +591,14 @@ export function buildItemsDocument({ book, outline, items, opts = {} }) {
 
   for (const [n, list] of byTheme) {
     const theme = (outline.themes || []).find((x) => String(x.n) === String(n));
+    // ภาพพื้นหลังเต็มหน้าของหมวดนี้ (ผู้ใช้: "ต้องมีภาพพื้นหลังทุกหน้า โดยแบ่งตามหัวข้อ") — ไฟล์ถูกทำให้จางแล้วตอนบันทึก
+    const bgFile = `bg-theme-${n}.png`;
+    const bg = have.has(bgFile) ? `background: image("/img/${bgFile}", width: 100%, height: 100%, fit: "cover")` : '';
     if (multiTheme && theme) {
       const tf = figOf.get(`theme-${n}`);
       // ไม่บังคับให้หน้าคั่นหมวดขึ้นหน้าขวา — #page ขึ้นหน้าใหม่ให้อยู่แล้ว
       // การดันไปหน้าคี่เคยทิ้งหน้าเปล่าที่มีแต่เลขหน้าไว้ก่อนหมวด (เห็นจริงในเล่ม "หมดไฟ แต่ยังไม่หมดทาง" หน้า 1 และ 19)
-      body.push(`#page(numbering: none)[${markPatternPage(opts, { markup: true })}
+      body.push(`#page(numbering: none${bg ? `, ${bg}` : ''})[${markPatternPage(opts, { markup: true })}
   #v(1fr)
   #align(center)[
     ${tf ? `${figMarkup(tf, true)}\n    #v(2.2em)` : ''}
@@ -595,7 +613,7 @@ export function buildItemsDocument({ book, outline, items, opts = {} }) {
     let group = [];
     const flush = () => {
       if (!group.length) return;
-      body.push(pageOf(group.map(one).join(`\n  ${top ? '#v(2.4em)' : '#v(1fr)'}\n  #item-rule\n  ${top ? '#v(2.4em)' : '#v(1fr)'}\n  `)));
+      body.push(pageOf(group.map(one).join(`\n  ${top ? '#v(2.4em)' : '#v(1fr)'}\n  #item-rule\n  ${top ? '#v(2.4em)' : '#v(1fr)'}\n  `), bg));
       group = [];
     };
     for (const it of list) {
@@ -603,7 +621,7 @@ export function buildItemsDocument({ book, outline, items, opts = {} }) {
       if (f) {
         // ชิ้นที่มีภาพได้หน้าของตัวเอง: ภาพก่อน ตามด้วยข้อความ
         flush();
-        body.push(pageOf(`#align(center)[${figMarkup(f, false)}]\n  #v(2em)\n  ${one(it)}`));
+        body.push(pageOf(`#align(center)[${figMarkup(f, false)}]\n  #v(2em)\n  ${one(it)}`, bg));
         continue;
       }
       group.push(it);

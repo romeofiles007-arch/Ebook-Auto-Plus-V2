@@ -160,7 +160,7 @@ export const FLOW_REF_COLLECTION = '00 รูปอ้างอิง';
  */
 export function flowCollectionFor(book, job) {
   if (job?.kind === 'cover') return '01 ปก';
-  if (job?.kind === 'pattern') return '02 ลวดลายพื้นหลัง';
+  if (job?.kind === 'pattern' || job?.kind === 'background') return '02 ลวดลายพื้นหลัง';
   const m = /^fig-(.+)-\d+\.png$/i.exec(String(job?.name || ''));
   const chapters = book?.outline?.chapters || [];
   if (m) {

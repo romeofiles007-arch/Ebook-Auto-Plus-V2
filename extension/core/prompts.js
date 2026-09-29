@@ -2878,6 +2878,25 @@ ${baked
  * ตอนนี้ส่งชื่อเรื่อง แก่น และส่วนต่าง ๆ ของเล่มไปให้เลือกวัตถุ/สัญลักษณ์เอง
  * แต่ย้ำหนักว่าเป็นลายพื้น ไม่ใช่ภาพฉาก เพราะพอเห็นเนื้อเรื่องโมเดลชอบวาดเป็นภาพประกอบ
  */
+/**
+ * ภาพพื้นหลังเต็มหน้าของหนังสือรายชิ้น — หมวดละหนึ่งภาพ ใช้กับทุกหน้าในหมวดนั้น
+ * ผู้ใช้: "พวกงานรายชิ้น … ต้องมีภาพพื้นหลังทุกหน้า โดยแบ่งตามหัวข้อ"
+ * ตัวหนังสือพิมพ์ทับกลางหน้า — ภาพต้องโล่งตรงกลาง รายละเอียดอยู่ขอบ ๆ · ระบบทำให้จางลงเองก่อนบันทึก (kind 'background')
+ */
+export function itemBackgroundPrompt(book = {}, outline = {}, theme = {}) {
+  const kind = { poem: 'Thai poems', quote: 'short quotes', 'short-poem': 'short free-verse poems', affirmation: 'affirmations', proverb: 'proverbs' }[book.itemKind] || 'short pieces';
+  const pw = Number(book.trim?.widthMm) || 148;
+  const ph = Number(book.trim?.heightMm) || 210;
+  const palette = (book.style?.palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 3).join(', ');
+  return [
+    `Full-page background artwork for one section of a Thai book of ${kind} titled "${outline.title || book.topic || ''}".`,
+    `THIS SECTION: "${theme.title || ''}"${theme.angle ? ` — ${theme.angle}` : ''}. The image must carry the feeling of this section through place, light, season and texture (a landscape, sky, water, garden, room or abstract atmosphere) — a quiet, meaningful mood, not a literal illustration of one piece.`,
+    `COMPOSITION: portrait page ${pw}×${ph} mm, full bleed. The middle two-thirds must stay open, soft and low in detail, because text is printed over it; put the details, shapes and strongest colours toward the edges and corners. No single strong subject in the centre.`,
+    `STYLE: soft painterly illustration (watercolour or gouache feel), gentle light, harmonious colours${palette ? ` related to ${palette}` : ''}; each section of the book should feel different from the others.`,
+    'No text, no letters, no numbers, no people\'s faces, no border, no frame. Flat artwork only, never a photo of a page or a book.',
+  ].join('\n');
+}
+
 export function pagePatternPrompt(style, book) {
   const st = style || {};
   const palette = (st.palette || []).map((c) => c?.hex).filter(Boolean).join(', ');

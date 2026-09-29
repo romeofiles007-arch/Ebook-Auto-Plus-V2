@@ -77,7 +77,8 @@ function worker({ mismatch = false, staleDisabledStop = false, realDraft = null,
     } },
     alarms: { create() {}, onAlarm: event },
   };
-  vm.runInNewContext(workerSource, { chrome, setTimeout: (fn) => { fn(); return 1; }, clearTimeout() {} });
+  // ตัวจับเวลาสั้น (รอหน้าเว็บ) ทำงานทันที · เพดานเวลาของ debugger (15 วินาที) ไม่ต้องยิงในเทสต์ — ไม่งั้นทุกคำสั่งหมดเวลาทันที
+  vm.runInNewContext(workerSource, { chrome, setTimeout: (fn, ms) => { if (ms < 10000) fn(); return 1; }, clearTimeout() {} });
   return {
     calls,
     send: (msg, sender = { tab: { id: 7, url: 'https://chatgpt.com/c/test' } }) =>

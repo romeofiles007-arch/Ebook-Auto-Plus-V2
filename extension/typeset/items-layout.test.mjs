@@ -125,3 +125,20 @@ test('older item books never start planning interior images on their own', async
     assert.equal(m.job.step, 'fit');
   }
 });
+
+test('every item page carries its own theme background when the image exists', async () => {
+  const outline = { title: 'T', themes: [{ n: 1, title: 'A' }, { n: 2, title: 'B' }] };
+  const its = [...items(2, 1), ...items(2, 2).map((x) => ({ ...x, id: `2.${x.id.split('.')[1]}` }))];
+  const src = buildItemsDocument({ book: baseBook(), outline, items: its, opts: { assetNames: ['bg-theme-1.png', 'bg-theme-2.png'] } });
+  assert.equal((src.match(/background: image\("\/img\/bg-theme-1\.png"/g) || []).length, 3, 'divider + 2 item pages of theme 1');
+  assert.equal((src.match(/background: image\("\/img\/bg-theme-2\.png"/g) || []).length, 3, 'divider + 2 item pages of theme 2');
+  const none = buildItemsDocument({ book: baseBook(), outline, items: its });
+  assert.ok(!none.includes('background: image('), 'no background markup before the image is made');
+
+  const { plannedImageJobs, itemBgName } = await import('../core/machine.js');
+  const jobs = plannedImageJobs(baseBook({ figureMode: 'auto', outline, figures: [] }));
+  const bgs = jobs.filter((j) => j.kind === 'background');
+  assert.deepEqual(bgs.map((j) => j.name), [itemBgName(1), itemBgName(2)], 'one background per theme');
+  assert.ok(bgs.every((j) => j.grayscale === false && j.prompt));
+  assert.equal(plannedImageJobs(baseBook({ figureMode: 'none', outline })).filter((j) => j.kind === 'background').length, 0);
+});

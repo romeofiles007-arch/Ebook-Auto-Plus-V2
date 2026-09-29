@@ -60,3 +60,23 @@ test('หัวข้อส่วนท้ายเล่มไม่กลา�
   const reset = src.indexOf('#chapter-meta.update((n: "", nt: "", title: [], quote: none, by: none))');
   assert.ok(reset > 0 && reset < src.indexOf('= อภิธานศัพท์'), 'ล้างค่าบทก่อนเข้าส่วนท้ายเล่ม');
 });
+
+/** ผู้ใช้: หนังสือรายชิ้นตั้ง "ภาพประกอบในเล่ม" ไว้แต่ไม่มีภาพ · ไม่มีช่องแนบรูปผู้เขียน */
+test('เล่มรายชิ้น: ผ่านขั้นวางแผนภาพ · เล่มเก่าวางแผนตอนสร้างภาพ · แสดงช่องแนบรูปผู้เขียน · ภาพเป็นภาพบรรยากาศ', async () => {
+  const src = await readFile(new URL('./machine.js', import.meta.url), 'utf8');
+  const w = src.slice(src.indexOf('async writeItems'), src.indexOf('async saveItem'));
+  assert.match(w, /this\.job\.step = 'figures';/);
+  assert.doesNotMatch(w, /this\.job\.step = 'fit';/);
+  assert.match(src, /if \(this\.book\.contentMode === 'items' && \['light', 'rich'\]\.includes\(this\.book\.itemIllus\) && !\(this\.book\.figures \|\| \[\]\)\.some\(\(f\) => f\.itemFigure\)\) \{\s*await this\.itemFigures\(\);/);
+  assert.match(src, /if \(j\.kind === 'interior' && this\.book\.contentMode !== 'items'\) \{/);
+  assert.match(src, /if \(j\.kind === 'interior' && this\.book\.contentMode === 'items' && authorFig\?\.ref\) \{/);
+  const studio = await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8');
+  assert.match(studio, /\$\('proseOpts'\)\.hidden = false;/);
+  const html = await readFile(new URL('../ui/studio.html', import.meta.url), 'utf8');
+  for (const id of ['genre', 'depth', 'writeMode', 'secLen', 'sizePt', 'illus']) {
+    const at = html.indexOf(`<label for="${id}"`);
+    assert.match(html.slice(html.lastIndexOf('<div class="field', at), at), /proseOnly/, id);
+  }
+  const ref = html.indexOf('id="authorRefFigures"');
+  assert.doesNotMatch(html.slice(html.lastIndexOf('<div class="field', ref), ref), /proseOnly/, 'ช่องแนบรูปผู้เขียนแสดงในทุกโหมด');
+});

@@ -32,7 +32,8 @@ import { noteTrouble } from './dispatch.js';
 import { generateImage, DEFAULT_IMAGE_MODEL } from './imageApi.js';
 import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, enforceAuthorRefPrompt } from './imageRef.js';
 import { saveToLibrary } from './cast-library.js';
-import { findRepeats, repeatInstruction } from './repetition.js';
+import { findRepeats, repeatInstruction, removeNearDuplicates } from './repetition.js';
+import { checkKlon } from './thai-rhyme.js';
 import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText, castPhotoName } from './flow.js';
 
 export const STEPS = [
@@ -79,6 +80,8 @@ const SHORT_RATIO = 0.5; // ต่ำกว่าครึ่งโควตา�
 const MAX_SHORT_FIXES = 8;
 const SHORT_GIVEUP = 2;
 const MAX_REPEAT_FIXES = 8;
+/** ต้นฉบับที่แนบไปในคำสั่ง "แก้ตอน" ยาวได้ไม่เกินนี้ — ยาวกว่านี้หน้า ChatGPT ค้าง "หน้าไม่ตอบสนอง" (เจอจริง: ฉาก 34,452 ตัว) */
+const MAX_REWRITE_UNITS = 14000;
 
 /**
  * ความล้มเหลวที่เกิด "ก่อน" ข้อความจะถึง ChatGPT — ยังไม่ได้ใช้โควตาแม้แต่ข้อความเดียว
@@ -126,6 +129,21 @@ const promptKey = (text) => {
  * ชิ้นที่ใหญ่เกินงบตั้งแต่ชิ้นเดียวยังต้องได้ไป เพราะซอยต่อไม่ได้แล้ว — ส่งไปแล้วปล่อยให้
  * ด่านล่างจัดการ ดีกว่าเงียบหายไปโดยไม่มีใครอ่าน
  */
+/**
+ * เนื้อหาที่แนบไปให้ตรวจความต่อเนื่อง ยาวได้ไม่เกิน REVIEW_SECTION_MAX ตัวต่อตอน
+ * เจอจริง (นิยาย): ฉากยาว 34,000+ ตัว ถูกแนบเต็มไปในคำสั่งตรวจบท — หน้า ChatGPT ค้าง "หน้าไม่ตอบสนอง" ทุกรอบ
+ * ตอนที่ยาวเกิน: ส่งช่วงต้นกับช่วงท้าย (รอยต่อกับฉากก่อน/หลัง ที่ความต่อเนื่องมักพลาด) แล้วบอกตรง ๆ ว่าตัดช่วงกลาง
+ * ใช้เฉพาะในคำสั่งตรวจ — ต้นฉบับที่เก็บไม่ถูกแตะ
+ */
+export const REVIEW_SECTION_MAX = 9000;
+export function clipForReview(rec) {
+  const md = String(rec?.md || rec?.text || '');
+  if (md.length <= REVIEW_SECTION_MAX) return rec;
+  const half = Math.floor((REVIEW_SECTION_MAX - 200) / 2);
+  const cut = md.length - half * 2;
+  return { ...rec, md: `${md.slice(0, half)}\n\n[… ตัดช่วงกลางออก ${cut.toLocaleString()} ตัวอักษรเพื่อให้ส่งได้ — ตรวจเฉพาะส่วนที่เห็น ห้ามเดาเนื้อหาช่วงที่ตัดออก …]\n\n${md.slice(-half)}`, text: undefined };
+}
+
 /** ชุดต่อภาพจากแผนภาพ: { ชื่อ: "outfit" } เก็บเฉพาะค่าที่เป็นข้อความ ไม่เกิน 3 คน ข้อความละไม่เกิน 160 ตัว */
 export function cleanWardrobe(w) {
   if (!w || typeof w !== 'object' || Array.isArray(w)) return undefined;
@@ -1091,6 +1109,33 @@ ${P.NO_CITATION_RULE}
           throw new Halt('เขียนรายชิ้นไม่สำเร็จ — หยุดก่อนผ่านงานที่ยังขาด');
         }
 
+        /**
+         * กลอน: ตรวจสัมผัสด้วยโปรแกรม (core/thai-rhyme.js) — ชิ้นที่ผิดส่งกลับไปแต่งใหม่พร้อมจุดที่ผิด สูงสุด 2 รอบ
+         * ผู้ใช้: "กลอนที่ออกมายังไม่คล้องจองเลย ยังมั่ว" · ยังไม่ผ่านหลังสองรอบ = เก็บฉบับที่ผิดน้อยที่สุด และบอกในบันทึก
+         */
+        if (this.book.itemKind === 'poem') {
+          const best = new Map(got.map((it) => [it.id, { it, check: checkKlon(it.text || it.md) }]));
+          for (let round = 1; round <= 2; round++) {
+            const wrong = [...best.values()].filter((b) => !b.check.ok);
+            if (!wrong.length) break;
+            this.log('warn', `กลอน ${wrong.map((b) => b.it.id).join(', ')}: สัมผัสยังไม่ครบ (${wrong.reduce((n, b) => n + b.check.problems.length, 0)} จุด) — ส่งกลับไปแต่งใหม่ รอบ ${round}/2`);
+            const fix = Object.fromEntries(wrong.map((b) => [b.it.id, { text: b.it.text || b.it.md, problems: b.check.problems }]));
+            const redo = await this.turnWithRetry(
+              I.itemBatchPrompt({ book: this.book, outline, theme, count: wrong.length, requestedIds: wrong.map((b) => b.it.id), fix }),
+              { label: `แก้สัมผัสกลอน ${wrong.map((b) => b.it.id).join(', ')}` },
+            );
+            for (const it of I.extractItems(redo.text, wrong.map((b) => b.it.id))) {
+              const check = checkKlon(it.text || it.md);
+              const prev = best.get(it.id);
+              if (!prev || check.problems.length < prev.check.problems.length) best.set(it.id, { it, check });
+            }
+          }
+          const still = [...best.values()].filter((b) => !b.check.ok);
+          if (still.length) this.log('warn', `กลอน ${still.map((b) => b.it.id).join(', ')}: ยังมีสัมผัสไม่ครบหลังแก้สองรอบ — เก็บฉบับที่ผิดน้อยที่สุด แก้เองได้ในหน้าแก้ไข`);
+          else this.log('ok', `กลอน ${got.map((it) => it.id).join(', ')}: สัมผัสครบทุกคู่`);
+          for (let i = 0; i < got.length; i++) got[i] = best.get(got[i].id)?.it || got[i];
+        }
+
         for (const it of got) {
           await this.saveItem(theme, it);
           done.set(it.id, it);
@@ -1107,7 +1152,11 @@ ${P.NO_CITATION_RULE}
       }
     }
 
-    this.job.step = 'fit';
+    /**
+     * ไปขั้นวางแผนภาพก่อน (figures → itemFigures ตามช่อง "ภาพประกอบในเล่ม") แล้วค่อยจัดหน้า
+     * เดิมข้ามไป 'fit' ตรง ๆ — ตั้ง "มากขึ้น ราว 1 ภาพต่อ 12 ชิ้น" ไว้ แต่เล่มไม่มีภาพเลย (ผู้ใช้: "ทำไมไม่มีในงานเขียน")
+     */
+    this.job.step = 'figures';
   }
 
   async saveItem(theme, it) {
@@ -1487,7 +1536,9 @@ ${P.NO_CITATION_RULE}
       // ภาพของเล่มรายชิ้นเปิดจากช่อง itemIllus เท่านั้น — ไม่ใช่ illustrationLevel ที่ images() ปรับเองได้
       // เล่มรายชิ้นที่สร้างก่อนมีตัวเลือกนี้จึงไม่มีวันได้ภาพหรือข้อความวางแผนภาพเพิ่มขึ้นมาเอง
       if (['light', 'rich'].includes(this.book.itemIllus)) await this.itemFigures();
-      return next();
+      // เล่มรายชิ้นไม่ผ่านขั้นตรวจความต่อเนื่องแบบร้อยแก้ว (เหมือนเดิม) — ไปจัดหน้าเลย
+      this.job.step = 'fit';
+      return;
     }
     if ((this.book.illustrationLevel || 'none') === 'none') {
       this.log('ok', 'เล่มนี้ไม่ใส่ภาพประกอบ ข้ามไป');
@@ -1681,7 +1732,7 @@ ${sample.join('\n')}
 กติกา
 ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป็น theme-<เลขหมวด> ได้หมวดละ 1 ภาพ ควรมีครบทุกหมวด\n' : ''}- ภาพคู่ชิ้น: target เป็นรหัสชิ้นจากรายการด้านบนเท่านั้น เลือกชิ้นที่มีภาพในใจชัด กระจายทั่วเล่ม ห้ามเลือกชิ้นติดกัน
 - รวมทั้งหมดประมาณ ${want} ภาพ
-- subject เขียนเป็นภาษาอังกฤษ บรรยายฉาก วัตถุ แสง ฤดู และอารมณ์ให้ชัด ห้ามมีตัวอักษรในภาพ ไม่เน้นใบหน้าคน
+- subject เขียนเป็นภาษาอังกฤษ บรรยายฉาก วัตถุ แสง ฤดู และอารมณ์ให้ชัด ห้ามมีตัวอักษรในภาพ ${(this.book.authorRefTargets || []).includes('figures') ? 'ทุกภาพมีผู้เขียนอยู่ในฉาก (เรียกว่า the author) เป็นส่วนหนึ่งของบรรยากาศ ไม่ใช่ภาพโพสท่า' : 'ไม่เน้นใบหน้าคน'}
 - แต่ละภาพต้องต่างกันจริง ไม่ใช่ฉากเดิมเปลี่ยนมุม
 
 ตอบ JSON เท่านั้น: {"figures":[{"target":"theme-1 หรือ 1.12","subject":"..."}]}`, { label: 'วางแผนภาพประกอบรายชิ้น' });
@@ -2117,6 +2168,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
    * แต่ถูกกว่าการส่งไปแล้วได้ค่าว่างกลับมา หรือค้างอยู่ที่ขั้นพิมพ์จนหมดเวลาสิบนาที
    */
   static CONSISTENCY_BATCH_CHARS = 10000;
+  static clipForReview = clipForReview;
 
   async consistency() {
     const chapters = this.book.outline.chapters;
@@ -2253,7 +2305,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
             ? label
             : `${label ? `${label} · ` : ''}รอบก่อนหน้าอ่านเป็น JSON ไม่ได้ ตอบเป็น JSON ในบล็อกโค้ดเดียวเท่านั้น ห้ามมีข้อความนอกบล็อก`;
         const res = await this.turnWithRetry(
-          P.consistencyPrompt(ch, batch, this.book.bible, this.book, remind),
+          P.consistencyPrompt(ch, batch.map(Machine.clipForReview), this.book.bible, this.book, remind),
           { newThread, label: `ตรวจบทที่ ${ch.n}${label ? ` · ${label}` : ''}${attempt > 1 ? ' · ขอผลตรวจใหม่' : ''}` },
         );
         lastReviewText = res.text || lastReviewText; // เก็บของดิบไว้ให้ผู้คุมซ่อมรูปแบบได้โดยไม่ต้องสั่งเว็บใหม่
@@ -2433,6 +2485,12 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       if (!rec || !(rec.md || '').trim()) continue;
       if (rec.locked || rec.status === 'approved') {
         this.log('warn', `ตอน ${sid} มี ${issues.length} ประเด็น แต่ถูกล็อก/อนุมัติไว้ ไม่แก้ทับให้`);
+        continue;
+      }
+      // ต้นฉบับยาวเกิน = ไม่ส่งทั้งตอนให้แก้ (หน้า ChatGPT ค้าง "หน้าไม่ตอบสนอง" — เจอจริงกับฉากนิยาย 34,000+ ตัว)
+      const units = countUnits(rec.md, this.book.language);
+      if (units > MAX_REWRITE_UNITS) {
+        this.log('warn', `ตอน ${sid} มี ${issues.length} ประเด็น แต่ยาว ${units.toLocaleString()} หน่วย — ยาวเกินกว่าจะส่งทั้งตอนให้ ChatGPT แก้ (หน้าเว็บค้าง) ข้ามไว้ แก้เองได้ในหน้าแก้ไข`);
         continue;
       }
 
@@ -3127,10 +3185,30 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       .filter((x) => x.repeats.length && (x.rec.md || '').trim())
       .sort((a, b) => b.repeats.length - a.repeats.length);
     if (!bad.length) return;
-    this.log('warn', `มี ${bad.length} ตอนที่พูดเรื่องเดิมซ้ำ — สั่งตัดส่วนซ้ำให้สูงสุด ${MAX_REPEAT_FIXES} ตอน`);
+    const fiction = this.book.contentMode === 'fiction';
+    this.log('warn', `มี ${bad.length} ตอนที่พูดเรื่องเดิมซ้ำ — ลบย่อหน้าที่ซ้ำเกือบทุกคำเองก่อน แล้วค่อยสั่งตัดส่วนที่เหลือ (สูงสุด ${MAX_REPEAT_FIXES} ตอน)`);
     let fixed = 0;
-    for (const { rec, repeats } of bad.slice(0, MAX_REPEAT_FIXES)) {
+    let asked = 0;
+    for (let { rec, repeats } of bad) {
       if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+      // ขั้นที่ 1 (ไม่เสียเทิร์น): ย่อหน้าที่ลอกซ้ำจริง ลบย่อหน้าหลังทิ้งในเครื่อง
+      const local = removeNearDuplicates(rec.md);
+      if (local.removed) {
+        const chars = countUnits(local.md, this.book.language);
+        rec = { ...rec, md: local.md, chars, status: 'edited', history: [...(rec.history || []).slice(-19), { md: rec.md, chars: rec.chars, at: Date.now(), reason: 'ก่อนลบย่อหน้าที่ซ้ำ' }] };
+        await db.saveSection(this.book.id, rec);
+        this.log('ok', `ตอน ${rec.id}: ลบย่อหน้าที่ซ้ำเกือบทุกคำ ${local.removed} ย่อหน้า (ไม่ต้องส่งให้ ChatGPT)`);
+        fixed++;
+        repeats = findRepeats(rec.md);
+        if (!repeats.length) continue;
+      }
+      /**
+       * ขั้นที่ 2: ที่เหลือคือ "พูดเรื่องเดิมด้วยคำอื่น" ต้องให้ ChatGPT เรียบเรียงใหม่ — ทำเฉพาะเมื่อปลอดภัย
+       * - ไม่ใช่นิยาย: ให้ AI เขียนฉากใหม่ทั้งฉากเสี่ยงทำเหตุการณ์/ความต่อเนื่องเพี้ยน และประโยคซ้ำในนิยายอาจตั้งใจ (ย้ำจังหวะ)
+       * - ตอนไม่ยาวเกิน MAX_REWRITE_UNITS: คำสั่งแนบต้นฉบับทั้งตอน ยาวเกินแล้วหน้า ChatGPT ค้าง (เจอจริง: 34,452 ตัว)
+       */
+      if (fiction || asked >= MAX_REPEAT_FIXES || (rec.chars || 0) > MAX_REWRITE_UNITS) continue;
+      asked++;
       try {
         if (await this.rewrite(rec, rec.chars, repeatInstruction(repeats), { mustReduceRepeats: true })) fixed++;
       } catch (e) {
@@ -3143,6 +3221,12 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
   }
 
   async rewrite(rec, targetChars, instruction = '', { mustReduceRepeats = false } = {}) {
+    // ต้นฉบับยาวเกิน = ไม่ส่ง (หน้า ChatGPT ค้างตอนพิมพ์คำสั่งยาวหลายหมื่นตัว) เก็บของเดิมไว้
+    const units = countUnits(rec.md || '', this.book.language);
+    if (units > MAX_REWRITE_UNITS) {
+      this.log('warn', `ตอน ${rec.id} ยาว ${units.toLocaleString()} หน่วย — ยาวเกินกว่าจะส่งทั้งตอนให้ ChatGPT แก้ได้ (หน้าเว็บค้าง) เก็บของเดิมไว้`);
+      return false;
+    }
     const res = await this.turnWithRetry(
       P.rewritePrompt({
         book: this.book,
@@ -3947,6 +4031,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
    * คืน true = หยุดงานแล้ว (กิจกรรมผิดปกติ / ไม่ใช่ 0 เครดิต)
    */
   async flowAgentBatches(jobs, castRefs, genErrors, authorFig = null) {
+    this.agentFallback ||= new Set();
     const todo = [];
     for (const j of jobs) {
       if (j.kind !== 'interior') continue;
@@ -3994,6 +4079,21 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           }
           return { name: c.name, appearance: c.photo || c.author ? '' : c.appearance, attached, author: !!c.author };
         });
+        /**
+         * แนบภาพต้นแบบได้ชุดละไม่เกิน 4 คน — ภาพที่มีคนที่มีภาพต้นแบบแต่ไม่ได้แนบ (คนที่ 5 ขึ้นไป) ห้ามให้ Agent วาดเดาหน้าเอง
+         * ย้ายไปสร้างทีละรูป ซึ่งแนบภาพต้นแบบของคนในฉากนั้นครบทุกคน
+         */
+        const onAgent = new Set(cast.filter((c) => c.attached).map((c) => c.name));
+        const lacking = shots.filter((s) => s.people.some((n) => used.get(n)?.ref && !onAgent.has(n)));
+        if (lacking.length) {
+          for (const s of lacking) this.agentFallback.add(s.name);
+          this.log('warn', `${lacking.length} รูปในชุดนี้มีตัวละครเกิน 4 คนที่แนบได้ — สร้างทีละรูปแทน พร้อมแนบภาพต้นแบบครบทุกคน`);
+          for (const s of lacking) {
+            shots.splice(shots.indexOf(s), 1);
+            batch.splice(batch.findIndex((j) => j.name === s.name), 1);
+          }
+          if (!shots.length) continue;
+        }
         const label = `ชุด ${b / AGENT_BATCH + 1} (${ratio}) · ${batch.length} รูป`;
         this.log('ok', `Flow Agent ${label}: ${batch[0].name} … ${batch.at(-1).name}${refs.length ? ` · แนบภาพต้นแบบ ${cast.filter((c) => c.attached).map((c) => c.name).join(', ')}` : ''}`);
         // Agent วาดทั้งชุดนานหลายนาทีโดยไม่มีเหตุการณ์ — ส่งสถานะทุก 30 วินาที หน้าจอและนาฬิกาเฝ้าดูจะไม่เข้าใจผิดว่าค้าง
@@ -4011,6 +4111,10 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
               models: FLOW_MODELS,
               refs,
               refCollection: FLOW_REF_COLLECTION,
+              // นิยายที่มีภาพต้นแบบ: แนบไม่ครบ = ห้ามให้ Agent วาด (ตัวละครต้องถูกคน)
+              // หน้าที่กำหนดไว้ (ภาพต้นแบบตัวละคร / หน้าผู้เขียน) ต้องไปครบ — แนบไม่ครบ = ห้ามให้ Agent วาด สร้างทีละรูปพร้อมแนบแทน
+              // ผู้ใช้: "ภาพตามความเหมาะสม ok แต่ต้องแนบหน้าภาพผู้เขียนที่กำหนด ตัวละครด้วย"
+              requireRefs: refs.length > 0,
             },
             { timeoutMs: 3 * 60 * 60000 },
           );
@@ -4021,6 +4125,12 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         if (!res.ok) {
           if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(res.error || '')) {
             return await this.stopFlowUnusual(batch[0], res.error, jobs, jobs.indexOf(batch[0]), genErrors);
+          }
+          if (res.code === 'refs_not_attached') {
+            // สร้างทีละรูปแทน — ทางนั้นแนบภาพต้นแบบเป็นส่วนผสมของแต่ละรูป (ผู้ใช้: "ทำไมภาพนิยายไม่แนบหน้าตัวละครไปด้วยหละ")
+            this.log('warn', `Flow Agent ${label}: ${res.error} — ชุดนี้สร้างทีละรูปแทน พร้อมแนบภาพต้นแบบตัวละครให้ทุกรูป`);
+            for (const j of batch) this.agentFallback.add(j.name);
+            continue;
           }
           if (res.code === 'not_free') {
             this.log('warn', res.error);
@@ -4130,7 +4240,15 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
        * prompt ที่เก็บไว้ตั้งแต่ตอนวางแผนยาวและขัดกันเอง ภาพจาก Flow จึงเพี้ยนและไม่เกี่ยวกับเนื้อหา (ผู้ใช้ทักมา)
        * ทำตอนส่งจึงแก้ได้ทั้งเล่มใหม่และเล่มที่วางแผนไว้แล้ว โดยไม่ต้องวางแผนภาพใหม่
        */
-      if (j.kind === 'interior') {
+      /**
+       * เล่มรายชิ้น (กลอน คำคม ฯลฯ): ภาพเป็นภาพบรรยากาศตามแผนเดิม (interiorFigurePrompt) — ไม่เขียนใหม่เป็น "ภาพสอนวิธีทำของหนังสือฮาวทู"
+       * เลือกหน้าผู้เขียนไว้ = แนบภาพต้นแบบผู้เขียนไปด้วย (ผู้ใช้: "แล้วทำไมไม่มีแนบภาพผู้เขียนด้วยหละ")
+       */
+      if (j.kind === 'interior' && this.book.contentMode === 'items' && authorFig?.ref) {
+        refs.push(authorFig.ref.upload ? { name: authorFig.ref.name, dataUrl: authorFig.ref.dataUrl } : { tile: authorFig.ref.name, name: authorFig.ref.name, dataUrl: authorFig.ref.dataUrl });
+        prompt = `${prompt}\n\n${P.flowAuthorFigureRule({ attached: refs.length })}`;
+      }
+      if (j.kind === 'interior' && this.book.contentMode !== 'items') {
         const fig = (this.book.figures || []).find((f) => f.name === j.name);
         if (fig) {
           const rec = fig.section ? await db.loadSection(this.book.id, fig.section).catch(() => null) : null;
@@ -4247,7 +4365,7 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
 
       let saved = false;
       let flowError = '';
-      const fromAgent = pageAgent && j.kind === 'interior';
+      const fromAgent = pageAgent && j.kind === 'interior' && !this.agentFallback?.has(j.name);
       for (let attempt = 1; attempt <= MAX_FLOW_ATTEMPTS && !saved; attempt++) {
         if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
         // ภาพจาก Agent แค่หยิบตามชื่อ ไม่ใช่คำขอสร้างภาพ — ไม่ต้องเว้นจังหวะ
@@ -4431,6 +4549,10 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
   }
 
   async images() {
+    // เล่มรายชิ้นที่เขียนก่อนแก้ขั้น figures (ข้ามการวางแผนภาพไป) — วางแผนตรงนี้ เล่มเดิมจึงได้ภาพด้วยโดยไม่ต้องเขียนใหม่
+    if (this.book.contentMode === 'items' && ['light', 'rich'].includes(this.book.itemIllus) && !(this.book.figures || []).some((f) => f.itemFigure)) {
+      await this.itemFigures();
+    }
     // โปรเจกต์เก่าบางเล่มมี Prompt ปกก่อนระบบ GPT Art Director และยังคงเว้นพื้นที่โล่งแบบตายตัว
     // ห้ามใช้ Prompt เก่านั้นต่อใน Phase 2: ปรึกษา GPT ใหม่และล้างเฉพาะ asset ปกเก่า 1 ครั้ง
     if (this.book.coverMode === 'auto') {
@@ -5703,6 +5825,9 @@ const PLACEMENT_LABEL = { after_intro: 'ต้นตอน', middle: 'กลา�
  * ค่าใหม่ผ่านการเรนเดอร์จริงกับตัวคอมไพล์ Typst แล้วว่าลายเห็นชัดขึ้นโดยตัวหนังสือยังอ่านสบาย
  */
 export const PATTERN_ALPHA = { soft: 0.08, medium: 0.14, strong: 0.2 };
+/** ภาพพื้นหลังรายหมวดของหนังสือรายชิ้น: ชื่อไฟล์ และความเข้มที่เหลือหลังผสมกับกระดาษขาว (สีคงอยู่ แค่จางลง) */
+export const itemBgName = (n) => `bg-theme-${n}.png`;
+export const ITEM_BG_STRENGTH = 0.38;
 
 /** มม. → พิกเซลที่ 300 dpi ตัวเลขที่เอาไปตั้งขนาดในเครื่องมือสร้างภาพอื่นได้ตรง ๆ */
 const px300 = (mm) => (mm ? Math.round((Number(mm) / 25.4) * 300) : 0);
@@ -5884,6 +6009,31 @@ export function plannedImageJobs(book) {
       kind: 'pattern',
       patternAlpha: PATTERN_ALPHA[book.pagePattern] || 0.04,
     });
+  }
+
+  /**
+   * หนังสือรายชิ้น: ภาพพื้นหลังเต็มหน้า หมวดละหนึ่งภาพ ใช้ทุกหน้าในหมวด (typeset/template.js buildItemsDocument)
+   * ผู้ใช้: "ต้องมีภาพพื้นหลังทุกหน้า โดยแบ่งตามหัวข้อ" · ระบบทำให้จางลงเอง (ITEM_BG_STRENGTH) ตัวหนังสือจึงอ่านชัด
+   */
+  if (book.contentMode === 'items' && (book.figureMode === 'auto' || figureManual)) {
+    const pw = Number(book.trim?.widthMm) || 148;
+    const ph = Number(book.trim?.heightMm) || 210;
+    const themes = book.outline?.themes?.length ? book.outline.themes : [{ n: 1, title: book.outline?.title || book.topic }];
+    for (const th of themes) {
+      jobs.push({
+        name: itemBgName(th.n),
+        prompt: P.itemBackgroundPrompt(book, book.outline || {}, th),
+        what: `ภาพพื้นหลังหมวด ${th.n}${th.title ? ` "${th.title}"` : ''}`,
+        where: `พื้นหลังเต็มหน้าทุกหน้าในหมวด ${th.n} · ระบบทำให้จางลงเองให้ตัวหนังสืออ่านชัด`,
+        spec: `${pw}×${ph} มม. · เต็มหน้ากระดาษ · ภาพสี`,
+        widthMm: pw,
+        heightMm: ph,
+        aspect: `${Math.round(pw * 10)}:${Math.round(ph * 10)}`,
+        grayscale: false,
+        kind: 'background',
+        manual: figureManual,
+      });
+    }
   }
 
   if (book.figureMode === 'auto' || figureManual) {
@@ -6096,6 +6246,14 @@ async function normalizeGeneratedImage(blob, job) {
    * Typst ไม่มีคำสั่งลดความทึบของภาพให้ใช้ตรง ๆ และการหวังให้โมเดลวาดจางพอเองไม่เคยได้ผล
    * มันวาดลายสวยแต่เข้มเสมอ ผสมกับกระดาษขาวตรงนี้จึงคุมได้แน่นอนและเห็นผลก่อนพิมพ์
    */
+  // ภาพพื้นหลังรายหมวด: คงสี แค่ผสมกับขาวให้จาง — ตัวหนังสือพิมพ์ทับได้ชัด (ไม่ยืดคอนทราสต์แบบลวดลาย)
+  if (job.kind === 'background') {
+    const d = cx.getImageData(0, 0, targetW, targetH);
+    for (let i = 0; i < d.data.length; i += 4) {
+      for (let k = 0; k < 3; k++) d.data[i + k] = Math.round(255 - (255 - d.data[i + k]) * ITEM_BG_STRENGTH);
+    }
+    cx.putImageData(d, 0, 0);
+  }
   if (job.kind === 'pattern') {
     /**
      * "ความเข้ม 14%" ต้องแปลว่าหมึกจริง 14% ไม่ใช่ 14% ของอะไรก็ไม่รู้ที่จางอยู่แล้ว

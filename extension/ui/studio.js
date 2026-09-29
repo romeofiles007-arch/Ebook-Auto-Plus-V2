@@ -32,7 +32,7 @@ import { createProgressTracker, stepNumber, STEP_COUNT, formatEta } from './over
 import { readReferenceSettings, validateBackMatterSetup, resetReferenceSources, selectReferencesAutomatically } from './references-ui.js';
 import { MIN_REFERENCES } from '../core/references.js';
 import { Machine, plannedImageJobs, ingestImageDataUrl, promptForImage, isModernCoverDesign, clearFigurePlan } from '../core/machine.js';
-import { makeTransport, hasPendingTurn } from '../transport/index.js';
+import { makeTransport, hasPendingTurn, recoverQuietTurns } from '../transport/index.js';
 import { startControlLink } from './control-link.js';
 import {
   MODEL_PRICES,
@@ -825,6 +825,7 @@ const PHASE_NAME = {
 
 setInterval(() => {
   // ทางที่ 1: มีเทิร์นค้างอยู่ — รู้ได้ละเอียดถึงขั้นย่อยว่าค้างตรงไหนของการคุยกับหน้าเว็บ
+  if (hasPendingTurn()) void recoverQuietTurns();
   if (hasPendingTurn() && lastProgressAt) {
     const quiet = Math.round((Date.now() - lastProgressAt) / 1000);
     if (quiet < 25) return;
@@ -5962,8 +5963,14 @@ function syncMode() {
   const fiction = mode === 'fiction';
   $('itemOpts').hidden = !items;
   $('fictionOpts').hidden = !fiction;
-  $('proseOpts').hidden = items;
-  document.querySelectorAll('.nonfictionOnly').forEach((el) => (el.hidden = fiction));
+  /**
+   * เล่มรายชิ้นเคยซ่อนแผงนี้ทั้งแผง — ช่องปก วิธีสร้างภาพ และ "แนบรูปผู้เขียน" จึงหายไปด้วย
+   * (ผู้ใช้: "แล้วทำไมไม่มีแนบภาพผู้เขียนด้วยหละ") · ตอนนี้ซ่อนเฉพาะช่องของหนังสือร้อยแก้ว (.proseOnly)
+   */
+  $('proseOpts').hidden = false;
+  document.querySelectorAll('.nonfictionOnly, .proseOnly').forEach((el) => {
+    el.hidden = (el.classList.contains('nonfictionOnly') && fiction) || (el.classList.contains('proseOnly') && items);
+  });
   if (items) $('itemOpts').open = true;
   if (fiction) {
     $('fictionOpts').open = true;

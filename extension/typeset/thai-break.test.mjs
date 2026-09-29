@@ -84,3 +84,18 @@ test('หัวข้อไม่ตกท้ายหน้า: ตัวหน
   assert.match(src, /#show heading\.where\(level: 2\): it => block\(sticky: true,/);
   assert.match(src, /#show heading\.where\(level: 3\): it => block\(sticky: true,/);
 });
+
+/** ผู้ใช้: "สำหรับนิยาย ถ้าจบก็ให้เขียนด้วยว่า จบ … ส่วนหนังสืออื่น ๆ ให้ทำเป็นขีดกลางแนวนอน" */
+test('เครื่องหมายจบเล่ม: นิยาย = "จบ" · หนังสืออื่น = ขีดแนวนอน · เล่มที่ยังเขียนไม่ครบไม่มี', () => {
+  const fic = { ...book, contentMode: 'fiction' };
+  const src = (b, md) => buildDocument({ book: b, outline, sections: [{ id: '1.1', md }], opts: {} });
+  assert.match(src(fic, 'ฉากสุดท้าย'), /#text\(size: [\d.]+pt, weight: 600\)\[จบ\]/);
+  assert.doesNotMatch(src(fic, 'ฉากสุดท้าย'), /#line\(length: 28%/);
+  assert.match(src(book, 'เนื้อหา'), /#align\(center\)\[#line\(length: 28%, stroke: 0\.8pt \+ luma\(110\)\)\]/);
+  assert.doesNotMatch(src(book, 'เนื้อหา'), /\[จบ\]/);
+  assert.doesNotMatch(src(fic, ''), /\[จบ\]/, 'ตอนสุดท้ายยังไม่มีเนื้อหา = ยังไม่จบ');
+  assert.match(buildDocument({ book: { ...fic, language: 'en' }, outline, sections: [{ id: '1.1', md: 'end' }], opts: {} }), /\[THE END\]/);
+  // อยู่ก่อนส่วนท้ายเล่ม
+  const s = src(fic, 'ฉากสุดท้าย');
+  assert.ok(s.indexOf('[จบ]') > s.indexOf('ฉาก'));
+});

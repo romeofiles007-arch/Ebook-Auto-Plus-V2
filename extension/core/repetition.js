@@ -68,10 +68,28 @@ export function findRepeats(md) {
   return out;
 }
 
+/**
+ * ลบย่อหน้าที่ซ้ำเกือบทุกคำ (ย่อหน้าหลัง) เองในเครื่อง — ไม่ต้องส่งเทิร์นให้ ChatGPT
+ * เจอจริง (นิยาย): ฉากยาว 34,452 ตัวอักษร ถูกส่งไปทั้งฉากเพื่อให้ตัดส่วนซ้ำ — หน้า ChatGPT ค้าง "หน้าไม่ตอบสนอง" ทุกรอบ
+ * ลบเฉพาะที่ชิ้นส่วนตรงกันตั้งแต่ 85% (ลอกซ้ำจริง) · ส่วนที่แค่พูดเรื่องเดียวกันด้วยคำอื่นไม่แตะ
+ */
+export const NEAR_DUPLICATE = 0.85;
+export function removeNearDuplicates(md) {
+  const parts = String(md || '').split(/\n{2,}/);
+  const drop = new Set(findRepeats(md).filter((r) => r.ratio >= NEAR_DUPLICATE).map((r) => r.later));
+  if (!drop.size) return { md: String(md || ''), removed: 0 };
+  return { md: parts.filter((_, i) => !drop.has(i)).join('\n\n'), removed: drop.size };
+}
+
 /** คำสั่งให้ตัดส่วนซ้ำ — ระบุเจาะจงว่าย่อหน้าไหนซ้ำกับย่อหน้าไหน โมเดลจะได้ไม่เดาเอง */
 export function repeatInstruction(repeats) {
   const clip = (s) => {
-    const t = String(s).replace(/\s+/g, ' ').trim();
+    // ตัดเครื่องหมาย markdown ออกก่อนยกมา — ช่องพิมพ์ของ ChatGPT แปลง **…** และ "- " ทิ้ง ข้อความในช่องจึงไม่ตรงกับที่ส่ง (งานเคยค้างที่ขั้นพิมพ์)
+    const t = String(s)
+      .replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, '')
+      .replace(/[*_`#>|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
     return t.length > 140 ? `${t.slice(0, 140)}…` : t;
   };
   return (

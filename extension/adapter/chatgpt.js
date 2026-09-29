@@ -785,10 +785,29 @@
        * 45 วินาทีจึงเหลือเฟือสำหรับทางที่ทำงานได้จริง และตัดทางที่ค้างทิ้งเร็วพอ
        * หมดเวลาแล้วไม่ใช่จุดจบ — ตกไปใช้ทางคลิปบอร์ดต่อ ซึ่งเป็นทางที่เขียนรองรับไว้อยู่แล้ว
        */
+      /**
+       * ดูช่องพิมพ์เองไปพร้อมกัน — ข้อความครบและนิ่งแล้ว = พิมพ์เสร็จ ไม่ต้องรอ service worker ตอบ
+       * เจอจริง (นิยาย · เทิร์นแก้ส่วนซ้ำ): ข้อความขึ้นครบทั้งช่อง แต่ขั้นตรวจใน service worker ไม่ตอบ
+       * งานเงียบ 45 วินาทีทุกรอบที่ "พิมพ์ Prompt ลงช่อง" (ผู้ใช้: "เงียบ" · "ทำไมยังใช้ไม่ได้")
+       */
+      let watching = true;
+      const watchTyped = new Promise((resolve) => {
+        let seen = 0;
+        const tick = () => {
+          if (!watching) return;
+          seen = composerMatches(text) ? seen + 1 : 0;
+          if (seen >= 3) return resolve({ ok: true, viaWatch: true });
+          setTimeout(tick, 300);
+        };
+        setTimeout(tick, 1200);
+      });
       const typed = await Promise.race([
         chrome.runtime.sendMessage({ type: 'sw.forceSend', text, send: false }),
+        watchTyped,
         new Promise((r) => setTimeout(() => r({ ok: false, error: 'ให้เบราว์เซอร์พิมพ์ให้ไม่ตอบใน 45 วินาที' }), 45000)),
-      ]);
+      ]).finally(() => {
+        watching = false;
+      });
       if (typed?.ok) {
         await frame();
         ok = !!box.innerText.trim();
@@ -839,11 +858,21 @@
      * แต่คำสั่งที่มีบรรทัดซ้ำก็คือคำสั่งที่ผิดอยู่ดี เทียบตรง ๆ ว่าเท่ากันไหมชัดเจนกว่า
      * (ตัวเปรียบเทียบยุบช่องว่างซ้อนก่อน เพราะตัวแก้ไขจัดบรรทัดใหม่ได้เล็กน้อยเป็นปกติ)
      */
-    const norm = (v) => String(v || '').replace(/\s+/g, ' ').trim();
-    const want = norm(text);
-    let got = norm(box.innerText);
+    /**
+     * เทียบเฉพาะตัวอักษร ตัวเลข และสระ/วรรณยุกต์ (loosePrompt) — ไม่เทียบเครื่องหมาย
+     * เจอจริง: prompt สั่งตัดส่วนซ้ำยกข้อความมาพร้อม markdown ("**ผู้ได้รับผลกระทบ…**", "- ") ช่องพิมพ์ของ ChatGPT
+     * แปลง **…** เป็นตัวหนาและ "- " เป็นรายการ ดอกจันหายไป → เทียบตรงตัวไม่เคยเท่ากัน → ล้างแล้ววางใหม่วนไปไม่ส่ง
+     * (ผู้ใช้เห็นข้อความเต็มช่อง แต่งานเงียบ: "เงียบ")
+     * รายการลำดับ "1. " ถูกแปลงเป็น <ol> แล้วเลขไม่อยู่ใน innerText จึงยอมให้ต่างกันแค่ตัวเลข
+     * prompt ที่ถูกวางซ้ำสองรอบยังจับได้ เพราะตัวอักษรยาวกว่าเท่าตัว
+     */
+    const norm = (v) => loosePrompt(v);
+    const bare = (v) => loosePrompt(v).replace(/\p{N}/gu, '');
+    const same = (a, b) => a === b || bare(a) === bare(b);
+    const want = String(text || '');
+    let got = String(box.innerText || '');
 
-    for (let i = 0; i < 2 && want && got !== want; i++) {
+    for (let i = 0; i < 2 && norm(want) && !same(got, want); i++) {
       // ข้อความไม่ตรง = ล้างแล้ววางใหม่ ไม่ต้องรายงานออกไป เพราะ injectText ถูกเรียกก่อนรู้ turnId
       // ต้องวางทับด้วยทางเดียวกับรอบแรก ไม่ใช่ insertText ซึ่งเป็นการ "แทรกเพิ่ม"
       // ถ้าของเก่ายังไม่หมดจริง insertText จะต่อท้ายให้ยาวขึ้นอีกเท่าตัวทุกรอบ
@@ -857,10 +886,10 @@
         document.execCommand('insertText', false, text);
       }
       await frame();
-      got = norm(box.innerText);
+      got = String(box.innerText || '');
     }
 
-    if (!got) throw new Error('composer_write_failed');
+    if (!norm(got)) throw new Error('composer_write_failed');
     /**
      * ข้อความไม่ตรง = ห้ามส่ง ต้องล้มเทิร์นนี้ทิ้ง
      *
@@ -869,7 +898,7 @@
      * ซึ่งคือเทิร์นที่กลับมาเป็น "Stopped thinking" หรือ Something went wrong
      * ความผิดพลาดนี้อยู่ในกลุ่มไม่เสียโควตา (ยังไม่ได้ส่งอะไรออกไป) ชั้นบนจะลองใหม่ให้เอง
      */
-    if (want && got !== want) throw new Error('composer_text_mismatch');
+    if (norm(want) && !same(got, want)) throw new Error('composer_text_mismatch');
     return box; // ส่งต่อให้ clickSend ใช้ element เดียวกัน ไม่ใช่ไปหาใหม่แล้วได้คนละตัว
   }
 
@@ -2479,6 +2508,7 @@
       const sendMs = submittedAt - sendStartedAt;
 
       const anchor = fresh;
+      if (activeTurnId === turnId) activeTurnAnchor = anchor;
       if (opts.wantImages) {
         imageTurns.set(turnId, { anchor, url: location.href });
         if (imageTurns.size > 40) imageTurns.delete(imageTurns.keys().next().value);
@@ -2656,7 +2686,16 @@
 
   // ---------- รับคำสั่ง ----------
   let activeTurnId = null;
+  let activeTurnAnchor = null;
+  let activeTurnWantsImages = false;
+  let recoveryCandidate = null;
   const completedTurns = new Map();
+  function visibleReplyComplete(prompt, text) {
+    // A quiet gap in a long code block is not a finished chapter. For book
+    // output, require every closing marker requested by this prompt.
+    const ends = [...String(prompt || '').matchAll(/<<<(?:SEC|META) [\w.]+ END>>>/g)].map((m) => m[0]);
+    return ends.every((marker) => text.includes(marker));
+  }
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'gpt.ping') {
       sendResponse({ ok: true, url: location.href });
@@ -2715,6 +2754,27 @@
         return false;
       }
       if (activeTurnId && activeTurnId === msg.turnId) {
+        // The answer can be complete on screen while the result relay or the
+        // original waiter is stuck. Recover only the answer after this turn's
+        // own user bubble, with the stop button gone and a final action bar.
+        const answer = !activeTurnWantsImages && activeTurnAnchor?.isConnected ? filledAssistantAfter(activeTurnAnchor) : null;
+        const text = answer && turnHasContent(answer) && !stopButtonVisible() && actionBarFor(answer)
+          ? readAnswer(activeTurnAnchor).text.trim() : '';
+        if (text && !PLACEHOLDER.test(text) && visibleReplyComplete(msg.prompt, text)) {
+          const now = Date.now();
+          if (recoveryCandidate?.turnId === msg.turnId && recoveryCandidate.text === text && now - recoveryCandidate.at >= 1500) {
+            const result = { turnId: msg.turnId, status: 'ok', text, meta: { recoveredFromVisibleAnswer: true } };
+            completedTurns.set(msg.turnId, result);
+            activeTurnId = null;
+            activeTurnAnchor = null;
+            activeTurnWantsImages = false;
+            recoveryCandidate = null;
+            sendResponse({ state: 'done', result });
+            return false;
+          }
+          if (recoveryCandidate?.turnId !== msg.turnId || recoveryCandidate.text !== text)
+            recoveryCandidate = { turnId: msg.turnId, text, at: now };
+        } else recoveryCandidate = null;
         sendResponse({ state: 'running' });
         return false;
       }
@@ -2739,13 +2799,21 @@
         return false;
       }
       activeTurnId = msg.turnId;
+      activeTurnAnchor = null;
+      activeTurnWantsImages = !!msg.opts?.wantImages;
+      recoveryCandidate = null;
       // ตอบรับทันที แล้วส่งผลกลับทีหลังเป็น gpt.result
       sendResponse({ ok: true, accepted: msg.turnId });
       runTurn(msg.turnId, msg.prompt, msg.opts).then((res) => {
-        completedTurns.set(msg.turnId,res);
+        const alreadyRecovered = completedTurns.has(msg.turnId);
+        if (!alreadyRecovered) completedTurns.set(msg.turnId,res);
         if (completedTurns.size > 10) completedTurns.delete(completedTurns.keys().next().value);
-        activeTurnId = null;
-        chrome.runtime.sendMessage({ type: 'gpt.result', ...res }).catch(() => {});
+        if (activeTurnId === msg.turnId) {
+          activeTurnId = null;
+          activeTurnAnchor = null;
+          activeTurnWantsImages = false;
+        }
+        if (!alreadyRecovered) chrome.runtime.sendMessage({ type: 'gpt.result', ...res }).catch(() => {});
       });
       return false;
     }

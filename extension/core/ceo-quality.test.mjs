@@ -8,7 +8,7 @@ const start = src.indexOf('  async reviewChapterFully(');
 const method = src.slice(start,src.indexOf('\n  }',start)+4);
 function fixture(decision, threadMode) {
   const options = [];
-  const scope = { Halt: Error, Machine:{batchSections:r=>[r]}, P:{consistencyPrompt:()=>''},
+  const scope = { Halt: Error, Machine:{batchSections:r=>[r],clipForReview:r=>r}, P:{consistencyPrompt:()=>''},
     X:{parseJson:s=>{try{return JSON.parse(s);}catch{return null;}}} };
   vm.runInNewContext(`globalThis.obj = {${method}}`,scope);
   Object.assign(scope.obj,{book:{threadMode},job:{status:'ok'}, log(){},

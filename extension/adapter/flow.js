@@ -1137,7 +1137,27 @@
     at('ภาพต้นแบบตัวละคร');
     await clearRefs();
     let attachError = '';
-    if (args.refs?.length) await attachRefs(args.refs).catch((e) => { attachError = e?.message || String(e); });
+    let attached = 0;
+    if (args.refs?.length) {
+      await attachRefs(args.refs)
+        .then(() => {
+          attached = chips().length;
+        })
+        .catch((e) => {
+          attachError = e?.message || String(e);
+        });
+      /**
+       * นับว่าแนบภาพต้นแบบได้ครบจริง — เดิมแนบไม่ครบแบบไม่มี error ก็เงียบ ภาพออกมาหน้าตาเพี้ยนโดยไม่มีใครรู้
+       * (ผู้ใช้: "ทำไมภาพนิยายไม่แนบหน้าตัวละครไปด้วยหละ")
+       */
+      if (!attachError && attached < args.refs.length) attachError = `แนบภาพต้นแบบได้ ${attached}/${args.refs.length} ภาพ`;
+      // นิยาย: ตัวละครต้องถูกคน — แนบไม่ครบ = ไม่ให้ Agent วาดชุดนี้ ให้ Studio สร้างทีละรูป (แนบภาพต้นแบบเป็นส่วนผสมของแต่ละรูป)
+      if (attachError && args.requireRefs) {
+        const e = new Error(`แนบภาพต้นแบบตัวละครไม่ครบ (${attachError}) — ไม่ส่งชุดนี้ให้ Agent`);
+        e.code = 'refs_not_attached';
+        throw e;
+      }
+    }
     at('นับภาพเดิมใน project');
     await scanAllTiles();
     const base = new Set(collectTiles().keys());

@@ -80,3 +80,37 @@ test('ตารางแบบหนังสือ: ตัดคอลัมน
   assert.match(src, /table\.hline\(stroke: 1\.2pt/);
   assert.doesNotMatch(src, /\[ยา\]/);
 });
+
+/** ผู้ใช้ส่งภาพ "หน้าไม่ตอบสนอง" — ฉากนิยาย 34,452 ตัวถูกส่งไปทั้งฉากเพื่อให้ตัดส่วนซ้ำ หน้า ChatGPT ค้างทุกรอบ */
+test('ย่อหน้าที่ลอกซ้ำลบเองในเครื่อง · ตอนยาวเกิน/นิยายไม่ส่งคำสั่งแก้ทั้งตอน', async () => {
+  const { removeNearDuplicates } = await import('./repetition.js');
+  const para = 'ผู้ได้รับผลกระทบโดยประมาณ 180 ถึง 240 คน ความมั่นใจของแบบจำลอง 94.7 เปอร์เซ็นต์ ระบบส่งสาธารณะไม่มีความผิดปกติสูงกว่าค่าเฉลี่ย';
+  const md = ['ฉากเปิด พัทนั่งอยู่หน้าจอในห้องทำงานเล็ก ๆ', para, 'เธอเลื่อนเมาส์ลง เปิดรายการแรกแล้วเริ่มอ่าน', para].join('\n\n');
+  const r = removeNearDuplicates(md);
+  assert.equal(r.removed, 1);
+  assert.equal(r.md.split(para).length - 1, 1, 'เหลือย่อหน้านั้นครั้งเดียว');
+  assert.ok(r.md.startsWith('ฉากเปิด') && r.md.includes('เปิดรายการแรก'));
+  // พูดเรื่องเดียวกันด้วยคำอื่น (ไม่ใช่ลอกซ้ำ) ไม่ถูกลบในเครื่อง
+  assert.equal(removeNearDuplicates([FIRST, 'ตัวอย่าง', CRITERIA].join('\n\n')).removed, 0);
+  const src = fs.readFileSync(new URL('./machine.js', import.meta.url), 'utf8');
+  assert.match(src, /const MAX_REWRITE_UNITS = 14000;/);
+  assert.match(src, /if \(fiction \|\| asked >= MAX_REPEAT_FIXES \|\| \(rec\.chars \|\| 0\) > MAX_REWRITE_UNITS\) continue;/);
+  assert.match(src, /if \(units > MAX_REWRITE_UNITS\) \{/);
+});
+
+/** ผู้ใช้ส่งภาพ "หน้าไม่ตอบสนอง" ขั้นตรวจความต่อเนื่องของบท — ฉาก 34,000+ ตัวถูกแนบเต็มไปในคำสั่งตรวจ */
+test('คำสั่งตรวจบทไม่แนบฉากยาวเต็ม · ขั้นซ่อมตามผลตรวจข้ามตอนที่ยาวเกิน', async () => {
+  globalThis.chrome ||= { runtime: { onMessage: { addListener() {} } } };
+  const { clipForReview, REVIEW_SECTION_MAX } = await import('./machine.js');
+  const long = { id: '1.1', title: 'ก', md: 'ต้น'.repeat(10000) + 'กลาง'.repeat(5000) + 'ท้าย'.repeat(10000) };
+  const c = clipForReview(long);
+  assert.ok(c.md.length <= REVIEW_SECTION_MAX + 200, `ยาว ${c.md.length}`);
+  assert.ok(c.md.startsWith('ต้นต้น') && c.md.endsWith('ท้ายท้าย'));
+  assert.match(c.md, /ตัดช่วงกลางออก .* ตัวอักษรเพื่อให้ส่งได้/);
+  assert.ok(long.md.includes('กลาง'), 'ต้นฉบับไม่ถูกแตะ');
+  const short = { id: '1.2', md: 'สั้น' };
+  assert.equal(clipForReview(short), short);
+  const src = fs.readFileSync(new URL('./machine.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('P.consistencyPrompt(ch, batch.map(Machine.clipForReview),'));
+  assert.match(src, /ยาวเกินกว่าจะส่งทั้งตอนให้ ChatGPT แก้ \(หน้าเว็บค้าง\) ข้ามไว้/);
+});

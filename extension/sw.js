@@ -349,6 +349,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'sw.runTurn': {
         await S.set('studioTabId', sender.tab?.id ?? (await S.get('studioTabId')));
         const chat = await ensureChatTab();
+        const turnTabs = await S.get('turnTabs', {});
+        turnTabs[msg.turnId] = chat.id;
+        for (const id of Object.keys(turnTabs).slice(0, -40)) delete turnTabs[id];
+        await S.set('turnTabs', turnTabs);
         if (msg.opts?.wantImages) {
           const sources = await S.get('imageTurnTabs', {});
           sources[msg.turnId] = chat.id;
@@ -551,24 +555,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const text = String(msg.text || '');
         if (!text) return sendResponse({ ok: false, error: 'ไม่มีข้อความให้ส่ง' });
 
+        /**
+         * ทุกขั้นมีเพดานเวลา — chrome.debugger / scripting ไม่มีเพดานของตัวเอง
+         * เจอจริง (นิยาย · เทิร์นแก้ส่วนซ้ำ): ข้อความพิมพ์ลงช่องครบแล้ว แต่ขั้นถัดไปไม่ตอบ แถบ debugger ค้าง
+         * งานเงียบที่ "พิมพ์ Prompt ลงช่อง" · เกินเวลา = โยนข้อผิดพลาด → finally ถอด debugger ทันที
+         */
+        const within = (p, ms, what) =>
+          Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error(`debugger_timeout:${what}`)), ms))]);
         const cmd = (method, params) =>
-          new Promise((resolve, reject) => {
-            chrome.debugger.sendCommand(target, method, params, (r) =>
-              chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(r),
-            );
-          });
+          within(
+            new Promise((resolve, reject) => {
+              chrome.debugger.sendCommand(target, method, params, (r) =>
+                chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(r),
+              );
+            }),
+            15000,
+            method,
+          );
 
         let attached = false;
         let enterAttempted = false;
         try {
-          await new Promise((resolve, reject) => {
-            chrome.debugger.attach(target, '1.3', () =>
-              chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(),
-            );
-          });
+          await within(
+            new Promise((resolve, reject) => {
+              chrome.debugger.attach(target, '1.3', () =>
+                chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(),
+              );
+            }),
+            15000,
+            'attach',
+          );
           attached = true;
 
-          const [focused] = await chrome.scripting.executeScript({
+          const [focused] = await within(chrome.scripting.executeScript({
             target,
             args: [text, !!msg.requireDraft || !!msg.enterOnly],
             func: (expected, requireDraft) => {
@@ -593,7 +612,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               box.focus();
               return document.activeElement === box;
             },
-          });
+          }), 15000, 'focus');
           if (!focused?.result) throw new Error(msg.requireDraft ? 'composer_changed_or_busy' : 'composer_not_found');
           // Image jobs already have a verified draft: focus it and press Enter,
           // without selecting/reinserting the prompt a second time.
@@ -609,7 +628,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           }
           await new Promise((r) => setTimeout(r, 400));
 
-          const [verified] = await chrome.scripting.executeScript({
+          const [verified] = await within(chrome.scripting.executeScript({
             target,
             args: [text, msg.enterOnly ? Number(msg.expectedAttachments || 0) : null],
             func: (expected, expectedAttachments) => {
@@ -625,7 +644,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               }
               return !!box && document.activeElement === box && same(box.innerText, expected);
             },
-          });
+          }), 15000, 'verify');
           if (!verified?.result) throw new Error('composer_text_mismatch');
 
           if (msg.send !== false) {
@@ -656,15 +675,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
        * ห้ามสร้างแท็บใหม่ที่นี่ ถ้าแท็บเดิมไม่อยู่แล้วก็คือตอบไม่ได้ ไม่ใช่ตอบว่ายังไม่ส่ง
        */
       case 'sw.recoverTurn': {
+        const tabId = (await S.get('turnTabs', {}))[msg.turnId];
+        if (tabId != null) {
+          try {
+            return sendResponse(await chrome.tabs.sendMessage(tabId, {
+              type: 'gpt.recoverTurn', turnId: msg.turnId, prompt: msg.prompt,
+            }));
+          } catch {
+            return sendResponse({ state: 'unreachable' });
+          }
+        }
         const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] });
+        let notSent = 0;
         for (const t of tabs) {
           try {
             const r = await chrome.tabs.sendMessage(t.id, { type: 'gpt.recoverTurn', turnId: msg.turnId, prompt: msg.prompt });
             if (r?.state && r.state !== 'not_sent') return sendResponse(r);
-            if (r?.state) return sendResponse(r);
+            if (r?.state === 'not_sent') notSent++;
           } catch {}
         }
-        return sendResponse({ state: 'unreachable' });
+        return sendResponse({ state: tabs.length === 1 && notSent === 1 ? 'not_sent' : 'unreachable' });
       }
 
       // ผู้ใช้กด "ภาพเสร็จแล้ว" ที่หน้า Studio — ไปคว้าภาพล่าสุดจากแท็บ ChatGPT มาเลย

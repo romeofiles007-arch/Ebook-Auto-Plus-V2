@@ -24,6 +24,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     clearTimeout(p.timer);
     p.resolve(msg);
   } else if (msg.type === 'gpt.progress') {
+    p.lastSignalAt = Date.now();
     // ขั้นล่าสุดที่ไปถึง = หลักฐานว่าคำสั่งออกจากเครื่องเราไปแล้วหรือยัง ตอนหมดเวลาต้องใช้ตัวนี้ตัดสิน
     if (msg.phase) p.lastPhase = msg.phase;
     // Reply time starts after acceptance, not while loading or uploading.
@@ -45,6 +46,57 @@ chrome.runtime.onMessage.addListener((msg) => {
  */
 export const hasPendingTurn = () => pending.size > 0;
 
+/** Ask the original tab about a turn when its progress relay has gone quiet. */
+export async function recoverQuietTurns() {
+  for (const [turnId, p] of pending) {
+    const now = Date.now();
+    if (p.probing || now - p.lastSignalAt < 45000 || now - (p.lastProbeAt || 0) < 30000) continue;
+    p.probing = true;
+    p.lastProbeAt = now;
+    try {
+      let found = await probeTurn(turnId, p.prompt);
+      if (!pending.has(turnId)) continue;
+      // The first active-tab probe records a stable visible answer; the next
+      // confirms it has stopped changing before accepting it as a result.
+      if (found?.state === 'running') {
+        await new Promise((r) => setTimeout(r, 1600));
+        found = await probeTurn(turnId, p.prompt);
+      }
+      if (!pending.has(turnId)) continue;
+      if (found?.state && found.state !== 'not_sent') p.notSentCount = 0;
+      if (found?.state && found.state !== 'unreachable') p.unreachableCount = 0;
+      if (found?.state === 'done' && found.result) {
+        clearTimeout(p.timer);
+        p.resolve({ ...found.result, meta: { ...found.result.meta, recoveredAfterSilence: true } });
+      } else if (found?.state === 'not_sent' && ++p.notSentCount >= 2) {
+        clearTimeout(p.timer);
+        p.resolve({ turnId, status: 'error', text: '', meta: {
+          error: 'prompt_not_sent', detail: 'แท็บยืนยันว่าเทิร์นนี้ยังไม่ได้ส่งคำสั่ง',
+        } });
+      } else if (found?.state === 'not_sent') {
+        // A freshly reloaded content script may briefly miss a collapsed user
+        // bubble. Require the same negative result twice before retrying.
+      } else if (found?.state === 'sent_unknown') {
+        clearTimeout(p.timer);
+        p.resolve({ turnId, status: 'timeout', text: '', meta: {
+          error: 'outcome_unknown', detail: 'ข้อความขึ้นในบทสนทนาแล้ว แต่ผลเทิร์นไม่กลับมา — หยุดเพื่อป้องกันการส่งซ้ำ',
+        } });
+      } else if (found?.state === 'running') {
+        p.onProgress({ type: 'gpt.progress', turnId, phase: p.lastPhase || 'waiting',
+          detail: 'ถามแท็บแล้วพบว่าเทิร์นยังทำงานอยู่ — รอผลต่อ' });
+        p.lastSignalAt = Date.now();
+      } else if (++p.unreachableCount >= 2) {
+        clearTimeout(p.timer);
+        p.resolve({ turnId, status: 'timeout', text: '', meta: {
+          error: 'outcome_unknown', detail: 'ติดต่อแท็บ ChatGPT เพื่อตรวจผลไม่ได้สองครั้ง — หยุดเพื่อป้องกันการส่งซ้ำ',
+        } });
+      }
+    } finally {
+      p.probing = false;
+    }
+  }
+}
+
 /**
  * หมดเวลาแล้วเกิดอะไรขึ้นจริง — ถามหน้าเว็บ ไม่ใช่เดาจากขั้นล่าสุดที่ได้ยิน
  *
@@ -58,13 +110,16 @@ export const hasPendingTurn = () => pending.size > 0;
  */
 async function probeTurn(turnId, prompt) {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
+  let timer;
   try {
     return await Promise.race([
       chrome.runtime.sendMessage({ type: 'sw.recoverTurn', turnId, prompt }),
-      new Promise((r) => setTimeout(() => r(null), 15000)),
+      new Promise((r) => { timer = setTimeout(() => r(null), 15000); }),
     ]);
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -200,7 +255,9 @@ export class ChatGptTabTransport {
       };
       const timer = setTimeout(expire, outerTimeoutMs);
 
-      pending.set(turnId, { resolve:complete, timer, expire, answerBudget:(opts.wantImages ? imageTimeoutMs : answerTimeoutMs)+attachMs+30000, onProgress: this.onProgress });
+      pending.set(turnId, { resolve:complete, timer, expire, prompt, lastSignalAt:Date.now(), lastProbeAt:0,
+        unreachableCount:0, notSentCount:0, probing:false,
+        answerBudget:(opts.wantImages ? imageTimeoutMs : answerTimeoutMs)+attachMs+30000, onProgress: this.onProgress });
 
       chrome.runtime
         .sendMessage({

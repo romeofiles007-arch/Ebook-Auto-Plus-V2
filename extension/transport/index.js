@@ -9,7 +9,7 @@
 
 import { ChatGptTabTransport } from './chatgpt-tab.js';
 
-export { hasPendingTurn } from './chatgpt-tab.js';
+export { hasPendingTurn, recoverQuietTurns } from './chatgpt-tab.js';
 import { FakeTransport } from './fake.js';
 import { OpenAiApiTransport, DEFAULT_TEXT_MODEL } from './openai-api.js';
 
