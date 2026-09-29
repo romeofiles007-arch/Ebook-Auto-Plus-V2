@@ -6,10 +6,10 @@
  * (หัวข้อ ###, ตัวหนา, ตัวเอียง, โค้ดในบรรทัด, ลิสต์, ตาราง, คำพูดอ้าง, เส้นคั่น)
  */
 
-import { prepareForTypeset, THAI_GAP } from '../core/thai.js';
+import { prepareForTypeset, THAI_GAP, BOX_OPEN, BOX_CLOSE } from '../core/thai.js';
 import { frontCoverTextInImage, backCoverTextInImage } from '../core/prompts.js';
 import { referenceLines, REFERENCE_STYLES } from '../core/references.js';
-import { stripEchoedHeading } from '../core/extract.js';
+import { stripEchoedHeading, cleanEpigraph } from '../core/extract.js';
 import { itemTypeSize, ITEM_BLOCK_KINDS } from '../core/items.js';
 import { readTable } from '../core/md-table.js';
 
@@ -18,6 +18,16 @@ const pt = (v) => `${round(v)}pt`;
 const round = (v) => Math.round(v * 1000) / 1000;
 
 // ---------- inline ----------
+/**
+ * ก้อนคำไทยที่ห้ามตัดกลาง (core/thai.js BOX_OPEN) — box ธรรมดาทำให้คำในกล่องลอยสูงกว่าบรรทัดเท่าความลึกของหาง
+ * (Typst วางก้นกล่องบนเส้นฐาน) จึงตั้งก้นกล่อง = เส้นฐาน · ทุกเอกสารที่ใช้ inline() ต้องมีบรรทัดนี้ในหัวเอกสาร
+ * ทดสอบกับเนื้อหา ~90 หน้า: เรียงพิมพ์ช้าลงราว 35% (2.6 → 3.6 วินาที)
+ */
+/** ชื่อบท/ตอน: ไม่ครอบกล่อง — ที่คั่นหน้า (bookmark) ของ PDF อ่านชื่อจากข้อความล้วน ข้อความในกล่องอาจหายจากที่คั่นหน้า */
+const headingText = (v, lang) => String(prepareForTypeset(v || '', lang)).replace(/[]/g, '');
+
+const TW_DEF = '#let tw(b) = box(text(bottom-edge: "baseline", b))';
+
 const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*|_[^_\n]+_)|(\[[^\]\n]+\]\([^)\s]+\))/g;
 
 function esc(s) {
@@ -44,7 +54,10 @@ function inline(text) {
   }
   out += esc(text.slice(last));
   // ช่องว่างคั่นวรรคไทย → ระยะแบบ weak ที่ Typst ยุบทิ้งเองเมื่ออยู่ต้น/ท้ายบรรทัด
-  return out.split(THAI_GAP).join('#h(0.42em, weak: true)');
+  // ก้อนคำไทย → #box[...] ให้ Typst ตัดบรรทัดได้เฉพาะระหว่างคำที่เราเลือก (core/thai.js BOX_OPEN)
+  // ZWSP ไม่ต้องส่งเข้า Typst แล้ว: กล่องคำตัดบรรทัดระหว่างกันได้เอง (ทดสอบแล้วตัดตรงกันทุกบรรทัด)
+  // และ ZWSP ที่เหลือไปติดในชั้นข้อความของ PDF — คัดลอกออกมาได้ "ใ" ที่มีอักษรล่องหนนำหน้า ค้นคำไม่เจอ
+  return out.split(THAI_GAP).join('#h(0.42em, weak: true)').split(BOX_OPEN).join('#tw[').split(BOX_CLOSE).join(']').split('​').join('');
 }
 
 /**
@@ -106,34 +119,65 @@ ${items}
 ]`;
 }
 
+/**
+ * ตารางแบบหนังสือ ไม่ใช่แบบสเปรดชีต (ผู้ใช้: "ตารางไม่สวยเลย" — เล่มคู่มือหวัด หน้า 54–55)
+ * เดิม: ทุกคอลัมน์กว้างเท่ากัน เส้นกริดทุกช่อง ตัวเล็กมาก และเก็บคอลัมน์ที่ว่างทั้งคอลัมน์ ("ยา —" ทุกแถว)
+ * ตอนนี้: เส้นหนาบน-ล่างและใต้หัวตาราง เส้นบางคั่นแถว ไม่มีเส้นตั้ง · หัวตารางพื้นเทาอ่อน แถวสลับสีจาง ๆ ·
+ * ความกว้างคอลัมน์ตามความยาวข้อความจริง · ตัดคอลัมน์ที่ว่างหรือเป็นขีดทั้งคอลัมน์ · หัวตารางซ้ำเมื่อข้ามหน้า
+ */
+const EMPTY_CELL = /^\s*(?:[-–—]|n\/?a|ไม่มี|-)?\s*$/i;
+// ข้อความจริงของช่อง ไม่นับจุดตัดคำและตัวครอบก้อนคำที่ตัวเตรียมข้อความไทยใส่ไว้
+const bare = (s) => String(s ?? '').replace(/[​]/g, '');
+
 function tableToTypst(rows, align, t) {
-  const cols = Math.max(1, ...rows.map((r) => r.length));
-  const columnSpec = Array.from({ length: cols }, () => '1fr').join(', ');
-  const normalized = rows.map((r) => Array.from({ length: cols }, (_, i) => r[i] || ''));
+  const width = Math.max(1, ...rows.map((r) => r.length));
+  let normalized = rows.map((r) => Array.from({ length: width }, (_, i) => r[i] || ''));
+  // คอลัมน์ที่ข้อมูลทุกแถวว่างหรือเป็นขีด ไม่บอกอะไรผู้อ่าน — ตัดทิ้ง (เหลืออย่างน้อยสองคอลัมน์)
+  const keep = normalized[0].map((_, i) => normalized.length < 2 || normalized.slice(1).some((r) => !EMPTY_CELL.test(bare(r[i]))));
+  if (keep.filter(Boolean).length >= 2) normalized = normalized.map((r) => r.filter((_, i) => keep[i]));
+  const aligns = (align || []).filter((_, i) => keep.filter(Boolean).length < 2 || keep[i]);
+  const cols = normalized[0].length;
+  // น้ำหนักความกว้างจากความยาวข้อความจริงของคอลัมน์ (ตัวอักษรแบบ grapheme ตัดสัญลักษณ์ markdown)
+  const len = (s) => [...bare(s).replace(/[*_`]/g, '').trim()].length;
+  const columnSpec = normalized[0]
+    .map((_, i) => {
+      const cells = normalized.map((r) => len(r[i]));
+      const longest = Math.max(...cells);
+      if (longest <= 8) return 'auto'; // คอลัมน์สั้น (รวมหัวตาราง เช่น "แนวโน้ม") กว้างพอดีข้อความ ไม่ตัดหัวตารางเป็นสองบรรทัด
+      const avg = cells.reduce((a, b) => a + b, 0) / cells.length;
+      return `${Math.max(1, Math.min(8, Math.round(Math.sqrt(avg + longest / 2))))}fr`;
+    })
+    .join(', ');
+  // หัวตารางสั้นห้ามตัดกลางคำ ("แนว|โน้ม") — ตัวเตรียมข้อความไทยแทรกจุดตัดคำ (U+200B) ไว้ ตัดทิ้งให้อยู่บรรทัดเดียว
   const header = normalized[0]
-    .map((cell) => `    [#text(weight: 600)[${inline(cell)}]]`)
+    .map((cell) => `    [#text(weight: 700)[${inline(len(cell) <= 10 ? BOX_OPEN + bare(cell) + BOX_CLOSE : cell)}]]`)
     .join(',\n');
   const body = normalized
     .slice(1)
     .flatMap((row) => row.map((cell) => `  [${inline(cell)}]`))
     .join(',\n');
-  const fontSize = Math.max(7, Math.min(10, (t.sizePt || 14) * (cols >= 6 ? 0.58 : cols >= 4 ? 0.68 : 0.78)));
+  const fontSize = Math.max(8.5, Math.min(11, (t.sizePt || 14) * (cols >= 6 ? 0.64 : cols >= 4 ? 0.74 : 0.82)));
   /**
    * คอลัมน์ตัวเลขที่เขียน ---: ไว้ ต้องชิดขวาจริงในเล่ม
    * ของเดิมชิดซ้ายหมดทุกคอลัมน์ ตัวเลขคนละหลักจึงเรียงไม่ตรงกันจนเทียบด้วยตายาก
    */
-  const alignSpec = Array.from({ length: cols }, (_, i) => `${align?.[i] || 'left'} + top`).join(', ');
-  return `#block(width: 100%)[
+  const alignSpec = Array.from({ length: cols }, (_, i) => `${aligns[i] || 'left'} + horizon`).join(', ');
+  return `#block(width: 100%, above: 1.1em, below: 1.1em)[
   #set text(size: ${pt(fontSize)})
-  #set par(first-line-indent: 0pt, leading: 0.3em)
+  #set par(first-line-indent: 0pt, justify: false, leading: 0.4em)
   #table(
     columns: (${columnSpec}),
-    inset: 3.5pt,
+    inset: (x: 6pt, y: 5.5pt),
     align: (${alignSpec}),
-    stroke: 0.4pt + luma(175),
+    stroke: (x, y) => (
+      top: if y == 0 { 1.2pt + luma(45) } else if y == 1 { 0.8pt + luma(45) } else { 0.4pt + luma(205) },
+      left: none, right: none, bottom: none,
+    ),
+    fill: (x, y) => if y == 0 { luma(236) } else if calc.even(y) { luma(248) } else { none },
     table.header(
 ${header}
-    )${body ? `,\n${body}` : ''}
+    )${body ? `,\n${body}` : ''},
+    table.hline(stroke: 1.2pt + luma(45)),
   )
 ]`;
 }
@@ -279,6 +323,17 @@ export function mdToTypst(md, baseLevel = 3, have = new Set(), t = { sizePt: 15 
       continue;
     }
 
+    /**
+     * บรรทัดตัวหนาล้วนสั้น ๆ ("**2. ปรับแผน**") คือหัวข้อย่อยที่โมเดลเขียน ไม่ใช่ย่อหน้า
+     * เจอจริง (Manifest 7 วัน): หัวข้อพวกนี้ตกค้างอยู่บรรทัดสุดท้ายของหน้า เนื้อหาของมันไปขึ้นหน้าถัดไป
+     * ทำเป็นกล่องที่ "ติด" กับเนื้อหาถัดไป (sticky) ไม่ย่อหน้าเยื้อง — Typst จะพาหัวข้อไปหน้าใหม่พร้อมเนื้อหาเอง
+     */
+    const lead = line.match(/^\s*\*\*([^*]{1,80})\*\*\s*:?\s*$/);
+    if (lead) {
+      out.push(`#block(sticky: true, above: 1.1em, below: 0.55em, text(weight: 700)[${inline(lead[1].trim())}])`, '');
+      continue;
+    }
+
     out.push(inline(line));
   }
 
@@ -322,16 +377,17 @@ export function buildDocument({ book, outline, sections, opts = {} }) {
     const chapterTitle = `${lang === 'th' ? 'บทที่' : 'Chapter'} ${ch.n}${ch.title ? ` · ${ch.title}` : ''}`;
     if (poster) {
       // เลข ชื่อ และคำคมของบทนี้ ให้กฎแสดงหัวบทอ่าน (หัวบทยังเป็น "บทที่ N · ชื่อ" สำหรับสารบัญและหัวกระดาษ)
-      const ep = book.chapterEpigraphs?.[ch.n] || {};
+      const raw = book.chapterEpigraphs?.[ch.n] || {};
+      const ep = { text: cleanEpigraph(raw.text), by: raw.by };
       body.push(`#chapter-meta.update((n: "${ch.n}", nt: "${String(ch.n).replace(/[0-9]/g, (d) => "๐๑๒๓๔๕๖๗๘๙"[d])}", title: [${TT(ch.title || chapterTitle)}], quote: ${ep.text ? `[${TT(ep.text)}]` : 'none'}, by: ${ep.text && ep.by ? `[${TT(ep.by)}]` : 'none'}))`);
     }
-    body.push(`= ${inline(prepareForTypeset(chapterTitle, lang))}`, '');
+    body.push(`= ${inline(headingText(chapterTitle, lang))}`, '');
     for (let sceneIndex = 0; sceneIndex < ch.sections.length; sceneIndex++) {
       const s = ch.sections[sceneIndex];
       const rec = secById.get(s.id);
       // ตัวเรียงพิมพ์พิมพ์ชื่อตอนให้อยู่แล้ว เนื้อหาไม่ต้องทวนชื่อตัวเองอีกบรรทัด
       const md = stripEchoedHeading(rec?.md, s).trim();
-      if (!isFiction) body.push(`== ${inline(prepareForTypeset(s.title, lang))}`, '');
+      if (!isFiction) body.push(`== ${inline(headingText(s.title, lang))}`, '');
       else if (sceneIndex > 0) body.push('#align(center)[• • •]', '');
       if (md) {
         body.push(mdToTypst(prepareForTypeset(md, lang), 3, have, t, figurePrompts), '');
@@ -341,10 +397,24 @@ export function buildDocument({ book, outline, sections, opts = {} }) {
     }
   }
 
+  // ภาพที่สร้างและบันทึกแล้วต้องมีคำสั่งวางภาพในต้นฉบับ Typst จริง
+  // มิฉะนั้น PDF จะส่งออกสำเร็จทั้งที่ภาพแทรกหายไปโดยไม่มีข้อผิดพลาด
+  const renderedBody = body.join('\n');
+  const omitted = (book.figures || [])
+    .filter((f) => f.kind === 'image' && f.name && have.has(f.name))
+    .filter((f) => !renderedBody.includes(`image("/img/${f.name}"`));
+  if (omitted.length) throw new Error(`ภาพที่สร้างแล้วไม่ถูกวางใน PDF: ${omitted.map((f) => f.name).join(', ')}`);
+
   const fm = frontMatter(book, outline, opts);
   const bm = backMatter(book, outline);
+  const plainChapterHeading = `
+  pagebreak(${book.chapterStartRight === true ? 'to: "odd", ' : ''}weak: true)${markPatternPage(opts)}
+  v(${round((trim.heightMm - t.marginsMm.top - t.marginsMm.bottom) * 0.16)}mm)
+  block(text(size: ${pt(t.sizePt * 1.6)}, weight: 600, it.body))
+  v(1em)
+`;
 
-  return `
+  return `${TW_DEF}
 #set document(title: ${str(outline.title)}, author: ${str(book.author || '')})
 
 ${poster ? openerPreamble() : ''}${patternPreamble(opts)}#set page(
@@ -392,14 +462,10 @@ ${poster ? openerPreamble() : ''}${patternPreamble(opts)}#set page(
 
 // บทใหม่ขึ้นหน้าใหม่ (ขึ้นหน้าขวาเฉพาะเมื่อตั้ง chapterStartRight สำหรับงานพิมพ์) และเว้นช่วงนำสายตา
 // เดิมบังคับหน้าขวาเสมอ นิยายที่บทสั้นจึงมีหน้าว่างทุกหน้าคู่ ครึ่งเล่มเป็นกระดาษเปล่า (ผู้ใช้เจอจริง)
-${poster ? chapterOpenerRule(book, t, book.chapterStartRight === true, opts) : `#show heading.where(level: 1): it => {
-  pagebreak(${book.chapterStartRight === true ? 'to: "odd", ' : ''}weak: true)${markPatternPage(opts)}
-  v(${round((trim.heightMm - t.marginsMm.top - t.marginsMm.bottom) * 0.16)}mm)
-  block(text(size: ${pt(t.sizePt * 1.6)}, weight: 600, it.body))
-  v(1em)
-}`}
-#show heading.where(level: 2): it => block(text(size: ${pt(t.sizePt * 1.2)}, weight: 600, it.body))
-#show heading.where(level: 3): it => block(text(size: ${pt(t.sizePt * 1.08)}, weight: 600, it.body))
+${poster ? chapterOpenerRule(book, t, book.chapterStartRight === true, opts, plainChapterHeading) : `#show heading.where(level: 1): it => {${plainChapterHeading}}`}
+// หัวข้อต้องติดกับเนื้อหาถัดไป (sticky) — ห้ามค้างเป็นบรรทัดสุดท้ายของหน้า
+#show heading.where(level: 2): it => block(sticky: true, text(size: ${pt(t.sizePt * 1.2)}, weight: 600, it.body))
+#show heading.where(level: 3): it => block(sticky: true, text(size: ${pt(t.sizePt * 1.08)}, weight: 600, it.body))
 
 // ---------- หน้าต้นเล่ม ----------
 ${fm}
@@ -415,19 +481,22 @@ ${fm}
   },` : ''}
   header: context {
     let p = counter(page).get().first()
-    let opens = query(heading.where(level: 1)).any(h => h.location().page() == p)
-    if opens { return }
+    // เทียบกับเลขหน้าจริง (physical) — เลขหน้าที่พิมพ์ถูกรีเซ็ตหลังหน้าต้นเล่ม เทียบผิดชุดแล้วหน้าเปิดบทมีหัวกระดาษของบทก่อน (เจอจริง)
+    let pg = here().page()
+    let opens = query(heading.where(level: 1)).any(h => h.location().page() == pg)
+    if opens { return }${poster ? `
+    if opener-pages.final().contains(pg) { return }` : ''}
     let here = query(selector(heading.where(level: 1)).before(here()))
     let ch = if here.len() > 0 { here.last().body } else { [] }
     set text(size: ${pt(t.sizePt * 0.72)}, fill: luma(90))
-    if calc.odd(p) [#h(1fr) #ch] else [${str(outline.title)} #h(1fr)]
+    if calc.odd(p) [#h(1fr) #ch] else [#${str(outline.title)} #h(1fr)]
   },
 )
 #counter(page).update(1)
 
 ${body.join('\n')}
 
-${bm}
+${poster ? '// ส่วนท้ายเล่มไม่ใช่บท — ล้างค่าบทสุดท้าย ไม่งั้นหัวข้ออภิธานศัพท์/บรรณานุกรมกลายเป็นหน้าเปิดบทซ้ำ\n#chapter-meta.update((n: "", nt: "", title: [], quote: none, by: none))\n' : ''}${bm}
 
 ${backCoverPage(book, outline, opts)}
 
@@ -517,7 +586,7 @@ export function buildItemsDocument({ book, outline, items, opts = {} }) {
     ${tf ? `${figMarkup(tf, true)}\n    #v(2.2em)` : ''}
     #text(size: ${pt(size * 0.72)}, fill: luma(125), tracking: 0.06em)[หมวดที่ ${esc(n)}]
     #v(0.8em)
-    #heading(level: 1)[${inline(prepareForTypeset(theme.title, lang))}]
+    #heading(level: 1)[${inline(headingText(theme.title, lang))}]
   ]
   #v(1.4fr)
 ]`);
@@ -555,7 +624,7 @@ export function buildItemsDocument({ book, outline, items, opts = {} }) {
       !(k === 'toc' && !multiTheme) && !(k === 'foreword' && !String(outline.foreword || '').trim())),
   };
 
-  return `
+  return `${TW_DEF}
 #set document(title: ${str(outline.title)}, author: ${str(book.author || '')})
 
 ${patternPreamble(opts)}#set page(
@@ -650,7 +719,7 @@ export function buildCalibrationDoc({ book, sampleText }) {
   const lang = book.language || 'th';
   const leading = Math.max(0.35, (t.lineHeight || 1.6) - 1);
 
-  return `
+  return `${TW_DEF}
 #set page(
   width: ${mm(trim.widthMm)},
   height: ${mm(trim.heightMm)},
@@ -736,11 +805,17 @@ function pageBackground(opts) {
  */
 const OPENER_INK = '#1A1A1A';
 const OPENER_SOFT = '#4A4A4A';
+/**
+ * ตัวห่าง (tracking) ใช้ได้กับอักษรละติน แต่ภาษาไทยตัวห่างแล้วสระ/วรรณยุกต์แยกจากพยัญชนะ อ่านเป็นตัว ๆ ("เ มื่ อ ไ ม่")
+ * และช่องไฟเท่าช่องว่างระหว่างคำ จนมองไม่ออกว่าคำไหนจบ — ไทยจึงไม่ห่าง (หรือห่างนิดเดียวกับป้ายสั้น ๆ อย่าง "บทที่")
+ */
+const trackFor = (lang, em, thaiEm = 0) => `${(lang || 'th') === 'th' ? thaiEm : em}em`;
+
 export const CHAPTER_OPENERS = {
   // แบบจากหนังสือตัวอย่างที่ผู้ใช้ส่งมา: เลขใหญ่ · เส้นหนา · ชื่อบท · เส้นหนา · คำคมตัวห่าง · –ผู้พูด
   lines: {
     label: 'เส้นคู่ — เลขบทใหญ่ ชื่อบทระหว่างเส้นหนา คำคมตัวห่าง',
-    body: (t, ink, soft) => `
+    body: (t, ink, soft, lang) => `
       set align(center)
       v(6%)
       // กล่องตัวเลขเอาแค่ความสูงตัวเลขจริง (cap-height ถึง baseline) ให้เส้นแนบใต้เลขแบบตัวอย่าง
@@ -753,7 +828,7 @@ export const CHAPTER_OPENERS = {
       line(length: 100%, stroke: 3pt + rgb("${ink}"))
       if m.quote != none {
         v(${pt(t.sizePt * 2.2)})
-        block(width: 90%, text(size: ${pt(t.sizePt * 1.02)}, tracking: 0.26em, fill: rgb("${soft}"), m.quote))
+        block(width: 90%, text(size: ${pt(t.sizePt * 1.02)}, tracking: ${trackFor(lang, 0.26)}, fill: rgb("${soft}"), m.quote))
         if m.by != none {
           v(${pt(t.sizePt * 1.4)})
           text(size: ${pt(t.sizePt * 1.02)}, fill: rgb("${soft}"))[–#m.by]
@@ -788,7 +863,7 @@ export const CHAPTER_OPENERS = {
     body: (t, ink, soft, lang) => `
       set align(center)
       v(26%)
-      text(size: ${pt(t.sizePt * 0.95)}, tracking: 0.35em, fill: rgb("${soft}"))[${lang === 'th' ? 'บทที่' : 'CHAPTER'} #m.n]
+      text(size: ${pt(t.sizePt * 0.95)}, tracking: ${trackFor(lang, 0.35, 0.1)}, fill: rgb("${soft}"))[${lang === 'th' ? 'บทที่' : 'CHAPTER'} #m.n]
       v(${pt(t.sizePt * 1.3)})
       block(width: 86%, text(size: ${pt(t.sizePt * 2)}, weight: 600, fill: rgb("${ink}"), m.title))
       v(${pt(t.sizePt * 1.4)})
@@ -798,7 +873,7 @@ export const CHAPTER_OPENERS = {
         block(width: 78%, text(size: ${pt(t.sizePt * 0.95)}, fill: rgb("${soft}"), m.quote))
         if m.by != none {
           v(${pt(t.sizePt * 1)})
-          text(size: ${pt(t.sizePt * 0.88)}, tracking: 0.12em, fill: rgb("${soft}"))[–#m.by]
+          text(size: ${pt(t.sizePt * 0.88)}, tracking: ${trackFor(lang, 0.12)}, fill: rgb("${soft}"))[–#m.by]
         }
       }`,
   },
@@ -827,7 +902,7 @@ export const CHAPTER_OPENERS = {
     body: (t, ink, soft, lang) => `
       set align(center)
       v(20%)
-      text(size: ${pt(t.sizePt * 1.3)}, tracking: 0.2em, fill: rgb("${soft}"))[${lang === 'th' ? 'บทที่ #m.nt' : 'Chapter #m.n'}]
+      text(size: ${pt(t.sizePt * 1.3)}, tracking: ${trackFor(lang, 0.2, 0.1)}, fill: rgb("${soft}"))[${lang === 'th' ? 'บทที่ #m.nt' : 'Chapter #m.n'}]
       v(${pt(t.sizePt * 0.9)})
       // ลายประดับวาดด้วยรูปทรง — ฟอนต์ไทยที่ฝังไว้ไม่มีอักขระลายดอกไม้ (เคยออกมาเป็นกล่องว่าง)
       stack(dir: ltr, spacing: 6pt, line(length: 22pt, stroke: 0.6pt + rgb("${soft}")), move(dy: -2.5pt, rotate(45deg, square(size: 5pt, fill: rgb("${soft}")))), line(length: 22pt, stroke: 0.6pt + rgb("${soft}")))
@@ -911,9 +986,13 @@ function openerPreamble() {
 `;
 }
 
-function chapterOpenerRule(book, t, startRight, opts) {
+function chapterOpenerRule(book, t, startRight, opts, plainHeading) {
   const style = CHAPTER_OPENERS[chapterOpenerKey(book)] || CHAPTER_OPENERS.lines;
-  return `#show heading.where(level: 1): it => {
+  /**
+   * หัวข้อระดับ 1 ที่ไม่ใช่บท (อภิธานศัพท์ บรรณานุกรม คำนำ) ใช้หัวข้อธรรมดา — ดูจาก chapter-meta ว่าว่างไหม
+   * เจอจริง (7 วันจัดการหวัดทีละขั้น): หน้าเปิด "บทที่ ๓" ซ้ำหน้าอภิธานศัพท์และบรรณานุกรม เพราะค่าบทสุดท้ายค้างอยู่
+   */
+  return `#show heading.where(level: 1): it => context { if chapter-meta.get().n == "" {${plainHeading}} else {
   pagebreak(${startRight ? 'to: "odd", ' : ''}weak: true)${markPatternPage(opts)}
   // อ่านเลขหน้าก่อน แล้วค่อยส่งค่าเข้า update — here() ในฟังก์ชันของ update ถูกเรียกทีหลังตอน .final() ซึ่งไม่มีบริบทหน้า (Typst ฟ้อง)
   context { let pg = here().page(); opener-pages.update(pages => pages + (pg,)) }
@@ -926,7 +1005,7 @@ function chapterOpenerRule(book, t, startRight, opts) {
     })
   }
   pagebreak()
-}`;
+} }`;
 }
 
 function frontMatter(book, outline, opts = {}) {
@@ -1089,7 +1168,9 @@ function backCoverPage(book, outline, opts = {}) {
   const coverH = book.trim?.heightMm || 210;
   const authorPhotoName = opts.authorPhotoName || 'author-photo.png';
   // โหมด Flow: รูปผู้เขียนที่เลือกไว้สำหรับปกหลังถูกวางโดยเครื่องเรียงพิมพ์เสมอ (ไม่ส่งให้ Flow วาดลงในภาพ)
-  const wantsPhoto = !!book.authorPhotoOnCover || (book.imageSource === 'flow' && (book.authorRefTargets || []).includes('cover-back'));
+  // ไม่แปะรูปถ่ายผู้เขียนบนปกหลังในทุกโหมด (ผู้ใช้: "ยกเลิกการแนบภาพตรงๆ แบบนี้" · "ยกเลิกทุกโหมดเลย")
+  // ผู้เขียนบนปกหลังถูกวาดเป็นคนในภาพปกแทน (prompts.js backCoverPrompt)
+  const wantsPhoto = false;
   const showAuthorPhoto = wantsPhoto && (opts.assetNames || []).includes(authorPhotoName);
 
   /**
@@ -1222,8 +1303,10 @@ ${body}`);
 = ${title}
 
 #block(breakable: true)[
-  #set text(size: 0.82em)
-  #set par(leading: 0.5em, spacing: 0.8em, first-line-indent: 0pt)
+  // ผู้ใช้: "reference ต้องตัวเล็กกว่านี้ และ กด enter แบ่ง" — เดิม 0.82em และแต่ละรายการชิดกันจนอ่านเป็นก้อนเดียว
+  // ตัวเล็กลง · เว้นบรรทัดคั่นทุกรายการ · บรรทัดที่สองเยื้องเข้า (hanging indent แบบ APA) ให้เห็นว่ารายการไหนเริ่มตรงไหน
+  #set text(size: 0.7em)
+  #set par(leading: 0.45em, spacing: 1.5em, first-line-indent: 0pt, hanging-indent: 1.6em, justify: false)
 ${indent(seed + lines)}
 ]`);
     }

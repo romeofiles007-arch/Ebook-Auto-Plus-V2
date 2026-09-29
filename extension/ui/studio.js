@@ -711,6 +711,8 @@ function logMachine(e) {
       check: `กำลังตรวจภาพ ${pos} · ${label}`,
       generate: `กำลังสร้างภาพ ${pos} · ${label}`,
       retry: `กำลังลองสร้างใหม่ ${pos} · ${label} (ครั้งที่ ${e.attempt}/${e.maxAttempts})`,
+      // โหมด 1 หน้า 1 ภาพ: Flow Agent วาดทั้งชุดในคำสั่งเดียว (machine.js flowAgentBatches) — ชุดหนึ่งใช้หลายนาที
+      agent: `${e.what || 'Flow Agent'} — วาดทั้งชุดในคำสั่งเดียว (ภาพที่ ${pos})`,
       // จังหวะการสั่ง Google Flow (machine.js flowPace) — ไม่ได้ค้าง กำลังเว้นระยะ
       pace: `${e.why || 'เว้นจังหวะ'} ${pos} · ${label} — อีก ${e.waitS >= 90 ? `${Math.ceil(e.waitS / 60)} นาที` : `${e.waitS || 0} วินาที`}`,
       grab: `ภาพยังไม่ขึ้นในคำตอบ · กำลังรอแล้วไล่คว้าจากหน้าแชตให้เอง ${pos} · ${label}`,
@@ -2618,7 +2620,8 @@ function shouldAutoContinue({ unattended: on, busy, job, quietMs }) {
   if (!on || busy || !job) return false;
   if (job.step === 'done') return false;
   if (job.status === 'rate_limited') return false; // ชนลิมิตแล้ว กดต่อคือไปชนซ้ำ
-  if (job.status === 'waiting_content_input') return false;
+  // งานรุ่นเก่าที่เคยหยุดรอข้อมูลให้กู้ต่อได้: เครื่องจะลองเติมหนึ่งรอบ
+  // แล้วละเว้นข้ออ้างที่ยังไม่มีหลักฐาน ไม่เปิดหน้าต่างถามคนซ้ำ
   // Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" = พักก่อน กดต่อทันทีคือยิ่งโดน (machine.js stopFlowUnusual)
   if (job.cooldownUntil && Date.now() < job.cooldownUntil) return false;
   return quietMs >= AUTO_CONTINUE_QUIET_MS;
@@ -3067,8 +3070,9 @@ function showResume(b) {
   }
   $('resume').classList.remove('hidden');
   const needsContent = b.job?.status === 'waiting_content_input';
-  runState(needsContent ? 'input' : 'stopped', b.job?.error || 'มีเล่มที่ยังไม่เสร็จบันทึกไว้ เลือกทำต่อจากขั้นเดิมได้',
-    needsContent ? 'resolveContent' : 'resume', needsContent ? 'เพิ่มข้อมูล / เลือกแนวทาง' : 'ทำต่อจากงานที่บันทึก');
+  runState('stopped', needsContent ? 'กำลังกู้เล่มที่เคยหยุดรอข้อมูล — จะละเว้นข้ออ้างที่ยังไม่มีหลักฐานแล้วทำต่อ' :
+    b.job?.error || 'มีเล่มที่ยังไม่เสร็จบันทึกไว้ เลือกทำต่อจากขั้นเดิมได้',
+    'resume', needsContent ? 'ทำต่ออัตโนมัติ' : 'ทำต่อจากงานที่บันทึก');
   /**
    * การ์ดงานค้าง = ยืนอยู่หน้าเริ่มต้น ไม่ได้อยู่ในงานนั้น
    *
@@ -3118,7 +3122,6 @@ async function clearImageGiveUp() {
 }
 
 async function resumeGo() {
-  if (book?.job?.status === 'waiting_content_input') return openContentInput();
   /**
    * ห้ามเดินเครื่องซ้อนเครื่องที่เดินอยู่
    *
@@ -3150,7 +3153,21 @@ async function resumeGo() {
     return false;
   }
 
-  if (book.job.status === 'waiting_content_input') return openContentInput();
+  if (book.job.status === 'waiting_content_input') {
+    // กู้เล่มที่หยุดด้วยโค้ดรุ่นก่อน: รายการที่ขาดอยู่ใน contentDraft ของแต่ละตอนแล้ว
+    // รอบใหม่จะใช้ recoverContentDraft จัดการเอง และเปิดโหมดเต็มรูปแบบให้เล่มนี้เดินต่อจนจบ
+    book.job.status = 'paused';
+    book.job.error = '';
+    delete book.job.contentInput;
+    delete book.job.contentInputOrigin;
+    book.automation = { ...(book.automation || {}), mode: 'full', version: 1 };
+    // เล่มที่เคยตั้งรอสร้าง/อัปโหลดภาพเอง จะไปหยุดรอคนอีกที่ประตูภาพ
+    // เก็บไฟล์ที่มีแล้วไว้ตามเดิม และให้เครื่องสร้างเฉพาะภาพที่ยังขาด
+    if (['prompt', 'upload'].includes(book.coverMode)) book.coverMode = 'auto';
+    if (['prompt', 'upload'].includes(book.figureMode)) book.figureMode = 'auto';
+    await db.saveBook(book);
+    addEvent('system', 'ทำต่อโดยไม่รอข้อมูลจากคน', 'จะลองเติมข้อมูล แล้วละเว้นข้ออ้างที่ยังไม่มีหลักฐานก่อนเขียนต่อ');
+  }
   $('resume').classList.add('hidden');
   $('start').classList.add('hidden');
   // มีคนมาดูแล้วและสั่งเดินต่อ คำตัดสิน "หยุดรอคุณ" ของผู้คุมจึงหมดหน้าที่
@@ -3303,6 +3320,13 @@ async function loadUnfinished() {
     await db.saveBook(book);
   }
   sections = await db.loadSections(book.id);
+  if (book.job?.status === 'waiting_content_input') {
+    // เล่มที่โค้ดเก่าหยุดรอคนต้องกลับมาเดินเองทันทีเมื่อเปิด Studio รุ่นใหม่
+    // resumeGo ย้ายสถานะและกู้เจตนาอัตโนมัติที่บันทึกไว้ ก่อนเดินต่อจากตอนเดิม
+    showResume(book);
+    resumeGo().catch(fail);
+    return;
+  }
 
   /**
    * เปิดหน้าไหนตอนเข้ามาใหม่
@@ -4129,25 +4153,31 @@ async function openContentInput() {
     };
     const mode = document.createElement('select');
     for (const [value, text] of [['', 'เลือกแนวทาง'], ['sources', 'เรียบเรียงจากข้อมูล / แหล่งที่ให้'],
+      ['no_data', 'ไม่มีข้อมูลจริง — ตัดข้ออ้างที่ยืนยันไม่ได้'],
       ['interpretation', 'เขียนต้นฉบับใหม่เชิงตีความ / ความเชื่อ / สมมติ']]) {
       const option = document.createElement('option'); option.value = value; option.textContent = text; mode.append(option);
     }
-    mode.value = input.allowOriginalInterpretation ? 'interpretation' : input.sourceText || input.guidance ? 'sources' : '';
+    mode.value = input.omitUnsupportedClaims ? 'no_data' : input.allowOriginalInterpretation ? 'interpretation' : input.sourceText || input.guidance ? 'sources' : '';
     mode.required = true;
     labelField('แนวทางการเขียน', mode);
     const source = document.createElement('textarea'); source.rows = 5; source.value = input.sourceText || '';
     source.placeholder = 'วางข้อมูลต้นทางหรือข้อความจากแหล่งที่ต้องการใช้ พร้อมชื่อ/ลิงก์ที่มา (ลิงก์อย่างเดียวอาจยังอ่านเนื้อหาไม่ได้)';
     labelField('ข้อมูลเพิ่มเติมสำหรับตอนนี้', source);
+    source.disabled = mode.value === 'no_data';
     const guidance = document.createElement('textarea'); guidance.rows = 2; guidance.value = input.guidance || '';
     guidance.placeholder = 'เช่น แนวทางพยากรณ์ที่ต้องการใช้ หรือสิ่งที่ควรอธิบายเพิ่มเติม';
     labelField('แนวทางเพิ่มเติมจากคุณ', guidance);
-    const scope = document.createElement('input'); scope.type = 'checkbox';
+    const scope = document.createElement('input'); scope.type = 'checkbox'; scope.disabled = mode.value === 'no_data';
     labelField('ใช้แนวทางนี้กับตอนอื่นในเล่มด้วย (ไม่คัดลอกข้อมูลเฉพาะตอน)', scope);
+    mode.addEventListener('change', () => {
+      source.disabled = scope.disabled = mode.value === 'no_data';
+      if (scope.disabled) scope.checked = false;
+    });
     fields.push({ id: request.id, mode, source, guidance, scope });
     form.append(group);
   }
   const note = document.createElement('p');
-  note.textContent = 'การตีความใช้สำหรับงานความเชื่อหรือสร้างสรรค์เท่านั้น ไม่ใช่การอนุญาตให้แต่งข้อเท็จจริง งานวิจัย หรือข้อมูลทางการแพทย์ กฎหมาย และการเงิน';
+  note.textContent = 'หากไม่มีข้อมูลจริง ระบบจะละเว้นข้ออ้างที่ขาดหลักฐานและเขียนขอบเขตข้อมูลตามที่มี โดยไม่สร้างหลักฐานหรือคำแนะนำเฉพาะขึ้นเอง · การตีความใช้สำหรับงานความเชื่อหรือสร้างสรรค์เท่านั้น ไม่ใช้แทนข้อมูลทางการแพทย์ กฎหมาย และการเงิน';
   const error = document.createElement('p'); error.setAttribute('role', 'alert');
   const submit = document.createElement('button'); submit.type = 'submit'; submit.textContent = 'บันทึกและทำต่อ';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'ไว้เลือกภายหลัง';
@@ -4161,11 +4191,12 @@ async function openContentInput() {
       return;
     }
     const unchanged = fields.every(f => {
-      const input = { sourceText: f.source.value.trim(), guidance: f.guidance.value.trim(),
-        allowOriginalInterpretation: f.mode.value === 'interpretation' };
+      const input = { sourceText: f.mode.value === 'no_data' ? '' : f.source.value.trim(), guidance: f.guidance.value.trim(),
+        allowOriginalInterpretation: f.mode.value === 'interpretation', omitUnsupportedClaims: f.mode.value === 'no_data' };
       const old = book.contentInputs?.[f.id] || book.contentAuthoring || {};
       return input.sourceText === (old.sourceText || '') && input.guidance === (old.guidance || '') &&
-        input.allowOriginalInterpretation === !!old.allowOriginalInterpretation && !f.scope.checked;
+        input.allowOriginalInterpretation === !!old.allowOriginalInterpretation &&
+        input.omitUnsupportedClaims === !!old.omitUnsupportedClaims && !f.scope.checked;
     });
     if (unchanged) {
       error.textContent = 'ข้อมูลและแนวทางยังเหมือนเดิม กรุณาเพิ่มข้อมูลหรือเปลี่ยนแนวทางก่อนทำต่อ';
@@ -4178,10 +4209,10 @@ async function openContentInput() {
     try {
       book.contentInputs = { ...book.contentInputs };
       for (const f of fields) {
-        const input = { sourceText: f.source.value.trim(), guidance: f.guidance.value.trim(),
-          allowOriginalInterpretation: f.mode.value === 'interpretation' };
+        const input = { sourceText: f.mode.value === 'no_data' ? '' : f.source.value.trim(), guidance: f.guidance.value.trim(),
+          allowOriginalInterpretation: f.mode.value === 'interpretation', omitUnsupportedClaims: f.mode.value === 'no_data' };
         book.contentInputs[f.id] = input;
-        if (f.scope.checked) book.contentAuthoring = { guidance: input.guidance,
+        if (f.scope.checked && !input.omitUnsupportedClaims) book.contentAuthoring = { guidance: input.guidance,
           allowOriginalInterpretation: input.allowOriginalInterpretation };
       }
       const origin = book.job.contentInputOrigin;
@@ -4282,7 +4313,8 @@ async function writeSectionWithAi(id, report = () => {}) {
         return { ok: false, inputNeeded: true, error: book.job.error };
       }
       report(`กำลังเรียบเรียงตอน ${id} ให้เหมาะกับหมวด...`);
-      prompt = composeBatchPrompt({ ...writingArgs, drafts: [{ id, md: rec.contentDraft.md }] });
+      prompt = composeBatchPrompt({ ...writingArgs, drafts: [{ id, md: rec.contentDraft.md,
+        omitted: rec.contentDraft.meta?.omitted_information || [] }] });
     } else prompt = sectionPrompt(writingArgs);
     const res = await sendTurn(
       transport,
@@ -4597,7 +4629,7 @@ function phase2Rows(assets) {
   const refWhere = authorRefSummary(book);
   if (book.authorPhotoOnCover || refWhere) {
     const ok = have.has('author-photo.png');
-    const waiting = [book.authorPhotoOnCover && 'ปกหลังรอไว้แปะ', refWhere && `แนบไปให้โมเดลดูตอนสร้าง ${refWhere}`]
+    const waiting = [book.authorPhotoOnCover && 'วาดผู้เขียนในภาพปกหลัง', refWhere && `แนบไปให้โมเดลดูตอนสร้าง ${refWhere}`]
       .filter(Boolean)
       .join(' · ');
     rows.push({
@@ -6528,8 +6560,9 @@ $('figureMode').addEventListener('change', () => {
   if ($('figureMode').value === 'auto' && $('illus').value === 'none') $('illus').value = 'light';
 });
 $('illus').addEventListener('change', () => {
-  if ($('illus').value === 'page' && $('figureStyle').value === 'box') {
-    $('figureStyle').value = val('contentMode', 'prose') === 'fiction' ? 'novel' : 'line';
+  // โหมด 1 หน้า 1 ภาพ = การ์ตูนลายเส้น doodle เสมอ (ผู้ใช้สั่ง) — เครื่องบังคับอยู่แล้ว หน้าจอแสดงให้ตรงกัน
+  if ($('illus').value === 'page') {
+    $('figureStyle').value = 'doodle';
     showStyleNote();
   }
   updateEstimate();
@@ -6669,7 +6702,7 @@ async function renderImages() {
    * ไม่งั้นคนที่เลือกแนบอย่างเดียวจะอ่านว่า "ไม่ได้เลือกใช้บนปก" แล้วนึกว่าไม่ต้องอัปโหลด
    */
   const refWhere = authorRefSummary(book);
-  const uses = [book?.authorPhotoOnCover && 'วางบนปกหลัง', refWhere && `แนบไปให้โมเดลดูตอนสร้าง ${refWhere}`]
+  const uses = [book?.authorPhotoOnCover && 'วาดผู้เขียนในภาพปกหลัง', refWhere && `แนบไปให้โมเดลดูตอนสร้าง ${refWhere}`]
     .filter(Boolean)
     .join(' · ');
   $('authorPhotoState').textContent = uses

@@ -162,7 +162,8 @@ test('ภาพแต่ละใบไปอยู่ในคอลเล็�
   assert.equal(flowCollectionFor(b, { kind: 'pattern', name: 'page-pattern.png' }), '02 ลวดลายพื้นหลัง');
   assert.equal(flowCollectionFor(b, { kind: 'interior', name: 'fig-2.1-1.png' }), '04 บทที่ 2 · ลงมือ');
   assert.equal(FLOW_REF_COLLECTION, '00 รูปอ้างอิง');
-  assert.match(machine, /collection: flowCollectionFor\(this\.book, j\)/);
+  // ภาพจาก Flow Agent อยู่หน้าหลักของ project (ไม่มีคอลเล็กชัน) · ภาพอื่นไปคอลเล็กชันตามเดิม
+  assert.ok(machine.includes("collection: fromAgent ? '' : flowCollectionFor(this.book, j)"));
   assert.match(adapter, /await openCollection\(args\.collection\)/);
   // รูปอ้างอิงเลือกจากตัวเลือกสื่อของทั้ง project ไม่อัปโหลดซ้ำเข้าคอลเล็กชันของบท
   assert.match(adapter, /attachFromPicker\(r\.tile\)/);
@@ -218,7 +219,7 @@ test('prompt ภาพในเล่มสร้างใหม่ตอนส�
 });
 
 test('ภาพในเล่มโหมด Flow ไม่แนบรูปผู้เขียนและไม่แนบปก', () => {
-  assert.match(machine, /j\.kind !== 'interior' && \(wantsAuthorRef/);
+  assert.match(machine, /j\.kind !== 'interior' && \(backFace \|\| wantsAuthorRef/);
   assert.match(machine, /\['cover', 'pattern'\]\.includes\(j\.kind\)/);
 });
 
@@ -260,11 +261,15 @@ test('นิยาย: ภาพต้นแบบตัวละคร แล�
   assert.match(machine, /collection: FLOW_CAST_COLLECTION/);
 });
 
-test('โหมด Flow สารคดี: ปกเป็นภาพล้วน ชื่อเรื่องให้ Typst เรียงพิมพ์ (Flow วาดตัวอักษรไทยเพี้ยน)', async () => {
+/** ผู้ใช้สั่ง: ปกทุกประเภทหนังสือในโหมด Flow สร้างพร้อมตัวหนังสือ และปกหน้าต้องน่าตื่นเต้น (เดิมสารคดีได้ภาพเปล่า) */
+test('โหมด Flow ทุกประเภท: ปกหน้า-หลังมีตัวหนังสือในภาพ · ปกหน้าสั่งให้น่าตื่นเต้น', async () => {
   const P = await import('./prompts.js');
-  assert.equal(P.coverTextBaked({ imageSource: 'flow', coverTextMode: 'baked' }), false);
+  assert.equal(P.coverTextBaked({ imageSource: 'flow', contentMode: 'prose' }), true);
   assert.equal(P.coverTextBaked({ imageSource: 'web', coverTextMode: 'baked' }), true);
-  assert.equal(P.backCoverTextBaked({ imageSource: 'flow', coverMode: 'auto', backCoverCopy: { hook: 'x' } }), false);
+  assert.equal(P.backCoverTextBaked({ imageSource: 'flow', contentMode: 'prose', backCoverCopy: { hook: 'x' } }), true);
+  assert.equal(P.backCoverTextBaked({ imageSource: 'flow', contentMode: 'prose' }), false, 'ยังไม่มีคำโปรย = ยังวาดคำโปรยไม่ได้');
+  assert.match(P.FLOW_COVER_PUNCH, /never a person standing still holding an object/);
+  // ภาพที่ไม่ได้สั่งให้มีตัวหนังสือ ยังห้ามตัวอักษรเหมือนเดิม
   const { flowPrompt } = await import('./flow.js');
   assert.match(flowPrompt({ kind: 'cover', prompt: 'x' }, { label: '3:4' }), /ARTWORK ONLY: absolutely no title/);
 });
@@ -312,12 +317,15 @@ test('ตัวเอกจากรูปที่แนบ: วาดภาพ
 });
 
 /** ผู้ใช้ขอ: นิยายเลือกภาพประกอบทุกหน้า ตามเหตุการณ์เด่นของหน้านั้น · ตัวละครต้องถูกต้องเคร่งครัด */
-test('นิยายภาพทุกหน้า: วางแผนจากข้อความจริงหน้าละหนึ่งภาพ และตัวละครในภาพตรงตามแผน', async () => {
+test('ภาพตามความเหมาะสม: วางแผนจากข้อความจริง เลือกเฉพาะหน้าที่ควรมีภาพ และตัวละครในภาพตรงตามแผน', async () => {
   const P = await import('./prompts.js');
   const pages = [{ key: '1.1-1', section: '1.1', page: 1, of: 2, text: 'เอมมี่เปิดประตูเจอต้น' }, { key: '1.1-2', section: '1.1', page: 2, of: 2, text: 'ต้นยื่นจดหมาย' }];
   const plan = P.fictionPagePlanPrompt({ topic: 't' }, { title: 't', cast: [{ name: 'เอมมี่' }, { name: 'ต้น' }] }, pages);
   assert.match(plan, /\[1\.1-1\] ตอน 1\.1 · หน้า 1\/2\nเอมมี่เปิดประตูเจอต้น/);
-  assert.match(plan, /หน้าละหนึ่งภาพพอดี/);
+  // ผู้ใช้เปลี่ยนจาก 1 หน้า 1 ภาพ เป็นตามความเหมาะสม — เลือกเฉพาะหน้าที่ควรมีภาพ ไม่ใช่ทุกหน้า
+  assert.match(plan, /ประมาณ 1 ภาพ \(ไม่เกิน 1 ภาพ\)/);
+  assert.doesNotMatch(plan, /หน้าละหนึ่งภาพพอดี/);
+  assert.deepEqual(P.pagePickQuota(Array(12).fill({})), { target: 3, max: 6 });
   assert.match(plan, /สะกดตรงตามรายชื่อ canon/);
   // แผนภาพนิยายแบบเดิมก็ต้องบอกชื่อคนในภาพ
   assert.match(P.figurePlanPrompt({ contentMode: 'fiction', illustrationLevel: 'rich' }, { title: 't' }, [], 'novel'), /"characters": \[/);
@@ -330,26 +338,29 @@ test('นิยายภาพทุกหน้า: วางแผนจาก
   // เครื่อง: ตัดหน้าตาม calibration · แทรกภาพท้ายช่วงหน้า · แนบภาพต้นแบบตามรายชื่อในแผน
   assert.match(machine, /const perPage = this\.book\.illustrationLevel === 'page';/);
   assert.match(machine, /P\.prosePagePlanPrompt\(this\.book, this\.book\.outline, todo\)/);
-  assert.match(machine, /if \(todo\.length\) throw new Halt/);
+  // หน้าที่ไม่ถูกเลือกคือข้ามโดยตั้งใจ ไม่ใช่ขาด — ไม่หยุดงาน และไม่รับเกินเพดาน
+  assert.doesNotMatch(machine, /วางแผนภาพรายหน้ายังขาด/);
+  assert.ok(machine.includes('const chosen = todo.filter((p) => byKey.get(p.key)?.subject).slice(0, max);'));
   assert.match(machine, /insertFigureAfter\(rec\.md, marker, f\.paraAt \+ \(n - 1\)\)/);
   assert.match(machine, /const planned = Array\.isArray\(fig\.characters\) \? fig\.characters : null;/);
   // prompt แผนทั้งเล่มยังมี fallback แต่เครื่องใช้แผนรายหน้ากับทั้งนิยายและสารคดี
   assert.match(P.figurePlanPrompt({ illustrationLevel: 'page', audience: 'x' }, { title: 't', chapters: [] }, [], 'line'), /มากที่สุดเท่าที่ควรจะเป็นภาพ/);
   const nonfiction = P.prosePagePlanPrompt({ topic: 't', genre: 'how-to' }, { title: 't' }, pages);
   assert.match(nonfiction, /\[1\.1-1\] ตอน 1\.1 · หน้า 1\/2\nเอมมี่เปิดประตูเจอต้น/);
-  assert.match(nonfiction, /หน้าละหนึ่งภาพพอดี/);
+  assert.match(nonfiction, /เฉพาะหน้าที่ภาพช่วยผู้อ่านได้จริง/);
 });
 
 test('นิยายสำหรับผู้สูงอายุ: มีในตัวเลือก และมีสูตรภาพของตัวเอง', async () => {
   const studioHtml = await readFile(new URL('../ui/studio.html', import.meta.url), 'utf8');
   const studioJs = await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8');
   assert.match(studioHtml, /<option value="senior">นิยายสำหรับผู้สูงอายุ<\/option>/);
-  assert.match(studioHtml, /<option value="page">1 หน้าเนื้อหา 1 ภาพ/);
+  assert.match(studioHtml, /<option value="page">ตามความเหมาะสม/);
   assert.match(studioHtml, /id="phase2ReplanPage"/);
   assert.doesNotMatch(studioJs, /option\.fictionOnly/);
   assert.match(studioJs, /await machine\.figures\(\);\s+await machine\.save\(\);/);
   const { plannedImageCount } = await import('./pricing.js');
-  assert.equal(plannedImageCount({ figureMode: 'auto', illustrationLevel: 'page', targetPages: 60 }).figures, 120);
+  // ตามความเหมาะสม: ราว 1 ภาพต่อ 3–4 หน้า (เดิม 1 หน้า 1 ภาพ ได้ 120 ภาพจากเล่ม 60 หน้า)
+  assert.equal(plannedImageCount({ figureMode: 'auto', illustrationLevel: 'page', targetPages: 60 }).figures, 17);
   const { flowGenreFor } = await import('./flow-genres.js');
   assert.equal(flowGenreFor({ contentMode: 'fiction', fictionGenre: 'senior' }).key, 'senior');
   const P = await import('./prompts.js');
@@ -412,10 +423,9 @@ test('นิยาย: ตัวละครครบทุกช่องที
   const sheet = P.characterSheetPrompt({}, { name: 'ภูมิ' }, { styleKey: 'novel', fromPhoto: true });
   assert.match(sheet, /THE ATTACHED PHOTO IS THIS CHARACTER/);
   assert.match(machine, /refs: from \? \[from\] : \[\]/);
-  assert.ok(machine.includes("prompt = P.flowNovelCoverPrompt("));
   const cover = P.flowNovelCoverPrompt({ book: { title: 'ค', fictionGenre: 'โรแมนซ์' }, outline: { thesis: 'x' }, people: [{ name: 'ฟ้า' }] });
   assert.match(cover, /attached image 1 = ฟ้า/);
-  assert.match(cover, /not a stock photo, not people posing at a table/);
+  assert.match(cover, /not a generic stock photo, not people posing at a table/);
   assert.match(cover, /romance cover convention/);
   assert.match(P.flowNovelCoverPrompt({ book: {}, back: true }), /no main character faces/);
   // ปกนิยายไม่ส่งรูปผู้เขียนให้ Flow (เคยถูกแปะรูปดิบลงปกหลัง) ให้ Typst วางแทน
@@ -442,7 +452,6 @@ test('สูตรปกตามประเภทหนังสือ: ใช
   for (const src of [await readFile(new URL('./export.js', import.meta.url), 'utf8'), await readFile(new URL('../ui/studio.js', import.meta.url), 'utf8')]) {
     assert.doesNotMatch(src, /flowGenreFor|flowGenreCoverDirection|flowNovelCoverPrompt/);
   }
-  assert.match(machine, /if \(!fiction && j\.kind === 'cover'\) \{\n        const direction = P\.flowGenreCoverDirection/);
 });
 
 /** ผู้ใช้ขอ: บันทึกอ้างอิงของตัวละครไว้ใช้ (คลังตัวละครข้ามเล่ม) */
@@ -522,4 +531,267 @@ test('จังหวะการสั่ง Flow: เว้นระยะ ร
   assert.ok(capped.waited >= 500_000, 'ครบ 22 คำขอในชั่วโมง → พักจนคำขอแรกพ้นหนึ่งชั่วโมง');
   assert.match(capped.logs[0], /ครบ 22 คำขอในหนึ่งชั่วโมง/);
   assert.equal(capped.stamps, 23);
+});
+
+/** ผู้ใช้สั่ง: ภาพประกอบโหมด 1 หน้า 1 ภาพ เป็นการ์ตูนลายเส้นแบบโปรเจกต์ Youtube Free animation Auto (เฉพาะภาพในเล่ม) */
+test('โหมด 1 หน้า 1 ภาพ: ภาพในเล่มเป็นการ์ตูนลายเส้น doodle เสมอ · ปกไม่เกี่ยว', async () => {
+  const P = await import('./prompts.js');
+  assert.match(P.FIGURE_STYLES.doodle.brief, /2D doodle cartoon/);
+  assert.match(P.FIGURE_STYLES.doodle.brief, /never photographic/);
+  assert.match(machine, /const interiorStyle = pageAgent \? 'doodle' : this\.book\.figureStyle \|\| 'box';/);
+  assert.match(machine, /const requested = interiorStyle;/);
+  const fig = P.flowFictionFigurePrompt({ book: {}, fig: { subject: 'x' }, styleKey: 'doodle', people: [{ name: 'ก', ref: { name: 'r' } }] });
+  assert.match(fig, /doodle cartoon/);
+  assert.match(fig, /draw each character from their reference sheet in this doodle style/);
+  assert.match(P.flowFigurePrompt({ book: {}, fig: { subject: 'x' }, styleKey: 'doodle' }), /doodle cartoon/);
+  // ปกยังใช้สูตรปกของตัวเอง ไม่ถูกบังคับเป็น doodle
+  assert.doesNotMatch(P.flowNovelCoverPrompt({ book: { illustrationLevel: 'page' }, outline: {} }), /doodle cartoon|STYLE BIBLE/);
+});
+
+/** ผู้ใช้เลือก: ภาพ 1 หน้า 1 ภาพ ส่งเป็นชุดผ่าน Flow Agent แบบโปรเจกต์ Youtube — ไม่สั่งทีละรูป */
+test('Flow Agent: ภาพ 1 หน้า 1 ภาพ วาดเป็นชุด แล้วหยิบตามชื่อ ไม่สร้างทีละรูป', async () => {
+  const flowAdapter = await readFile(new URL('../adapter/flow.js', import.meta.url), 'utf8');
+  const P = await import('./prompts.js');
+  // brief: STYLE BIBLE (doodle) · CHARACTER LOCK · RULES (ตั้งชื่อตามไฟล์ ห้ามตัวหนังสือ) · บรรทัดช็อตขึ้นต้นด้วยชื่อไฟล์
+  const shots = [{ name: 'fig-1.1-1.png', subject: 'Emmy opens the door', people: ['เอมมี่'], passage: 'เอมมี่เปิดประตู' }];
+  const brief = P.flowAgentBrief({ book: { contentMode: 'fiction' }, shots, cast: [{ name: 'เอมมี่', attached: 1 }], ratio: '4:3' });
+  assert.match(brief, /\[STYLE BIBLE\]\nhand-drawn 2D doodle cartoon/);
+  assert.match(brief, /- เอมมี่ = attached image 1/);
+  assert.match(brief, /Name each image EXACTLY as the filename/);
+  assert.match(brief, /Absolutely NO text in any image/);
+  assert.match(brief, /\nfig-1\.1-1\.png SHOT 01 \| Chars: เอมมี่ \| Scene: Emmy opens the door \| Story: เอมมี่เปิดประตู$/);
+  assert.equal(P.flowAgentShotLine(shots[0], 0), 'fig-1.1-1.png SHOT 01 | Chars: เอมมี่ | Scene: Emmy opens the door | Story: เอมมี่เปิดประตู');
+  // adapter: ตรวจ 0 เครดิตก่อน · ตั้ง Agent ไม่ต้องยืนยัน · เว้น 2 นาทีระหว่างข้อความ · หยุดเมื่อกิจกรรมผิดปกติ · หยิบตามชื่อไม่สร้างใหม่
+  assert.match(flowAdapter, /const OPS = \{ prepare: opPrepare, generate: opGenerate, agentBatch: opAgentBatch \};/);
+  assert.match(flowAdapter, /const cfg = await configure\(\{ ratio: args\.ratio, models: args\.models \}\);/);
+  assert.match(flowAdapter, /const AGENT_GAP_MS = 2 \* 60000;/);
+  assert.match(flowAdapter, /e\.code = 'unusual_activity';/);
+  assert.match(flowAdapter, /if \(args\.onlyExisting\) \{/);
+  assert.match(flowAdapter, /e\.code = 'not_found';/);
+  // เครื่อง: ชุดละไม่เกิน 10 · ภาพในเล่มหยิบอย่างเดียว ไม่เว้นจังหวะ ไม่ลองสร้างซ้ำ
+  assert.match(machine, /const AGENT_BATCH = 10;/);
+  assert.match(machine, /if \(pageAgent && \(await this\.flowAgentBatches\(jobs, castRefs, genErrors, authorFig\)\)\) return true;/);
+  assert.match(machine, /onlyExisting: fromAgent,/);
+  assert.match(machine, /if \(fromAgent && res\.code === 'not_found'\) break;/);
+  assert.match(machine, /if \(!fromAgent\) await this\.flowPace\(/);
+});
+
+/** ผู้ใช้สั่ง: ปกสร้าง prompt แบบ Ebook Auto to GPT Free (GPT Art Director) แต่ส่งไปวาดใน Google Flow */
+test('ปกโหมด Flow: ใช้ prompt ของ GPT Art Director ตรง ๆ ไม่ทับด้วยสูตร Flow', async () => {
+  const P = await import('./prompts.js');
+  assert.ok(!machine.includes('prompt = P.flowNovelCoverPrompt('));
+  assert.ok(!machine.includes('P.flowGenreCoverDirection('));
+  assert.ok(!machine.includes('${P.FLOW_COVER_PUNCH}'));
+  assert.ok(machine.includes('const frontPrompt = book.style ? P.frontCoverPrompt(book.style, book, book.outline || {})'));
+  assert.ok(machine.includes('CHARACTER REFERENCES: '));
+  assert.ok(machine.includes("unwrapped.replace(castNote, '')"));
+  assert.equal(P.FLOW_COVER_V, 6);
+  assert.ok(machine.includes('const needCoverV = P.FLOW_COVER_V;'));
+  assert.ok(machine.includes("coverPromptV: j.kind === 'cover' ? P.FLOW_COVER_V : null"));
+});
+
+/** ผู้ใช้: "ภาพแบบ doodle ก็จริง แต่ถ้าเลือกให้เป็นหน้าเรา ก็ต้องเป็นหน้าเราด้วยนะ ทั้งหมดเลย" */
+test('เลือกหน้าผู้เขียนในภาพประกอบ: ทุกรูปใน Flow เป็นหน้าผู้เขียน รวม doodle และชุด Agent', async () => {
+  const P = await import('./prompts.js');
+  const withAuthor = P.flowFigurePrompt({ book: {}, fig: { subject: 'x' }, styleKey: 'doodle', author: { name: 'ก', attached: 1 } });
+  assert.match(withAuthor, /THE PERSON IN THIS PICTURE IS THE AUTHOR \(attached image 1\)/);
+  assert.match(withAuthor, /2D doodle cartoon/);
+  assert.doesNotMatch(withAuthor, /anonymous ordinary learner/);
+  assert.match(P.flowFigurePrompt({ book: {}, fig: { subject: 'x' } }), /never the book's author/);
+  const brief = P.flowAgentBrief({ book: {}, shots: [{ name: 'a.png', subject: 's', people: ['ก'] }], cast: [{ name: 'ก', attached: 1, author: true }] });
+  assert.match(brief, /ก = attached image 1/);
+  assert.match(brief, /ก is the book's author and appears in EVERY shot/);
+  assert.doesNotMatch(P.flowAgentBrief({ book: { contentMode: 'fiction' }, shots: [], cast: [{ name: 'ก', attached: 1, author: true }] }), /appears in EVERY shot/);
+  const sheet = P.characterSheetPrompt({}, { name: 'ก' }, { styleText: P.flowFigureStyle('doodle'), fromPhoto: true, author: true });
+  assert.match(sheet, /Reference sheet of the author/);
+  assert.match(sheet, /THE ATTACHED PHOTO IS THIS CHARACTER/);
+  assert.match(sheet, /2D doodle cartoon/);
+  // ต่อสายครบ: วาดภาพต้นแบบก่อน · แนบทั้งทางทีละรูปและทางชุด Agent · ภาพเก่าที่ไม่มีหน้าผู้เขียนวาดใหม่
+  assert.ok(machine.includes('await this.ensureFlowAuthorSheet(interiorStyle'));
+  assert.ok(machine.includes('this.flowAgentBatches(jobs, castRefs, genErrors, authorFig)'));
+  assert.ok(machine.includes("authorFig ? [{ ...authorFig, name: 'THE AUTHOR' }] : []"));
+  assert.ok(machine.includes("author: authorFig?.ref ? { name: authorFig.name, attached: refs.length } : null"));
+  assert.ok(machine.includes("authorFace: j.kind === 'interior' && !!authorFig?.ref"));
+  assert.ok(machine.includes('!!authorFig && existing?.meta?.from === \'flow\' && !existing.meta?.authorFace'));
+});
+
+/** ผู้ใช้: "ปกหลังทุเรศมาก ปกหน้าเชยมาก ให้ทำเป็นแนว poster หนังสิ" (ส่งภาพปกคู่มือรับมือหวัดมา) */
+test('ปกโหมด Flow แนวโปสเตอร์หนัง · ปกหลังไม่มีหน้าผู้เขียนซ้อนสองรูป', async () => {
+  const P = await import('./prompts.js');
+  assert.match(P.FLOW_POSTER_FRONT, /MOVIE-POSTER KEY ART/);
+  assert.match(P.FLOW_POSTER_FRONT, /never a flat front-on shot of someone sitting at a desk writing/i);
+  assert.match(P.FLOW_POSTER_BACK, /NEVER put the text on a sheet of paper/);
+  assert.match(P.FLOW_POSTER_BACK, /NEVER show a book, a desk, a table/);
+  // ปกทั้งใบใช้คำสั่งโปสเตอร์ของตัวเอง (ผู้ใช้: "เอาปกเป็นแนวแบบ poster หนังไม่ได้หรอ")
+  assert.ok(machine.includes('P.flowPosterCoverPrompt({'));
+  assert.ok(machine.includes('prompt = build(onCover);'));
+  // ปกหลัง (ผู้ใช้: "ยกเลิกการแนบภาพตรงๆ แบบนี้"): ไม่แปะรูปถ่าย · Flow วาดผู้เขียนเป็นคนในภาพจากรูปต้นแบบ — หน้าเดียว ไม่ซ้อน
+  assert.ok(machine.includes("const backFace = j.name === 'cover-back.png' && !!this.book.authorPhotoOnCover;"));
+  const style = { style: 's', texture: 't', lighting: 'l', background_element: 'b', palette: [] };
+  // ทุกโหมด (ผู้ใช้: "ยกเลิกทุกโหมดเลย") — Flow และ ChatGPT เหมือนกัน
+  for (const book of [
+    { imageSource: 'flow', authorRefTargets: ['cover-back'] },
+    { imageSource: 'flow', authorPhotoOnCover: true },
+    { authorRefTargets: ['cover-back'] },
+    { authorPhotoOnCover: true },
+  ]) {
+    const back = P.backCoverPrompt(style, book);
+    assert.match(back, /appears as a person INSIDE this back-cover scene/);
+    assert.match(back, /Never a rectangular photo inset, never a pasted headshot/);
+    assert.doesNotMatch(back, /will be overlaid there later|Include a small author portrait/);
+  }
+  assert.doesNotMatch(P.backCoverPrompt(style, {}), /author/i, 'ไม่เลือก = ไม่มีผู้เขียนบนปกหลัง');
+  // เครื่องเรียงพิมพ์และปกกางเต็มไม่แปะรูปถ่ายเลย
+  const tpl = await readFile(new URL('../typeset/template.js', import.meta.url), 'utf8');
+  assert.match(tpl, /const wantsPhoto = false;/);
+  const exp = await readFile(new URL('./export.js', import.meta.url), 'utf8');
+  assert.match(exp, /const showAuthorPhoto = false;/);
+  // โหมด ChatGPT ก็แนบรูปให้โมเดลดูหน้าตาเมื่อเลือกผู้เขียนบนปกหลัง
+  assert.ok(machine.includes("const needsRef = (j.name === 'cover-back.png' && !!this.book.authorPhotoOnCover) || wantsAuthorRef(this.book, j)"));
+});
+
+/** ผู้ใช้: "อยากให้คิดเครื่องแต่งกายตัวละครให้เหมาะสมกับเนื้อเรื่องในทุกภาพ ไม่ใช่ใช้แต่ชุดในภาพที่แนบไป" */
+test('ชุดตามฉาก: ภาพต้นแบบล็อกแค่หน้าตา · แผนภาพกำหนดชุดต่อภาพ · ทุกจุดที่แนบภาพไม่สั่งให้ใส่ชุดเดิม', async () => {
+  const P = await import('./prompts.js');
+  globalThis.chrome ||= { runtime: { onMessage: { addListener() {} } } };
+  const { cleanWardrobe } = await import('./machine.js');
+  const people = [{ name: 'มีรา', ref: { name: 'char-01.png' } }];
+  const fig = { subject: 'Mira reads a letter at night', wardrobe: { มีรา: 'faded cotton pyjamas and a cardigan' } };
+  const p = P.flowFictionFigurePrompt({ book: {}, fig, people, styleKey: 'doodle' });
+  assert.match(p, /They do NOT fix what they wear/);
+  assert.match(p, /- มีรา: faded cotton pyjamas and a cardigan/);
+  assert.doesNotMatch(p, /body type and outfit|same face, hair, outfit/);
+  // แผนภาพเก่าที่ไม่มีช่อง wardrobe ยังได้กติกาชุดตามฉาก
+  assert.match(P.flowFictionFigurePrompt({ book: {}, fig: { subject: 'x' }, people }), /Dress every person for THIS moment/);
+  // Flow Agent: ไม่ล็อกชุด · บรรทัดช็อตบอกชุดของช็อตนั้น
+  const brief = P.flowAgentBrief({ book: { contentMode: 'fiction' }, shots: [{ name: 'a.png', subject: 's', people: ['มีรา'], wardrobe: fig.wardrobe }], cast: [{ name: 'มีรา', attached: 1 }] });
+  assert.doesNotMatch(brief, /glasses, outfit and colours/);
+  assert.match(brief, /a\.png SHOT 01 \| Chars: มีรา \| Wear: มีรา: faded cotton pyjamas/);
+  // ภาพต้นแบบ: ชุดเป็นแค่ค่าตั้งต้น
+  assert.match(P.characterSheetPrompt({}, { name: 'มีรา' }), /only a neutral everyday default/);
+  // ผู้เขียนในภาพประกอบ / ปกหลัง / รูปแนบ
+  assert.match(P.flowAuthorFigureRule({ attached: 1 }), /not in the clothes from the reference/);
+  assert.match(P.backCoverPrompt({ style: 's', texture: 't', lighting: 'l', background_element: 'b', palette: [] }, { authorPhotoOnCover: true }), /dressed for this scene \(not in the clothes from the photo\)/);
+  const { AUTHOR_REF_RULE } = await import('./imageRef.js');
+  assert.match(AUTHOR_REF_RULE, /not in the clothes from the photo/);
+  // แผนภาพนิยายขอช่อง wardrobe · machine เก็บและส่งต่อ
+  assert.match(P.fictionPagePlanPrompt({ bible: {} }, { cast: [] }, [{ key: '1.1-1', text: 'x' }]), /- wardrobe: ชุดที่ตัวละครแต่ละคนใส่/);
+  assert.deepEqual(cleanWardrobe({ มีรา: ' raincoat ', ต้น: '' }), { มีรา: 'raincoat' });
+  assert.equal(cleanWardrobe(['x']), undefined);
+  assert.match(machine, /wardrobe: cleanWardrobe\(f\.wardrobe\),/);
+  assert.match(machine, /people: people\.map\(\(c\) => c\.name\), wardrobe: fig\.wardrobe, layout: /);
+  assert.doesNotMatch(machine, /keep their face, hair and outfit identity/);
+});
+
+/** ผู้ใช้: "ชอบภาพที่แสดงเป็นขั้นตอนแบบนี้ … เล่มล่าสุดดูไม่มีอะไรเลย เหมือนภาพซ้ำ ๆ เดิม ๆ" */
+test('ภาพไม่ซ้ำเดิม: แผนภาพเลือก layout · ผู้เขียนไม่ต้องนั่งโต๊ะทุกรูป · ภาพต้นแบบพื้นขาวล้วน', async () => {
+  const P = await import('./prompts.js');
+  assert.deepEqual(P.FIGURE_LAYOUT_KEYS, ['steps', 'compare', 'flow', 'thought', 'closeup', 'scene']);
+  // แผนภาพสารคดีขอ layout และบังคับความหลากหลาย
+  const plan = P.prosePagePlanPrompt({}, {}, [{ key: '1.1-1', section: '1.1', page: 1, of: 1, text: 'x' }]);
+  assert.match(plan, /ห้ามใช้ layout เดียวกันเกิน 2 ภาพติดกัน/);
+  assert.match(plan, /ห้ามให้ทุกภาพอยู่ที่โต๊ะทำงานหรือห้องเดิม/);
+  assert.match(plan, /"layout":"steps"/);
+  // layout จากแผนภาพถูกใช้จริง · แผนเก่าเดาจากคำ
+  assert.match(P.flowFigurePrompt({ book: {}, fig: { subject: 'x', layout: 'thought' } }), /thought bubbles/);
+  assert.match(P.flowFigurePrompt({ book: {}, fig: { subject: 'x', layout: 'compare' } }), /split picture/);
+  assert.match(P.flowFigurePrompt({ book: {}, fig: { subject: 'three steps to plan' } }), /step number 1, 2, 3, 4/);
+  // ผู้เขียน: ไม่ลอกห้องของภาพต้นแบบ ไม่ต้องนั่งโต๊ะ
+  const a = P.flowAuthorFigureRule({ attached: 1 });
+  assert.match(a, /ignore its background, room, desk, furniture, props and pose/);
+  assert.match(a, /they do not have to sit at a desk/);
+  // Flow Agent: บรรทัดช็อตบอก Layout · กติกาความหลากหลาย
+  const brief = P.flowAgentBrief({ book: {}, shots: [{ name: 'a.png', subject: 's', people: ['ก'], layout: 'steps' }], cast: [{ name: 'ก', attached: 1, author: true }] });
+  assert.match(brief, /\| Layout: steps \|/);
+  assert.match(brief, /VARIETY: consecutive images must differ in place, layout and camera distance/);
+  assert.match(brief, /never copy its room, desk, bookshelf, lamp or pose/);
+  // ภาพต้นแบบพื้นขาวล้วน แม้สไตล์จะสั่งให้มีสถานที่
+  const sheet = P.characterSheetPrompt({}, { name: 'ก' }, { styleText: P.flowFigureStyle('doodle'), fromPhoto: true, author: true });
+  assert.match(sheet, /SHEET RULE \(overrides any location or props in the style\): plain flat white background only/);
+  // machine เก็บ layout จากแผนภาพ · ภาพต้นแบบผู้เขียนรุ่นใหม่ถูกวาดใหม่
+  assert.match(machine, /layout: P\.FIGURE_LAYOUTS\[f\.layout\] \? f\.layout : undefined,/);
+  assert.match(machine, /author-sheet-\$\{styleKey \|\| 'plain'\}-v2\.png/);
+});
+
+/** ผู้ใช้ส่งภาพหน้า 101 และ 45: ใต้ภาพมีชื่อไฟล์ "fig-4.3-3.png" และ "Fig-3.1-1: คฑาวุฐ สุมาลี applies …" ที่ Flow วาดลงในภาพ */
+test('ภาพประกอบไม่มีชื่อไฟล์/คำบรรยาย/ชื่อคนวาดอยู่ในภาพ', async () => {
+  const P = await import('./prompts.js');
+  const { flowPrompt } = await import('./flow.js');
+  const brief = P.flowAgentBrief({ book: {}, shots: [{ name: 'fig-4.3-3.png', subject: 's', people: ['THE AUTHOR'] }], cast: [{ name: 'THE AUTHOR', attached: 1, author: true }] });
+  assert.match(brief, /NEVER DRAW THE FILENAME OR ANY LABEL INTO THE PICTURE/);
+  assert.match(brief, /Names after "Chars:" only tell you who is in the shot — never write any name in the image/);
+  assert.match(machine, /authorFig \? \[\{ \.\.\.authorFig, name: 'THE AUTHOR' \}\] : \[\]/);
+  assert.match(flowPrompt({ kind: 'interior', prompt: 'x' }, { label: '4:3' }), /NO LABELS IN THE PICTURE/);
+  assert.doesNotMatch(flowPrompt({ kind: 'cover', prompt: 'x', textBaked: true }, { label: '3:4' }), /NO LABELS IN THE PICTURE/, 'ปกยังมีตัวหนังสือตามที่สั่ง');
+});
+
+/** ผู้ใช้: "หน้าปกยังเชยมาก" — ได้ผู้เขียนยืนเท้าโต๊ะในออฟฟิศ มีโทรศัพท์บนโต๊ะ ชื่อเรื่องตัวขาวธรรมดา ชื่อรองยาว 4 บรรทัด */
+test('ปกหน้าโปสเตอร์: ภาพเปรียบเทียบใหญ่ ห้ามฉากออฟฟิศ · ตัวชื่อเรื่องแบบโปสเตอร์ · ชื่อรองยาวไม่ใส่ · ย้ำท้ายคำสั่ง', async () => {
+  const P = await import('./prompts.js');
+  assert.match(P.FLOW_POSTER_FRONT, /ONE big, surprising visual metaphor/);
+  assert.match(P.FLOW_POSTER_FRONT, /NEVER a literal office, meeting room, desk, laptop, notebook or phone on a table/);
+  assert.match(P.FLOW_POSTER_FRONT, /designed display lettering, not plain white type/);
+  assert.match(P.FLOW_POSTER_REMINDER, /FINAL CHECK — this must be a MOVIE POSTER, not a stock photo/);
+  const style = { style: 's', texture: 't', lighting: 'l', mood: 'm', palette: [], typography: {} };
+  const longSub = 'คู่มือเริ่มต้นฝึกธรรมะจากเรื่องที่เกิดขึ้นจริงในแต่ละวัน ตั้งแต่รู้ทันความคิดและอารมณ์ ไปจนถึงรับมือความทุกข์';
+  const flowFront = P.frontCoverPrompt(style, { imageSource: 'flow', topic: 't' }, { title: 'ธรรมะทีละขั้น', subtitle: longSub });
+  assert.doesNotMatch(flowFront, /SUBTITLE/);
+  assert.match(P.frontCoverPrompt(style, { imageSource: 'flow', topic: 't' }, { title: 'ก', subtitle: 'ใจสงบใน 7 วัน' }), /SUBTITLE \(exact characters\): "ใจสงบใน 7 วัน"/);
+  assert.match(P.frontCoverPrompt(style, { topic: 't' }, { title: 'ก', subtitle: longSub }), /SUBTITLE/, 'โหมดอื่นยังใส่ชื่อรองเต็มตามเดิม');
+});
+
+/** ผู้ใช้: "เอาปกเป็นแนวแบบ poster หนังไม่ได้หรอ" — ปกทั้งใบเป็นคำสั่งโปสเตอร์ ไม่ใช่คำสั่ง Art Director ที่ต่อท้ายด้วยโปสเตอร์ */
+test('ปกโปสเตอร์หนัง: คำสั่งของตัวเอง สั้น ใช้ความคิดของ Art Director เป็นวัตถุดิบ', async () => {
+  const P = await import('./prompts.js');
+  const book = { imageSource: 'flow', language: 'th', genre: 'self', author: 'คฑาวุฐ สุมาลี', coverDigest: { one_line: 'ฝึกธรรมะจากเรื่องจริงในแต่ละวัน' },
+    backCoverCopy: { hook: 'ใจวุ่นได้ แต่ไม่ต้องจมอยู่ตรงนั้น', body: 'b', bullets: ['x', 'y'] } };
+  const outline = { title: 'ธรรมะทีละขั้น', subtitle: 'คู่มือเริ่มต้นฝึกธรรมะจากเรื่องที่เกิดขึ้นจริงในแต่ละวัน ตั้งแต่รู้ทันความคิดและอารมณ์' };
+  const style = { visual_metaphor: 'a storm of thoughts swirling around a calm person', lighting: 'dawn light', palette: [{ name: 'teal' }], mood: 'hopeful' };
+  const front = P.flowPosterCoverPrompt({ book, outline, style, authorAttached: true });
+  assert.match(front, /^MOVIE POSTER — design this FRONT COVER exactly like the key art of a theatrical film poster/);
+  assert.match(front, /KEY ART CONCEPT .*a storm of thoughts swirling around a calm person/);
+  assert.match(front, /THE HERO IS THE AUTHOR/);
+  assert.match(front, /- TITLE \(huge display lettering/);
+  assert.match(front, /- AUTHOR \(small, like a film credit, ONCE only — at the bottom edge\): "คฑาวุฐ สุมาลี"/);
+  assert.match(front, /Each text item appears exactly once/);
+  assert.doesNotMatch(front, /TAGLINE/, 'ชื่อรองยาวเกิน tagline ไม่ใส่บนปกหน้า');
+  assert.match(front, /NEVER: an office, meeting room, desk, computer screen, laptop, notebook or phone on a table; background crowds or silhouettes of office workers/);
+  // ทดสอบจริง: Flow เติมออฟฟิศและเงาคนไว้ด้านหลังตัวเอก — พื้นหลังต้องเป็นตัวคอนเซปต์เอง
+  assert.match(front, /BACKGROUND: the concept itself is the world behind the hero/);
+  assert.ok(front.length < 3500, `คำสั่งปกต้องสั้น (${front.length})`);
+  const back = P.flowPosterCoverPrompt({ book, outline, style, back: true, authorInBack: true });
+  assert.match(back, /BACK COVER of the same/);
+  assert.match(back, /- HEADLINE \(large, bold\): "ใจวุ่นได้ แต่ไม่ต้องจมอยู่ตรงนั้น"/);
+  assert.match(back, /- BULLET: "x"/);
+  assert.match(back, /The author \(face from the attached photo\) appears as a person inside this scene/);
+  // นิยาย: ตัวละครหลักเป็นพระเอกของโปสเตอร์
+  const novel = P.flowPosterCoverPrompt({ book: { ...book, contentMode: 'fiction', fictionGenre: 'โรแมนซ์' }, outline, style, people: [{ name: 'ฟ้า' }] });
+  assert.match(novel, /THE HEROES — attached reference sheets.*attached image 1 = ฟ้า/);
+});
+
+/** ผู้ใช้: "อยากปรับโทนสี มูทให้ตรงกับเนื้อเรื่องด้วย" */
+test('ปกโปสเตอร์: โทนสีและอารมณ์มาจากเนื้อเรื่อง ไม่ใช่โทนหนังมืดตายตัว', async () => {
+  const P = await import('./prompts.js');
+  const calm = { imageSource: 'flow', genre: 'self', coverDigest: { one_line: 'x', energy: { label: 'สงบ อบอุ่น มีความหวัง', level: 2 }, emotional_arc: 'จากใจวุ่นวายสู่ความสงบ', palette_brief: { temperature: 'warm', saturation: 'medium', value_key: 'light', must_feel: 'สงบ โปร่ง', must_not_feel: 'มืด ตึงเครียด' } } };
+  const p = P.flowPosterCoverPrompt({ book: calm, outline: { title: 't' }, style: { palette: [{ name: 'soft gold' }] } });
+  assert.match(p, /not a default dark blockbuster grade: it feels สงบ อบอุ่น มีความหวัง, and its emotional journey goes จากใจวุ่นวายสู่ความสงบ/);
+  assert.match(p, /COLOUR GRADE: warm, natural, medium saturation, high-key — bright, luminous and airy; built around soft gold; the colours must feel สงบ โปร่ง; they must NOT feel มืด ตึงเครียด/);
+  assert.match(p, /\(quiet, gentle, soft light\)/);
+  assert.doesNotMatch(p, /strong rim light, glowing highlights, deep shadows, haze/, 'เลิกโทนมืดตายตัว');
+  const dark = P.flowPosterCoverPrompt({ book: { ...calm, coverDigest: { energy: { level: 5 }, palette_brief: { value_key: 'dark', saturation: 'high' } } }, outline: { title: 't' } });
+  assert.match(dark, /low-key — deep, dark and moody/);
+  assert.match(dark, /\(bright, energetic light\)/);
+  // ปกหลังใช้โทนเดียวกับปกหน้า
+  assert.match(P.flowPosterCoverPrompt({ book: calm, outline: { title: 't' }, back: true }), /Use exactly the same colour grade and mood as the front cover/);
+});
+
+/** ผู้ใช้: "ทำไมสีถึงเหลืองทุกภาพเลย" */
+test('สีไม่ย้อมเหลือง: ทุกภาพของ Flow ขอสีจริง · ปกต้องมีสีที่ไม่ใช่โทนอุ่นเป็นพื้นที่ใหญ่ · doodle ไม่ยึดส้ม/เหลือง', async () => {
+  const P = await import('./prompts.js');
+  const { flowPrompt } = await import('./flow.js');
+  for (const kind of ['cover', 'interior', 'character'])
+    assert.match(flowPrompt({ kind, prompt: 'x', textBaked: true }, { label: '3:4' }), /COLOUR ACCURACY: clean, true colours — no overall yellow, orange, amber, sepia or golden-hour cast/);
+  assert.match(P.flowPosterCoverPrompt({ book: {}, outline: { title: 't' } }), /COLOUR BALANCE: no single yellow, gold or sepia wash/);
+  assert.match(P.FIGURE_STYLES.doodle.brief, /orange and yellow are accents, never a yellow or orange wash/);
+  assert.doesNotMatch(P.FIGURE_STYLES.doodle.brief, /warm lively palette built on orange/);
 });

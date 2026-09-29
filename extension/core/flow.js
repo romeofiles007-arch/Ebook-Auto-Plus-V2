@@ -68,12 +68,27 @@ export function flowPrompt(job, ratio) {
           : 'ARTWORK ONLY: absolutely no title, no author name, no letters of any kind — the real title is typeset on top later. Shop signs, screens, papers and labels in the scene are blank or show only abstract shapes. Leave calm, uncluttered space in the top third for the title.'),
     );
   }
+  /**
+   * ภาพประกอบในเล่ม: ห้ามมีป้าย/คำบรรยาย/ชื่อไฟล์ในภาพ — ระบบพิมพ์คำบรรยายใต้ภาพให้เองแล้ว
+   * เจอจริง: Flow วาด "fig-4.3-3.png" และ "Fig-3.1-1: คฑาวุฐ สุมาลี applies …" เป็นแถบข้อความใต้ภาพ
+   * (ชื่อคนใน subject ของแผนภาพก็ถูกวาดลงไปด้วย)
+   */
+  if (job?.kind === 'interior') {
+    parts.push(
+      "NO LABELS IN THE PICTURE: never write a filename, a \"Fig\" label, a caption, a title or any person's name anywhere in the image, and no white strip with text above or below the artwork — names in this prompt only say who is who. The book prints its own caption under the picture.",
+    );
+  }
   const edge =
     job?.kind === 'cover'
       ? 'This is a printed book cover: keep every important subject and face well away from all four edges (about 8% margin), because the edges are trimmed.'
       : lossPct >= 2
         ? `About ${lossPct}% of the frame will be trimmed from the edges to fit the page: keep important content away from the edges.`
         : '';
+  /**
+   * สีจริง ไม่ย้อมเหลือง — ผู้ใช้: "ทำไมสีถึงเหลืองทุกภาพเลย"
+   * โมเดลภาพของ Flow ชอบย้อมทั้งภาพเป็นแสงทอง/ซีเปียเมื่อไม่มีใครห้าม และคำสั่งของเราเองเคยเติม warm/golden ซ้ำหลายชั้น
+   */
+  parts.push('COLOUR ACCURACY: clean, true colours — no overall yellow, orange, amber, sepia or golden-hour cast over the whole image unless this prompt explicitly asks for that colour. Whites stay white, skin stays natural, and cool colours (blues, greens, teals, greys) keep their real hue; warm light may touch highlights only.');
   parts.push(`FRAME: ${ratio?.label || '4:3'} ${FLOW_RATIOS[ratio?.label] >= 1 ? 'landscape' : 'portrait'} image, fill the whole frame edge to edge.${edge ? ` ${edge}` : ''}`);
   return parts.filter(Boolean).join('\n\n');
 }

@@ -98,7 +98,9 @@ test('หัวข้อบรรณานุกรมไม่บอกชื�
   assert.match(back, /const title = 'บรรณานุกรม';/);
   assert.ok(!/บรรณานุกรม \(\$\{REFERENCE_STYLES/.test(back), 'ต้องไม่มีวงเล็บบอกสไตล์แล้ว');
   // ย่อด้วยหน่วย em เพื่อให้เล็กลงตามขนาดตัวอักษรของเล่มนั้น ไม่ใช่ตัวเลขตายตัว
-  assert.match(back, /#set text\(size: 0\.82em\)/);
+  assert.match(back, /#set text\(size: 0\.7em\)/);
+  // เว้นระยะคั่นทุกรายการ และบรรทัดต่อเยื้องเข้า (ผู้ใช้: "reference ต้องตัวเล็กกว่านี้ และ กด enter แบ่ง")
+  assert.match(back, /spacing: 1\.5em, first-line-indent: 0pt, hanging-indent: 1\.6em/);
   // ต้องครอบไว้ ไม่งั้นขนาดจะรั่วไปถึงหน้าเกี่ยวกับผู้เขียนที่ต่อท้ายกัน
   assert.match(back, /#block\(breakable: true\)\[/);
 

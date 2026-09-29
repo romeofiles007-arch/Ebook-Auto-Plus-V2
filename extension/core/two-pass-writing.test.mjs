@@ -106,15 +106,25 @@ test('changed assignment invalidates draft; Bible growth and tone do not', () =>
   assert.notEqual(P.contentDraftKey({ ...book, genre: 'textbook' }, chapter, section), key);
 });
 
-test('missing required information is saved and blocks composition, even with short body', async () => {
+test('missing real information is omitted after one recovery and composition continues', async () => {
   const gap = answer('1.1', 'ยังไม่มีข้อมูลพอ', { missing_information: ['คำพยากรณ์ทั้ง 12 ราศี'], short_reason: 'ข้อมูลไม่ครบ' });
-  const h = harness([gap, gap]);
-  await assert.rejects(h.machine.writeBatch(input), /คำพยากรณ์ทั้ง 12 ราศี/);
-  assert.equal(h.calls.length, 2);
-  assert.equal(h.records.get('1.1').md, '');
-  assert.ok(h.records.get('1.1').contentDraft.meta.missing_information.length);
-  await assert.rejects(h.machine.writeBatch(input), /รอข้อมูลหรือแนวทาง/);
-  assert.equal(h.calls.length, 2, 'do not burn another turn until inputs change');
+  const h = harness([gap, gap, answer('1.1', finalBody)]);
+  await h.machine.writeBatch(input);
+  assert.equal(h.calls.length, 3);
+  assert.equal(h.records.get('1.1').md, finalBody.trim());
+  assert.deepEqual(h.records.get('1.1').contentDraft.meta.omitted_information, ['คำพยากรณ์ทั้ง 12 ราศี']);
+  assert.match(h.calls[2].prompt, /ขอบเขตใหม่สำหรับตอน/);
+  assert.match(h.calls[2].prompt, /ไม่แต่งคำแนะนำเฉพาะ/);
+});
+
+test('resuming a previously attempted draft omits its missing claims without another recovery turn', async () => {
+  const h = harness([answer('1.1', finalBody)]);
+  h.records.set('1.1', { id: '1.1', md: '', contentDraft: {
+    key: P.contentDraftKey(h.machine.book, chapter, section), md: 'ข้อมูลยังขาด',
+    meta: { missing_information: ['แหล่งอ้างอิงเฉพาะ'] }, recoveryAttempted: true } });
+  await h.machine.writeBatch(input);
+  assert.equal(h.calls.length, 1);
+  assert.deepEqual(h.records.get('1.1').contentDraft.meta.omitted_information, ['แหล่งอ้างอิงเฉพาะ']);
 });
 
 /**
@@ -240,20 +250,20 @@ test('missing general explanation is recovered autonomously and then composed', 
   assert.equal(h.records.get('1.1').contentDraft.recoveryAttempted, true);
 });
 
-test('input-needed has its own persistent state and resumes at the same cursor', async () => {
+test('missing input no longer stops the running book at its current cursor', async () => {
   const gap = answer('1.1', 'ไม่มีข้อมูลจริง', { missing_information: ['ข้อมูลผู้เขียน'] });
-  const h = harness([gap, gap]);
+  const h = harness([gap, gap, answer('1.1', finalBody)]);
   h.machine.job.step = 'write'; h.machine.job.cursor = 3;
   h.machine.save = async () => {};
   h.machine.emit = () => {};
-  h.machine.write = async () => h.machine.writeBatch(input);
+  h.machine.write = async () => { await h.machine.writeBatch(input); h.machine.job.step = 'done'; };
   const run = vm.runInNewContext(`(async function ${Machine.prototype.runUntilGate.toString().replace(/^async /, '')})`,
     { ContentInputNeeded, Halt: Error, RateLimited: class extends Error {} });
   const result = await run.call(h.machine);
-  assert.equal(result.stopped, 'waiting_content_input');
+  assert.equal(result.done, true);
   assert.equal(h.machine.job.cursor, 3);
-  assert.equal(h.machine.job.contentInput[0].id, '1.1');
-  assert.equal(h.machine.job.contentInput[0].missing[0], 'ข้อมูลผู้เขียน');
+  assert.equal(h.machine.job.contentInput, undefined);
+  assert.deepEqual(h.records.get('1.1').contentDraft.meta.omitted_information, ['ข้อมูลผู้เขียน']);
 });
 
 test('user source or interpretation choice invalidates negative cache and is carried to both stages', async () => {
@@ -271,4 +281,18 @@ test('user source or interpretation choice invalidates negative cache and is car
       assert.ok(call.prompt.includes(contentInput.allowOriginalInterpretation ? 'อนุญาตเขียนต้นฉบับเชิงตีความใหม่' : 'ไม่แต่งข้อเท็จจริงที่ยังขาด'));
     }
   }
+});
+
+test('no-data choice omits unsupported claims and composes without another source request', async () => {
+  const book = makeBook({ contentInputs: { '1.1': { omitUnsupportedClaims: true } } });
+  const gap = answer('1.1', 'ยังไม่มีหลักฐานเพียงพอ', { missing_information: ['ผลลัพธ์เฉพาะที่ยืนยันไม่ได้'] });
+  const h = harness([gap, answer('1.1', finalBody)], book);
+  await h.machine.writeBatch(input);
+  assert.equal(h.calls.length, 2);
+  const draft = h.records.get('1.1').contentDraft;
+  assert.deepEqual(draft.meta.missing_information, []);
+  assert.deepEqual(draft.meta.omitted_information, ['ผลลัพธ์เฉพาะที่ยืนยันไม่ได้']);
+  assert.ok(draft.md.includes('ห้ามระบุสรรพคุณ'));
+  assert.match(h.calls[0].prompt, /ข้อกำหนดนี้แทนที่รายละเอียดและผลลัพธ์เดิม/);
+  assert.match(h.calls[1].prompt, /ไม่แต่งคำแนะนำเฉพาะ/);
 });

@@ -20,10 +20,16 @@ test('หน้าเปิดบทเต็มหน้า: เลข ชื�
   // ตัวเตรียมข้อความไทยแทรกจุดตัดคำที่มองไม่เห็น (U+200B) และช่องว่างระหว่างชื่อ — ตัดทิ้งก่อนเทียบ
   const src = buildDocument({ book: { ...base, chapterOpener: 'poster', chapterEpigraphs: { 11: { text: 'ความทุกข์ของมนุษย์', by: 'แบลส์ ปาสกาล' } } }, outline, sections })
     .replace(/​/g, '')
+    .replace(/#tw\[([^\]]*)\]/g, '$1')
     .replace(/#h\([^)]*\)/g, ' ');
+  // หัวกระดาษไม่ขึ้นบนหน้าเปิดบท — เทียบกับเลขหน้าจริง ไม่ใช่เลขหน้าที่พิมพ์
+  assert.match(src, /let pg = here\(\)\.page\(\)\n    let opens = query\(heading\.where\(level: 1\)\)\.any\(h => h\.location\(\)\.page\(\) == pg\)/);
+  assert.match(src, /if opens \{ return \}\n    if opener-pages\.final\(\)\.contains\(pg\) \{ return \}/);
   assert.match(src, /#chapter-meta\.update\(\(n: "11", nt: "๑๑", title: \[ไม่กลัวการอยู่คนเดียว\], quote: \[ความทุกข์ของมนุษย์\], by: \[แบลส์ ปาสกาล\]\)\)/);
   assert.match(src, /block\(breakable: false, width: 100%/);
-  assert.match(src, /tracking: 0\.26em/);
+  // คำคมภาษาไทยไม่ตัวห่าง (ตัวห่างแล้วสระ/วรรณยุกต์แยกจากพยัญชนะ) · ภาษาอังกฤษยังห่างตามแบบ
+  assert.match(src, /tracking: 0em, fill/);
+  assert.match(buildDocument({ book: { ...base, language: 'en', chapterOpener: 'poster', chapterEpigraphs: { 11: { text: 'x' } } }, outline, sections }), /tracking: 0\.26em/);
   assert.doesNotMatch(src, /rect\(width: 100%, height: 100%, fill/);
   // here() ต้องอ่านก่อนเข้า update — อยู่ในฟังก์ชันของ update แล้ว Typst ฟ้อง "context is known"
   assert.match(src, /let pg = here\(\)\.page\(\); opener-pages\.update\(pages => pages \+ \(pg,\)\)/);

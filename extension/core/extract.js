@@ -425,9 +425,9 @@ export function stripEchoedHeading(md, section = {}) {
   const key = (s) =>
     String(s)
       .replace(/^\s*\**\s*/, '')
-      .replace(/^(?:บทที่|Chapter)\s*\d+[.:·\-\s]*/i, '')
+      .replace(/^(?:บทที่|ตอนที่|ตอน|หัวข้อ|Chapter|Section)\s*\d+(?:\.\d+)*[.:·\-\s]*/i, '')
       .replace(/^\d+(?:\.\d+)*[.):·\-\s]+/, '')
-      .replace(/[\s·:.\-—–_*#]/g, '')
+      .replace(/[\s​·:.\-—–_*#]/g, '')
       .toLowerCase();
 
   const want = key(title);
@@ -444,7 +444,10 @@ export function stripEchoedHeading(md, section = {}) {
     ? first.replace(/^#{1,6}\s+/, '')
     : /^\*\*[^*]+\*\*$/.test(first)
       ? first.slice(2, -2)
-      : null;
+      : // บรรทัดธรรมดาที่ขึ้นต้นด้วย "ตอน 3.2 ..." ก็คือหัวข้อทวนเหมือนกัน (เจอจริงในคู่มือรับมือหวัด บทที่ 3)
+        /^(?:ตอนที่|ตอน|Section)\s*\d+(?:\.\d+)*\s/i.test(first)
+        ? first
+        : null;
   if (heading === null) return text;
 
   const got = key(heading);
@@ -453,4 +456,18 @@ export function stripEchoedHeading(md, section = {}) {
   lines.splice(0, i + 1);
   while (lines.length && !lines[0].trim()) lines.shift();
   return lines.join('\n');
+}
+
+/**
+ * คำคมเปิดบทที่ใช้ได้ หรือ '' ถ้าเสีย
+ *
+ * เห็นจริง (คู่มือรับมือหวัด 7 วัน บทที่ 4): คำคมออกมาเป็น "ได้]()าง ไร" — เศษลิงก์/อ้างอิงของหน้าแชต
+ * ตัดเศษทิ้งแล้วก็ยังเป็นคำที่ขาดกลาง จึงถือว่าเสียทั้งอัน ให้ขอใหม่ ดีกว่าพิมพ์ของพังไว้หน้าเปิดบท
+ */
+export function cleanEpigraph(text) {
+  const t = String(text || '')
+    .replace(/^["“”'‘’\s]+|["“”'‘’\s]+$/g, '')
+    .trim();
+  if (!t || /[[\]{}<>]|\]\(|\(\s*\)|https?:|�/.test(t)) return '';
+  return t;
 }

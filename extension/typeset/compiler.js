@@ -21,6 +21,7 @@
  */
 
 import { buildDocument, buildItemsDocument, buildCalibrationDoc } from './template.js';
+import { fixThaiTextLayer } from './pdf-text-fix.js';
 
 const url = (p) => chrome.runtime.getURL(p);
 
@@ -161,7 +162,9 @@ export async function pageCount(mainContent, files = []) {
 export async function toPdf(mainContent, files = []) {
   await init();
   const { pdf } = await call('pdf', { src: mainContent, files });
-  return new Blob([pdf], { type: 'application/pdf' });
+  // ชั้นข้อความภาษาไทยของ Typst อ่านวรรณยุกต์ซ้ำ ("ขึ้ขึ้น") — ซ่อมก่อนส่งออก หน้ากระดาษไม่เปลี่ยน (typeset/pdf-text-fix.js)
+  const { bytes } = await fixThaiTextLayer(pdf);
+  return new Blob([bytes], { type: 'application/pdf' });
 }
 
 /** SVG ใช้ตอนพรีวิว — คอมไพเลอร์ตัวเดียวกับที่ออก PDF ผลจึงตรงกันเสมอ */

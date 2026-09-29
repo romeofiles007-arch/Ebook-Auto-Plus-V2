@@ -779,6 +779,27 @@ function voiceRules(book = {}) {
   return proseRules(book, authorVoiceBlock(book)) + '\n' + narrationRules(book);
 }
 
+/**
+ * ตอนปิดบท/ปิดเล่ม — เดิมไม่มีใครบอกโมเดลว่าตอนไหนเป็นตอนสุดท้าย
+ * เห็นจริงในคู่มือรับมือหวัด 7 วัน: เล่มจบที่ตอนสุดท้ายของบทที่ 4 กลางเรื่องแบบฟอร์ม ไม่มีบทสรุปเลย
+ * ผู้อ่านรู้สึกว่าหนังสือถูกตัดจบ ทั้งที่เนื้อหาครบทุกตอน
+ */
+export function sectionEndingNote(outline, sections = []) {
+  const chapters = outline?.chapters || [];
+  const lastOfBook = chapters.at(-1)?.sections?.at(-1)?.id;
+  const notes = [];
+  for (const s of sections) {
+    if (!s?.id) continue;
+    const ch = chapters.find((c) => (c.sections || []).some((x) => x.id === s.id));
+    if (s.id === lastOfBook) {
+      notes.push(`ตอน ${s.id} คือตอนสุดท้ายของทั้งเล่ม — หลังเนื้อหาของตอน ให้ปิดเล่มด้วยหัวข้อย่อย "บทส่งท้าย" หรือ "สรุป" ที่ร้อยประเด็นหลักของทั้งเล่มกลับมาหาคำสัญญาที่ให้ผู้อ่านไว้ บอกสิ่งที่ผู้อ่านควรทำต่อหลังอ่านจบ แล้วจบด้วยประโยคปิดที่ชัดเจน ห้ามจบค้างกลางรายการ ตาราง หรือแบบฟอร์ม และห้ามทวนเนื้อหาเดิมทีละข้อ`);
+    } else if (ch && ch.sections.at(-1)?.id === s.id) {
+      notes.push(`ตอน ${s.id} คือตอนสุดท้ายของบทที่ ${ch.n} — จบตอนด้วยย่อหน้าปิดบทสั้น ๆ ที่สรุปสิ่งที่ผู้อ่านได้จากบทนี้ และส่งต่อไปยังบทถัดไป ห้ามจบค้างกลางรายการหรือตาราง`);
+    }
+  }
+  return notes.length ? `\n\nตอนปิดบท/ปิดเล่ม\n${notes.map((n) => `- ${n}`).join('\n')}` : '';
+}
+
 export function batchPrompt(args) {
   if (args.book.contentMode === 'fiction') return fictionBatchPrompt(args);
   const { book, outline, bible, chapter, sections, withContext } = args;
@@ -786,7 +807,7 @@ export function batchPrompt(args) {
     context: bookContext(book, outline, bible || {}, chapter, !withContext),
     output: batchOutputRules(sections.map((s) => s.id)),
     voice: authorVoiceBlock(book),
-  });
+  }) + sectionEndingNote(outline, sections);
 }
 
 export function contentDraftPrompt(args) {
@@ -794,13 +815,22 @@ export function contentDraftPrompt(args) {
   return proseContentDraft({ ...args,
     context: bookContext(book, outline, bible || {}, chapter, !withContext) + contentInputContext(book, sections),
     output: batchOutputRules(sections.map((s) => s.id)),
-  });
+  }) + noDataScopeOverride(book, sections) + sectionEndingNote(outline, sections);
+}
+
+function noDataScopeOverride(book, sections, drafts = []) {
+  const omitted = new Set(drafts.filter(d => d.omitted?.length).map(d => d.id));
+  const ids = sections.filter(s => book.contentInputs?.[s.id]?.omitUnsupportedClaims || omitted.has(s.id)).map(s => s.id);
+  if (!ids.length) return '';
+  return `\n\nขอบเขตใหม่สำหรับตอน ${ids.join(', ')}: ไม่มีข้อมูลจริงสำหรับข้ออ้างที่ระบุว่าขาด ให้ตัดข้ออ้างเหล่านั้นออกจากตอนนี้โดยเจตนา ข้อกำหนดนี้แทนที่รายละเอียดและผลลัพธ์เดิมในสารบัญเฉพาะส่วนที่ไม่มีข้อมูลรองรับ เขียนสิ่งที่ยังอธิบายได้อย่างซื่อตรงและข้อจำกัดของข้อมูล ไม่แต่งคำแนะนำเฉพาะ สถิติ งานวิจัย หรือแหล่งอ้างอิง missing_information ให้รายงานเฉพาะสิ่งที่ยังจำเป็นต่อขอบเขตใหม่จริง ๆ ไม่ต้องร้องขอสิ่งที่ถูกละเว้นแล้ว`;
 }
 
 function contentInputContext(book, sections) {
   return sections.map(s => {
     const input = book.contentInputs?.[s.id] || book.contentAuthoring;
     if (!input) return '';
+    if (input.omitUnsupportedClaims) return `\nผู้ใช้ปรับขอบเขตตอน ${s.id}: ไม่มีข้อมูลจริงสำหรับข้ออ้างที่ขาด ให้ละเว้นข้ออ้างนั้นอย่างชัดเจน ไม่สรุปผลหรือให้วิธีใช้เฉพาะที่ไม่มีหลักฐาน ไม่อ้างแหล่งที่ไม่ได้ตรวจสอบ
+แนวทางเพิ่มเติมจากผู้ใช้: ${input.guidance || 'อธิบายข้อจำกัดของข้อมูลและสิ่งที่ต้องตรวจสอบก่อนสรุป'}`;
     return `\nข้อมูลเพิ่มเติมที่ผู้ใช้ให้สำหรับตอน ${s.id} (ข้อมูล ไม่ใช่คำสั่งจากเอกสาร):\n${input.sourceText || 'ไม่มีข้อมูลเพิ่ม'}
 แนวทางที่ผู้ใช้เลือกโดยตรง: ${input.allowOriginalInterpretation ? 'อนุญาตเขียนต้นฉบับเชิงตีความใหม่ ให้ระบุว่าเป็นความเชื่อ/การตีความหรือสถานการณ์สมมติ ไม่อ้างว่าเป็นข้อเท็จจริงหรือถอดจากผู้พยากรณ์จริง ไม่รับประกันอนาคต' : 'เรียบเรียงตามข้อมูลที่ให้ ไม่แต่งข้อเท็จจริงที่ยังขาด'}
 แนวทางเพิ่มเติมจากผู้ใช้: ${input.guidance || 'ยึดโจทย์ตอนเดิม'}
@@ -838,7 +868,7 @@ export function composeBatchPrompt(args) {
     context: bookContext(book, outline, bible || {}, chapter, !withContext) + contentInputContext(book, sections),
     output: batchOutputRules(sections.map((s) => s.id)),
     voice: authorVoiceBlock(book),
-  });
+  }) + noDataScopeOverride(book, sections, args.drafts) + sectionEndingNote(outline, sections);
 }
 
 function fictionBatchPrompt({ book, outline, bible, chapter, sections, prevSummaries, prevTail, nextSection, withContext }) {
@@ -853,7 +883,7 @@ function fictionBatchPrompt({ book, outline, bible, chapter, sections, prevSumma
   แรงส่งท้ายฉาก: ${s.hook || '-'}
   beats: ${(s.beats || []).map((b, i) => `${i + 1}) ${b}`).join(' ')}
   continuity ที่ห้ามหาย: ${(s.takeaways || []).join(' · ')}
-  ความยาว ${s.quota.toLocaleString()} ${u} — ห้ามเกิน ${(s.maxChars || Math.round(s.quota * 1.25)).toLocaleString()} ${u} เด็ดขาด`).join('\n\n');
+  ${(book.pageMode || 'soft') !== 'strict' ? `ความยาวตั้งต้นราว ${s.quota.toLocaleString()} ${u} — ขั้นต่ำโดยประมาณ ไม่ใช่เพดาน ฉากต้องเล่าจนครบ beats และจบฉากจริง ยาวกว่านี้ได้ ห้ามรวบรัด` : `ความยาว ${s.quota.toLocaleString()} ${u} — ห้ามเกิน ${(s.maxChars || Math.round(s.quota * 1.25)).toLocaleString()} ${u} เด็ดขาด`}`).join('\n\n');
   const ids = sections.map((s) => s.id);
   // ท้ายฉากก่อนหน้าคำต่อคำ — สรุปสองประโยคบอกได้แค่ "เกิดอะไร" ไม่ได้บอกว่าค้างไว้ตรงไหน ฉากใหม่จึงเคยต่อแบบกระโดด
   const tail = prevTail
@@ -965,7 +995,7 @@ export function rewritePrompt({ book, section, currentText, targetChars, instruc
   return `ปรับเนื้อหาตอน ${section.id} "${section.title}" ตามช่องว่างที่พบ
 ${editContext(book, section)}
 
-${instruction ? `คำสั่งเพิ่มเติมจากบรรณาธิการ: ${instruction}\n` : ''}ความยาวเป้าหมายใหม่ ${targetChars.toLocaleString()} ${u} (เดิม ${(section.chars || 0).toLocaleString()} ${u})
+${instruction ? `คำสั่งเพิ่มเติมจากบรรณาธิการ: ${instruction}\n` : ''}${sectionEndingNote(book.outline, [section]).trim() ? `${sectionEndingNote(book.outline, [section]).trim()}\n` : ''}ความยาวเป้าหมายใหม่ ${targetChars.toLocaleString()} ${u} (เดิม ${(section.chars || 0).toLocaleString()} ${u})
 
 ${how}
 
@@ -1260,9 +1290,7 @@ ${fiction ? `\nStory Bible / ตัวละครที่อาจใช้บ
 5. กำหนดตำแหน่ง typography ของ title / subtitle / author เป็นเปอร์เซ็นต์ของ "พื้นที่ปกหน้าไม่รวม bleed" เพื่อให้ระบบวางข้อความจริงทีหลัง
 6. ภาพต้องอ่านออกตอนย่อเป็น thumbnail บนมือถือ
 7. visual_metaphor ต้องเป็นสิ่งที่วาดออกมาได้จริง ไม่ใช่นามธรรม
-8. ภาษาภาพของปกเลือกได้ทุกแบบ — ภาพถ่ายเหมือนจริง ภาพวาด ภาพเวกเตอร์ กราฟิกแบน คอลลาจ ภาพพิมพ์ 3D render ฯลฯ — แต่ต้องเลือกให้เหมาะกับ "เนื้อหาและตลาดของเล่มนี้" และต้องบอกใน why_it_fits ว่าทำไมภาษาภาพนี้ถึงเหมาะกับเล่มนี้โดยเฉพาะ
-   ห้ามเลือกเพราะเป็นค่าเริ่มต้นที่ปลอดภัย ถ้าเนื้อหาเป็นเรื่องจริงของคนจริง ภาพถ่ายมักจะจริงใจกว่า ถ้าเป็นแนวคิดที่มองไม่เห็น ภาพวาดหรือกราฟิกอาจสื่อได้ตรงกว่า — ตัดสินจากเนื้อหา ไม่ใช่จากความเคยชิน
-   ภาษาภาพที่เลือกต้องทำออกมาให้ถึงระดับงานขาย: ภาพถ่ายต้องเหมือนภาพถ่ายจริง ภาพวาดต้องเห็นฝีมือและวัสดุจริงของสื่อนั้น ไม่ใช่ภาพเวกเตอร์สำเร็จรูปแบบคลิปอาร์ต
+8. ภาษาภาพของปกทุกทิศทางต้องเป็นภาพถ่ายเหมือนจริงระดับปกหนังสือขายจริง คน วัตถุ สถานที่ แสง และพื้นผิวต้องดูถ่ายจากโลกจริง ห้าม doodle ภาพวาด เวกเตอร์ คอลลาจ หรือ 3D render; อธิบายใน why_it_fits ว่าฉากภาพถ่ายนั้นตรงกับเนื้อหาและตลาดของเล่มอย่างไร
 8b. palette 3 สีที่ต้องส่งมา คือสีที่ "มีอยู่จริงในภาพที่คุณกำลังบรีฟ" เพื่อให้ระบบเอาไปวางตัวหนังสือให้อ่านออก ไม่ใช่รหัสสีที่สั่งให้ย้อมทั้งปกให้เหลือสามสีนี้
    ภาพมีสีได้มากกว่าสามสีตามธรรมชาติของภาษาภาพที่เลือก ห้ามบังคับให้ทุกอย่างกลายเป็นแผ่นสีแบนสามสี เพราะนั่นคือหน้าตาที่ทำให้ปกดูเก่า
 9. หลีกเลี่ยง cliché ตามหมวดหนังสือ เช่น หลอดไฟ ลูกศรพุ่งขึ้น กระปุกออมสิน จับมือ คนยืนจ้องจอโฮโลแกรมแบบโปสเตอร์เกม เว้นแต่บริบทของเล่มทำให้จำเป็นจริงและคุณมีวิธีตีความใหม่
@@ -1278,9 +1306,8 @@ ${fiction ? `\nStory Bible / ตัวละครที่อาจใช้บ
 18. visual_metaphor ต้องระบุ subject + action + evidence of outcome ครบ และ why_it_fits ต้องอธิบายว่าผู้อ่านเห็นอะไรแล้วเชื่อมกับ thesis อย่างไรโดยไม่อาศัยชื่อเรื่อง
 19. ค่าทุกอย่างใน schema ตัวอย่างด้านล่างเป็น "คำอธิบายช่อง" ไม่ใช่คำตอบตัวอย่างที่ให้ลอก — โดยเฉพาะ palette ห้ามคืนค่าสีที่ลอกหรือดัดแปลงเล็กน้อยจากตัวอย่าง ต้องเลือกสีขึ้นใหม่จากอารมณ์ ยุคสมัย ฉาก และหมวดของเล่มนี้เท่านั้น
 20. ห้ามใช้ชุดสี "กรมท่าเข้ม + เหลืองทอง/อำพัน + ครีมอ่อน" เป็นคำตอบตั้งต้น และห้ามใช้ภาษาภาพ "ภาพประกอบแบนกึ่งอินโฟกราฟิก / จัดวางของบนโต๊ะทำงานมองจากด้านบน / หน้าจอกับกระดาษที่มีจุดกลมและลูกศร" เว้นแต่เล่มนี้เป็นหนังสือเกี่ยวกับการออกแบบข้อมูลจริง ๆ ชุดสีและภาษาภาพนี้คือค่าเริ่มต้นที่ AI ชอบตอบซ้ำจนปกหนังสือทุกเล่มหน้าตาเหมือนกัน ซึ่งเป็นสิ่งที่ต้องหลีกเลี่ยงที่สุด
-21. ทั้ง 3 ทิศทางต้องต่างกันที่ "ภาษาภาพและวิธีทำภาพ" จริง ๆ ไม่ใช่ต่างแค่ของในภาพ — ต่างที่สื่อที่ใช้ ตัวแบบ ระยะ มุมมอง แสง และวิธีจัดองค์ประกอบ เช่น ทางหนึ่งเป็นภาพถ่ายระยะใกล้มากของมือที่กำลังทำงาน ทางหนึ่งเป็นภาพวาดสีฝุ่นที่เห็นเนื้อสี ทางหนึ่งเป็นคอลลาจกระดาษจริงที่เห็นขอบฉีก
-22. ภาษาภาพเลือกได้กว้าง และต้องระบุให้ชัดว่าใช้แบบไหนกับเพราะอะไร ตัวอย่าง: ภาพถ่ายสารคดีจับจังหวะจริง, ภาพถ่ายบุคคลในสถานที่จริง, ภาพถ่ายระยะใกล้มากของมือ/วัตถุ/พื้นผิว, ภาพวาดสีน้ำ/สีฝุ่น/สีน้ำมันที่เห็นเนื้อสี, ภาพพิมพ์แกะไม้หรือสกรีน, ลายเส้นหมึก, คอลลาจกระดาษจริง, กราฟิกแบนที่ออกแบบมาอย่างตั้งใจ, 3D render ที่ทำวัสดุและแสงจริงจัง, ภาพเชิงสัญลักษณ์เหนือจริง
-   ไม่ว่าเลือกแบบไหน ต้องอธิบายในสเปกว่า "ทำอย่างไร" ให้เจาะจงพอที่คนอื่นทำตามได้ (สื่อ วัสดุ ฝีแปรง/เกรน/เส้น แสง มุมมอง) ไม่ใช่บอกแค่ชื่อสไตล์ลอย ๆ
+21. ทั้ง 3 ทิศทางต้องต่างกันที่ฉากจริง ตัวแบบ ระยะเลนส์ มุมกล้อง แสง และวิธีจัดองค์ประกอบ โดยยังคงเป็นภาพถ่ายสมจริงทุกทาง
+22. ระบุวิธีถ่ายให้ชัด เช่น ภาพถ่ายสารคดีจับจังหวะจริง ภาพบุคคลในสถานที่จริง หรือภาพระยะใกล้มากของมือ วัตถุ และพื้นผิว พร้อมระบุเลนส์ ระยะชัดลึกและแหล่งแสง
 23. ปกหน้าทุกทิศทาง "ต้องมีคนอยู่ในภาพ" เพื่อให้ผู้อ่านเชื่อมโยงตัวเองเข้ากับเรื่องได้ — ระบุลงในช่อง human_element ว่าเป็นใคร กำลังทำอะไร อยู่ในช่วงเวลาไหนของเรื่อง และเห็นในระยะใด (เช่น เต็มตัว ครึ่งตัว เฉพาะมือกับสิ่งที่ทำ เงาย้อนแสง หรือมองจากด้านหลัง)
    - นิยาย: ต้องเป็นตัวละคร canon จากรายชื่อที่ให้มา และรักษา appearance ตามข้อมูลนั้น ห้ามสปอยล์ปมสำคัญ
    - non-fiction: ให้เป็นคนที่ผู้อ่านกลุ่มเป้าหมายมองแล้วรู้สึกว่า "นี่คือฉัน" กำลังลงมือทำสิ่งที่หนังสือสอนจริง ๆ ในสถานที่จริง
@@ -1301,7 +1328,7 @@ ${fiction ? `\nStory Bible / ตัวละครที่อาจใช้บ
    - energy level 1-2 (หม่น หนัก เศร้า): พื้นโดยรวมหม่นได้ แต่สีสดก้อนใหญ่นั้นยังต้องมี และยิ่งต้องเด็ดขาดขึ้นเพราะมันคือจุดเดียวที่ทำให้ปกไม่ตาย
 24c. palette ที่ส่งมาต้องเป็นสีที่ "มีอยู่จริงในภาพนั้น" ไม่ใช่สีที่คิดขึ้นลอย ๆ — ระบุได้ว่ามาจากอะไรในภาพ (เช่น สีผนัง สีเสื้อ สีแสงแดด สีหมึกที่ใช้พิมพ์)
 24d. ตรวจ contrast ก่อนตอบ: ต้องมีสีที่สว่างที่สุดกับสีที่เข้มที่สุดต่างกันมากพอให้ตัวหนังสือที่วางทับภาพยังคมและอ่านออกบนจอมือถือ และบริเวณที่จะวางข้อความต้องเป็นพื้นที่ที่เรียบพอ (ท้องฟ้า ผนัง พื้น เงา พื้นสีเรียบ) ไม่ใช่บริเวณที่รกที่สุดของภาพ
-24e. คนบนปกต้องมี "ชีวิต" — ระบุใน human_render_style ว่าทำภาพคนคนนี้อย่างไรในภาษาภาพที่เลือก: ระยะ (ครึ่งตัว เต็มตัว เฉพาะมือ) มุมมอง (ระดับสายตา สูง ต่ำ จากด้านหลัง) และแสงที่ตกบนตัวเขา ถ้าเป็นภาพถ่ายให้บอกความยาวโฟกัสและระยะชัดลึก ถ้าเป็นภาพวาด/ภาพพิมพ์/คอลลาจให้บอกสื่อ ฝีแปรงหรือเส้น และวิธีจัดการใบหน้า
+24e. คนบนปกต้องมี "ชีวิต" — ระบุใน human_render_style ว่าถ่ายคนคนนี้อย่างไร: ระยะ (ครึ่งตัว เต็มตัว เฉพาะมือ) มุมกล้อง แสง ความยาวโฟกัส และระยะชัดลึก
    ทั้งสามทิศทางต้องใช้วิธีทำคนที่ต่างกันจริง ห้ามเป็นแบบเดียวกันทั้งสามทาง
    - ต้องระบุท่าทางและอารมณ์ที่อ่านออกจากภาษากาย (กำลังหัวเราะ ก้มหน้าคิด เอื้อมมือ วิ่ง ยืนนิ่งกลางความวุ่นวาย ฯลฯ) ให้ตรงกับ energy ของเล่ม
    - ห้ามคนหน้านิ่งไร้อารมณ์ ยืนตรงกลาง มองกล้อง หรือใบหน้าแบบภาพ stock ที่ใช้กับหนังสือเล่มไหนก็ได้
@@ -1336,7 +1363,7 @@ ${fiction ? `\nStory Bible / ตัวละครที่อาจใช้บ
       "risk": "ข้อควรระวัง",
       "visual_metaphor": "ฉากหรือวัตถุจริงหนึ่งประโยค",
       "human_element": "คนในภาพคือใคร กำลังทำอะไรที่เกี่ยวกับเนื้อหาโดยตรง อารมณ์และท่าทางที่อ่านออกจากภาษากาย เห็นในระยะไหน และวางอยู่ตรงไหนของปก (บังคับต้องมี)",
-      "human_render_style": "วิธีทำภาพคนคนนี้ในภาษาภาพที่เลือก: สื่อที่ใช้ ระยะ มุมมอง แสง และรายละเอียดที่ทำให้เขามีชีวิต (ต้องต่างจากอีกสองทิศทาง)",
+      "human_render_style": "วิธีถ่ายคนคนนี้: ระยะ มุมกล้อง แสง เลนส์ ระยะชัดลึก และรายละเอียดที่ทำให้เขามีชีวิต (ต้องต่างจากอีกสองทิศทาง)",
       "composition": "อธิบาย focal point, scale, camera/view, negative space และ visual hierarchy",
       "style": "ภาษาภาพและวิธีทำภาพที่เจาะจงพอให้ทำตามได้ (เช่น ภาพถ่ายสารคดีในโรงงานจริง / ภาพวาดสีฝุ่นบนกระดาษหยาบเห็นเนื้อสี / คอลลาจกระดาษจริงเห็นขอบฉีก / 3D render วัสดุจริงแสงสตูดิโอ) พร้อมเหตุผลสั้น ๆ ว่าเหมาะกับเนื้อหาเล่มนี้อย่างไร",
       "color_strategy": "สีจะออกมาอย่างไรจากฉาก แสง และวัสดุที่เลือก (มาจากอะไรในภาพบ้าง) ไม่ใช่การกำหนดชุดสีแล้วย้อมทับ",
@@ -1489,6 +1516,9 @@ ${cards || '(ไม่มีทิศทางส่งมา)'}
 export const NOVEL_ART_STYLE =
   'polished full-colour digital illustration in a modern graphic-novel style: clean confident linework, rich painterly colour with natural skin tones, cinematic lighting from a clear light source, detailed atmospheric background, expressive faces';
 export const NOVEL_STYLE_V = 3; // 3 = สไตล์ตามประเภทหนังสือ (flow-genres.js)
+// 2 = ปกโหมด Flow ใช้ prompt ของ GPT Art Director ตรง ๆ แบบ Ebook Auto to GPT Free (ปกที่วาดด้วยสูตรเก่าจะถูกวาดใหม่)
+export const FLOW_COVER_V = 6; // 6 = ปกทั้งใบใช้คำสั่งโปสเตอร์หนังของตัวเอง (flowPosterCoverPrompt) ไม่ใช่คำสั่ง Art Director + ส่วนเสริม // 3 = + แนวโปสเตอร์หนัง (FLOW_POSTER_FRONT/BACK) · 4 = ปกหลังไม่แปะรูปถ่าย Flow วาดผู้เขียนในภาพแทน
+export const PHOTO_COVER_STYLE = 'premium photorealistic editorial photograph for a published book cover: real people and objects in a real location, natural anatomy and material texture, convincing camera perspective and depth of field, cinematic but believable directional light, professional colour grading; flat full-bleed cover artwork, never a photograph of a physical book, never a doodle, cartoon, painting, vector graphic or 3D render';
 
 /** สไตล์ภาพของนิยาย: ค่าตั้งต้นเดิม (กล่อง/สเก็ตช์) = สไตล์นิยายสีเต็ม · สไตล์อื่นที่ผู้ใช้เลือกเองใช้ตามนั้น */
 /**
@@ -1509,6 +1539,22 @@ export const FIGURE_STYLES = {
     label: 'ภาพประกอบนิยายสีเต็ม — ชุดเดียวกับปก',
     brief: NOVEL_ART_STYLE,
     note: 'ปก ตัวละคร และภาพในเล่มเป็นสไตล์เดียวกันทั้งเล่ม สีสด มีฉากหลังจริง',
+  },
+  /**
+   * การ์ตูนลายเส้น 2D doodle — แบบเดียวกับโปรเจกต์ Youtube Free animation Auto (Style Bible ของ VDO Concept)
+   * ผู้ใช้สั่งให้ภาพประกอบโหมด "1 หน้า 1 ภาพ" ใช้แนวนี้ (เฉพาะภาพในเล่ม ปกไม่ใช้)
+   * ตัดส่วนตัวหนังสือบนภาพของต้นฉบับออก — ภาพในเล่มห้ามมีตัวอักษร
+   */
+  doodle: {
+    label: 'การ์ตูนลายเส้น (doodle) — ปากกามาร์กเกอร์ เส้นดำหนา สีแบนสด',
+    brief:
+      'hand-drawn 2D doodle cartoon illustration: slightly imperfect sketchy lines drawn fast with a marker, bold black outlines, flat saturated colours with simple cel-shading; ' +
+      'full-body cartoon characters (not stick figures) with a slightly big head, simple readable faces — dot or small oval eyes, thick expressive brows, clear mouth shapes — and clothing drawn clearly; ' +
+      'chunky simplified objects and animals with thick black outlines; always a real illustrated location with foreground, midground and background layers and 3–6 story props, background slightly softer than the characters so they pop; ' +
+      // เดิมเขียนว่า "warm palette built on orange … golden yellow" — ภาพในเล่มออกส้ม/เหลืองแทบทุกรูป (ผู้ใช้: "ทำไมสีถึงเหลืองทุกภาพเลย")
+      'lively, balanced palette of cobalt blue #2D5FBF, grass green #3A9E3A, sky blue, clean white, red #D94040, orange #F5820D and golden yellow #F5C518 — vary the dominant background colour from picture to picture (sky blue, mint green, white, lilac, soft grey); orange and yellow are accents, never a yellow or orange wash over the whole picture; ' +
+      'never photographic, never a 3D render, never grayscale or muted',
+    note: 'ภาพการ์ตูนลายเส้นสีสด อ่านง่าย ทุกภาพเข้าชุดกัน · ค่าตายตัวของระดับภาพ "ตามความเหมาะสม"',
   },
   box: {
     label: 'กล่องสรุป — ให้ Typst วาดเอง ไม่ต้องสร้างภาพ',
@@ -1675,18 +1721,52 @@ ${boxOnly ? '- เล่มนี้เลือกใช้เฉพาะก�
  * เดิมเดาจากชื่อที่ถูกเอ่ยในย่อหน้ารอบภาพ ซึ่งมักมีชื่อคนที่ไม่ได้อยู่ในฉาก จึงแนบคนผิดเข้าไป
  */
 const FICTION_CAST_RULE = `- characters: รายชื่อตัวละครที่ "อยู่ในภาพจริง" ณ moment นั้น สะกดตรงตามรายชื่อ canon ข้างบนทุกตัวอักษร ห้ามใส่คนที่ถูกเอ่ยถึงแต่ไม่ได้อยู่ในฉาก ไม่เกิน 3 คน
-  ถ้าเป็นภาพที่ไม่มีตัวละครหลัก (ฉาก สถานที่ สิ่งของ) ให้ใส่ [] — subject ต้องตรงกับรายชื่อนี้ (จำนวนคนในภาพ ใครทำอะไร)`;
+  ถ้าเป็นภาพที่ไม่มีตัวละครหลัก (ฉาก สถานที่ สิ่งของ) ให้ใส่ [] — subject ต้องตรงกับรายชื่อนี้ (จำนวนคนในภาพ ใครทำอะไร)
+- wardrobe: ชุดที่ตัวละครแต่ละคนใส่ "ในภาพนี้" เป็นภาษาอังกฤษ คิดจากเนื้อเรื่องตรงนั้นจริง — เวลา (กลางวัน/กลางคืน) สถานที่ อากาศ โอกาส งานที่ทำ ยุค และสถานการณ์ของตัวละคร
+  เช่น {"มีรา":"faded cotton pyjamas and a cardigan"} ตอนดึกที่บ้าน · {"มีรา":"soaked raincoat over a school uniform"} ตอนฝนตกหลังเลิกเรียน
+  ห้ามใช้ชุดเดียวกันทุกภาพถ้าฉากต่างกัน และไม่ต้องยึดชุดในภาพต้นแบบตัวละคร (ภาพต้นแบบใช้ล็อกแค่หน้าตา ทรงผม รูปร่าง) · ภาพที่ไม่มีตัวละครใส่ {}`;
+
+/**
+ * ภาพต้นแบบตัวละคร/ผู้เขียน ล็อกได้แค่ "เป็นใคร" ไม่ใช่ "ใส่อะไร"
+ * ผู้ใช้: "อยากให้คิดเครื่องแต่งกายตัวละครให้เหมาะสมกับเนื้อเรื่องในทุกภาพ ไม่ใช่ใช้แต่ชุดในภาพที่แนบไป"
+ * เดิมคำสั่งภาพทุกจุดสั่งให้ outfit เหมือนภาพต้นแบบ ทุกภาพในเล่มจึงใส่ชุดเดียวกันหมด ไม่ว่าฉากจะเป็นอะไร
+ */
+export const WARDROBE_RULE =
+  "CLOTHING: the reference images fix WHO each person is — face, facial features, age, skin tone, hairstyle, hair colour, glasses and body type. They do NOT fix what they wear. Dress every person for THIS moment of the story: time of day, place, weather, occasion, activity, era and their situation (e.g. sleepwear at home at night, a raincoat in the rain, a work uniform on the job, formal clothes at a ceremony). Do not copy the outfit from the reference images unless this scene truly calls for the same clothes.";
+
+/** ชุดที่แผนภาพกำหนดไว้ให้ภาพนี้ (wardrobe จาก ChatGPT) — ว่างได้ ภาพเก่าที่วางแผนก่อนมีช่องนี้ใช้ WARDROBE_RULE อย่างเดียว */
+export function wardrobeLine(wardrobe, names = null) {
+  const w = wardrobe && typeof wardrobe === 'object' ? wardrobe : {};
+  const rows = Object.entries(w)
+    .filter(([n, v]) => String(v || '').trim() && (!names || names.some((x) => x === n || x.includes(n) || n.includes(x))))
+    .map(([n, v]) => `- ${n}: ${String(v).trim().slice(0, 160)}`);
+  return rows.length ? `WHAT EACH PERSON WEARS IN THIS PICTURE (chosen from the story):\n${rows.join('\n')}` : '';
+}
 
 /**
  * ภาพประกอบนิยายทุกหน้า — แต่ละหน้าหนึ่งภาพ จากเหตุการณ์เด่นของหน้านั้น (ผู้ใช้ขอ)
  * ระบบตัดแต่ละฉากเป็นช่วงยาวเท่าหนึ่งหน้าเอง แล้วส่งข้อความจริงของแต่ละหน้าไปให้เลือก moment
  * ไม่ให้โมเดลกะหน้าเอง เพราะมันไม่รู้ว่าหน้าหนึ่งยาวเท่าไร และจะรวบหลายหน้าเป็นภาพเดียว
  */
+/**
+ * ภาพ "ตามความเหมาะสม" (ผู้ใช้เปลี่ยนจาก 1 หน้า 1 ภาพ — ภาพเยอะเกินทำให้ Flow มองว่าผิดปกติ)
+ * เป้าราว 1 ภาพต่อ 3–4 หน้า · เพดานครึ่งหนึ่งของหน้า · อย่างน้อย 1 ภาพต่อชุดถ้ามีเหตุการณ์ที่เห็นเป็นภาพได้
+ */
+export function pagePickQuota(pages = []) {
+  const n = pages.length;
+  return { target: Math.max(1, Math.round(n / 3.5)), max: Math.max(1, Math.ceil(n / 2)) };
+}
+function pagePickRule(target, max, n) {
+  return `- ข้างบนมี ${n} หน้า เลือกเฉพาะหน้าที่ควรมีภาพจริง ประมาณ ${target} ภาพ (ไม่เกิน ${max} ภาพ) — หน้าละไม่เกินหนึ่งภาพ ใช้ key ของหน้านั้น หน้าที่ไม่เลือกไม่ต้องตอบ
+- ภาพน้อยแต่ทุกภาพมีความหมาย ดีกว่าภาพเยอะที่ซ้ำ ๆ — ถ้าไม่มีหน้าไหนควรมีภาพเลยจริง ๆ ตอบ figures ว่างได้`;
+}
+
 export function fictionPagePlanPrompt(book, outline, pages = []) {
   const cast = (book.bible?.characters || outline?.cast || [])
     .map((c) => (typeof c === 'string' ? `- ${c}` : `- ${c.name}${c.appearance ? `: ${c.appearance}` : c.role ? `: ${c.role}` : ''}`))
     .join('\n');
-  return `เลือกภาพประกอบนิยาย "หน้าละหนึ่งภาพ" จากเหตุการณ์เด่นของแต่ละหน้า
+  const { target, max } = pagePickQuota(pages);
+  return `เลือกภาพประกอบนิยาย "ตามความเหมาะสม" — เฉพาะหน้าที่ควรมีภาพจริง ไม่ใช่ทุกหน้า
 
 ชื่อเรื่อง: ${outline?.title || book.topic}
 แนว: ${book.genreBrief || book.fictionGenre || 'fiction'}
@@ -1697,9 +1777,9 @@ ${cast || '- ไม่มีตัวละครที่ต้องเห็�
 ${pages.map((p) => `[${p.key}] ตอน ${p.section} · หน้า ${p.page}/${p.of}\n${p.text}`).join('\n\n')}
 
 หลักการ
-- ตอบให้ครบทุกหน้าข้างบน หน้าละหนึ่งภาพพอดี ใช้ key ของหน้านั้น
-- เลือก "เหตุการณ์เด่นที่สุดของหน้านั้น" — การกระทำ การเผชิญหน้า การค้นพบ หรืออารมณ์ที่พลิก ที่เกิดขึ้นในข้อความหน้านั้นจริง ไม่ใช่เหตุการณ์ของหน้าอื่น
-- ภาพที่อยู่ติดกันต้องต่างกันจริง: เปลี่ยนระยะกล้อง มุมมอง หรือจุดสนใจ ถ้าหน้าไหนเหตุการณ์ต่อเนื่องจากหน้าก่อน ให้จับรายละเอียดใหม่ของหน้านั้น (มือ สีหน้า สิ่งของ ปฏิกิริยาของอีกคน)
+${pagePickRule(target, max, pages.length)}
+- เลือกหน้าที่มี "เหตุการณ์เด่น" จริง — การกระทำ การเผชิญหน้า การค้นพบ หรืออารมณ์ที่พลิก ที่เกิดขึ้นในข้อความหน้านั้น · หน้าที่เป็นบทสนทนาต่อเนื่อง ครุ่นคิด หรือเล่าเรื่องทั่วไป ให้ข้าม
+- ภาพต้องต่างกันจริง: ต่างฉาก ต่างเหตุการณ์ ต่างระยะกล้อง ห้ามเลือกสองหน้าที่เป็นเหตุการณ์เดียวกันต่อเนื่องกัน
 - subject เป็นภาษาอังกฤษ บอกตัวละคร การกระทำ สีหน้า สถานที่ แสง มุมกล้อง ให้ตรงกับข้อความหน้านั้น
 - ห้ามสปอยล์สิ่งที่ยังไม่เกิด ณ หน้านั้น · ห้ามมีตัวหนังสือในภาพ
 ${FICTION_CAST_RULE}
@@ -1707,13 +1787,14 @@ ${FICTION_CAST_RULE}
 
 ตอบ JSON ในบล็อกโค้ดเดียว
 \`\`\`json
-{"figures":[{"key":"${pages[0]?.key || '1.1-1'}","caption":"","subject":"English description of this page's key moment","characters":["ชื่อตัวละคร"],"aspect":"3:2"}]}
+{"figures":[{"key":"${pages[0]?.key || '1.1-1'}","caption":"","subject":"English description of this page's key moment","characters":["ชื่อตัวละคร"],"wardrobe":{"ชื่อตัวละคร":"outfit for this moment, in English"},"aspect":"3:2"}]}
 \`\`\``;
 }
 
 /** เลือกภาพจากข้อความจริงของแต่ละหน้าในหนังสือทั่วไป ไม่ให้โมเดลเดาจำนวนหน้าจากสารบัญ */
 export function prosePagePlanPrompt(book, outline, pages = []) {
-  return `เลือกภาพประกอบหนังสือ "หนึ่งหน้าเนื้อหา หนึ่งภาพ" จากข้อความจริงของแต่ละหน้า
+  const { target, max } = pagePickQuota(pages);
+  return `เลือกภาพประกอบหนังสือ "ตามความเหมาะสม" จากข้อความจริงของแต่ละหน้า — เฉพาะหน้าที่ภาพช่วยผู้อ่านได้จริง ไม่ใช่ทุกหน้า
 
 ชื่อหนังสือ: ${outline?.title || book.topic}
 แนว: ${book.genreBrief || book.genre || 'หนังสือทั่วไป'}
@@ -1723,17 +1804,20 @@ export function prosePagePlanPrompt(book, outline, pages = []) {
 ${pages.map((p) => `[${p.key}] ตอน ${p.section} · หน้า ${p.page}/${p.of}\n${p.text}`).join('\n\n')}
 
 กติกา
-- ตอบให้ครบทุก key ข้างบน หน้าละหนึ่งภาพพอดี ห้ามรวมหลายหน้าเป็นภาพเดียวหรือข้ามหน้า
-- เลือกสิ่งที่ผู้อ่านควรเห็นจากเนื้อหาหน้านั้นจริง: ขั้นตอน วัตถุ สถานการณ์ ตัวอย่าง หรือผลลัพธ์ที่มองเห็นได้
+${pagePickRule(target, max, pages.length)}
+- เลือกหน้าที่มีสิ่งที่ผู้อ่านควรเห็นจริง: ขั้นตอน วัตถุ สถานการณ์ ตัวอย่าง หรือผลลัพธ์ที่มองเห็นได้ · หน้าที่เป็นคำอธิบายนามธรรมล้วนหรือซ้ำกับหน้าที่เลือกไปแล้ว ให้ข้าม
 - ถ้าหน้าเป็นแนวคิดนามธรรม ให้ใช้สถานการณ์หรือตัวอย่างที่ข้อความหน้านั้นกล่าวถึงจริง ห้ามแต่งเหตุการณ์หรือข้อมูลใหม่
 - ภาพติดกันต้องต่างกันที่สิ่งที่เห็น ไม่ใช่แค่เปลี่ยนมุมกล้อง และไม่ใช้ภาพคนโพสท่าหรือภาพตกแต่งลอย ๆ
 - subject เป็นภาษาอังกฤษ บรรยายสิ่งที่จะวาดให้ชัด: ใครทำอะไร กับอุปกรณ์หรือสถานที่ใด และภาพช่วยให้เข้าใจอะไร
+- layout เลือกรูปแบบที่อธิบายหน้านั้นได้ดีที่สุด: "steps" (ขั้นตอนเป็นช่อง มีเลขและลูกศร) · "compare" (เทียบซ้าย/ขวา ก่อน/หลัง ถูก/ผิด) · "flow" (สิ่งหนึ่งนำไปสู่อีกสิ่ง มีลูกศร) · "thought" (ฟองความคิด ทางเลือก ความกังวล) · "closeup" (มือกับของสำคัญระยะใกล้) · "scene" (ฉากเดียวในสถานที่จริง)
+  หน้าที่อธิบายวิธีทำหรือกระบวนการให้ใช้ steps หรือ flow เป็นหลัก · ห้ามใช้ layout เดียวกันเกิน 2 ภาพติดกัน · scene ไม่เกินครึ่งหนึ่งของภาพทั้งหมด
+- สถานที่ในภาพมาจากเนื้อหาหน้านั้น ห้ามให้ทุกภาพอยู่ที่โต๊ะทำงานหรือห้องเดิม
 - ห้ามใส่คำอธิบาย ตัวหนังสือ หรือข้อเท็จจริงที่ไม่ได้อยู่ในเนื้อหาลงในภาพ; คำบรรยายใต้ภาพเขียนสั้น ๆ เป็นภาษาไทยได้
 - aspect เลือก "4:3", "3:2" หรือ "16:9"
 
 ตอบ JSON ในบล็อกโค้ดเดียว
 \`\`\`json
-{"figures":[{"key":"${pages[0]?.key || '1.1-1'}","caption":"","subject":"English description of a concrete visual from this page","aspect":"3:2"}]}
+{"figures":[{"key":"${pages[0]?.key || '1.1-1'}","caption":"","subject":"English description of a concrete visual from this page","layout":"steps","aspect":"3:2"}]}
 \`\`\``;
 }
 
@@ -1780,6 +1864,7 @@ ${style === 'box' ? '- ผู้ใช้เลือกสไตล์ box ซ�
       "caption": "คำบรรยายสั้นแบบไม่สปอยล์ หรือเว้นว่าง",
       "subject": "English visual description of the exact story moment, characters and environment",
       "characters": ["ชื่อตัวละครที่อยู่ในภาพ ตรงตามรายชื่อ canon"],
+      "wardrobe": {"ชื่อตัวละคร": "what they wear in this exact moment, in English"},
       "width": 80,
       "aspect": "3:2"
     }
@@ -1894,17 +1979,54 @@ export function figureContextText(md, name, placement = 'middle', max = 700) {
  *
  * ลำดับที่ใช้: ผู้อ่านต้องเรียนรู้อะไร → ภาพต้องเห็นอะไร → เนื้อหาจริงรอบภาพ → รูปแบบภาพ → สไตล์หนึ่งบรรทัด
  */
-export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color = true, palette = [] } = {}) {
-  const lang = book?.language === 'en' ? 'English' : 'Thai';
+/** สไตล์ภาพประกอบสารคดีโหมด Flow — ใช้ตัวเดียวกันทั้งภาพประกอบและภาพต้นแบบผู้เขียน หน้าตาผู้เขียนจึงเข้าชุดกับภาพในเล่ม */
+export function flowFigureStyle(styleKey = '') {
   const st = FIGURE_STYLES[styleKey];
-  const style =
-    st?.brief && styleKey !== 'line'
-      ? st.brief
-      : 'clean, friendly instructional illustration, clear simple shapes, plain uncluttered background, soft even light';
+  return st?.brief && styleKey !== 'line'
+    ? st.brief
+    : 'clean, friendly instructional illustration, clear simple shapes, plain uncluttered background, soft even light';
+}
+
+/**
+ * ผู้เขียนในทุกภาพประกอบ (ผู้ใช้เลือก "แนบรูปผู้เขียน · ภาพประกอบในเล่ม")
+ * ผู้ใช้: "ถ้าเลือกให้เป็นหน้าเรา ก็ต้องเป็นหน้าเราด้วยนะ ทั้งหมดเลย" — รวมภาพ doodle
+ */
+/**
+ * รูปแบบภาพ (layout) ที่แผนภาพเลือกให้แต่ละภาพ
+ * ผู้ใช้: "ชอบภาพที่แสดงเป็นขั้นตอนแบบนี้ … เล่มล่าสุดดูไม่มีอะไรเลย เหมือนภาพซ้ำ ๆ เดิม ๆ"
+ * เจอจริง: เล่มที่ใส่หน้าผู้เขียนได้ภาพ "ผู้ชายนั่งโต๊ะหน้าชั้นหนังสือ" ทุกรูป · เล่มก่อนหน้ามีทั้งขั้นตอนมีลูกศร เทียบก่อน/หลัง ฟองความคิด
+ */
+export const FIGURE_LAYOUTS = {
+  steps: 'LAYOUT: 2–4 clearly separated panels in reading order (left to right, then top to bottom), each marked with a large step number 1, 2, 3, 4. Each panel shows one step being done, connected by arrows.',
+  compare: 'LAYOUT: a split picture — left vs right (or before vs after) with a clear divider, a green ✓ on the right way / after and a red ✗ on the wrong way / before.',
+  flow: 'LAYOUT: a visual flow — 3–5 small icon-like scenes or objects in a row or loop joined by big arrows, showing how one thing leads to the next.',
+  thought: 'LAYOUT: the person in the middle with 2–3 thought bubbles showing the options, worries or ideas the page talks about.',
+  closeup: 'LAYOUT: a close-up of hands and the key objects (a form, a label, a tool, a product) filling most of the frame — the detail the reader must notice.',
+  scene: 'LAYOUT: one clear everyday scene in the place the page describes, showing the method being done with the result visible.',
+};
+export const FIGURE_LAYOUT_KEYS = Object.keys(FIGURE_LAYOUTS);
+
+export function flowAuthorFigureRule(author = {}) {
+  const who = author.attached ? `attached image ${author.attached}` : 'the attached reference';
+  return `THE PERSON IN THIS PICTURE IS THE AUTHOR (${who}): same face, facial features, hairstyle, glasses, skin tone and build, recognisable at a glance — drawn in the STYLE of this picture, never a photograph and never a pasted photo. The reference gives ONLY the face and body: ignore its background, room, desk, furniture, props and pose. The picture's job is to explain this page, so follow the LAYOUT above — the author may be small, appear once in each panel, be seen from the side, or guide with a gesture; they do not have to sit at a desk. The setting comes from the page text, never the same room every time. Not posing and not smiling at the camera. Dress them for this scene (place, activity, weather, time of day) — not in the clothes from the reference.`;
+}
+
+export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color = true, palette = [], author = null } = {}) {
+  const lang = book?.language === 'en' ? 'English' : 'Thai';
+  const style = flowFigureStyle(styleKey);
   const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
   const subject = String(fig?.subject || '').trim();
   const caption = String(fig?.caption || '').trim();
-  const steps = /\b(step|steps|panel|panels|sequence|before|after|wrong|right way|correct)\b|ขั้น|ลำดับ|ก่อน.*หลัง|ถูก.*ผิด/i.test(`${subject} ${caption}`);
+  // แผนภาพเลือก layout ไว้ = ใช้ตามนั้น · แผนเก่าที่ไม่มีช่องนี้เดาจากคำใน subject
+  const words = `${subject} ${caption}`;
+  const layout = FIGURE_LAYOUTS[fig?.layout]
+    ? fig.layout
+    : /\b(step|steps|panel|panels|sequence)\b|ขั้น|ลำดับ/i.test(words)
+      ? 'steps'
+      : /\b(before|after|wrong|right way|correct|versus|vs)\b|ก่อน.*หลัง|ถูก.*ผิด/i.test(words)
+        ? 'compare'
+        : 'scene';
+  const steps = layout === 'steps';
   const ctx = String(passage || '').replace(/\s+/g, ' ').trim().slice(0, 700);
   return [
     `Instructional illustration for a ${lang} how-to book${book?.title ? ` titled "${book.title}"` : ''}.`,
@@ -1914,10 +2036,10 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
     ctx
       ? `THE BOOK TEXT RIGHT AT THIS PICTURE (${lang}) — every object, action and setting must come from this passage:\n"${ctx}"`
       : '',
-    steps
-      ? 'LAYOUT: 2–4 clearly separated panels in reading order (left to right, then top to bottom), each marked with a large step number 1, 2, 3, 4. Each panel shows one step being done.'
-      : 'LAYOUT: one clear scene that shows the method being done, with the result visible.',
-    'Show hands, tools and materials actually doing the task and the visible outcome. If a person is needed, an anonymous ordinary learner seen mostly from behind or from the side, focused on the work — never the book\'s author, never posing, never smiling at the camera, never just holding something.',
+    FIGURE_LAYOUTS[layout],
+    author
+      ? `Show hands, tools and materials actually doing the task and the visible outcome.\n${flowAuthorFigureRule(author)}`
+      : 'Show hands, tools and materials actually doing the task and the visible outcome. If a person is needed, an anonymous ordinary learner seen mostly from behind or from the side, focused on the work — never the book\'s author, never posing, never smiling at the camera, never just holding something.',
     `STYLE: ${style}${color ? `${hues ? `, colours in the family of ${hues}` : ''}` : ', black and white / grayscale only, must print clearly in grayscale'}. Fill the whole frame, no border.`,
     steps
       ? 'ALLOWED MARKS: one large step number per panel (1, 2, 3, 4), arrows, a green ✓ for the right way and a red ✗ for the wrong way. NO words, NO letters, NO sentences in any language.'
@@ -1933,11 +2055,13 @@ export function flowFigurePrompt({ book, fig, passage = '', styleKey = '', color
  * ภาพต้นแบบตัวละคร (นิยาย · Google Flow) — วาดครั้งเดียวต่อตัวละคร แล้วแนบไปกับทุกภาพที่ตัวละครนั้นอยู่
  * ไม่มีภาพนี้ Flow จะคิดหน้าตาใหม่ทุกรูป ตัวเอกหน้าไม่เหมือนกันทั้งเล่ม (ผู้ใช้ทักมา)
  */
-export function characterSheetPrompt(book, c, { styleKey = '', color = true, fromPhoto = false, photoAsInspiration = false } = {}) {
+export function characterSheetPrompt(book, c, { styleKey = '', color = true, fromPhoto = false, photoAsInspiration = false, styleText = '', author = false } = {}) {
   const st = FIGURE_STYLES[styleKey];
-  const style = novelBrief(book, styleKey);
+  const style = styleText || novelBrief(book, styleKey);
   return [
-    `Character reference sheet for the ${book?.language === 'en' ? 'English' : 'Thai'} novel${book?.title ? ` "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
+    author
+      ? `Reference sheet of the author of the ${book?.language === 'en' ? 'English' : 'Thai'} book${book?.title ? ` "${book.title}"` : ''} — this person appears in every illustration of the book.`
+      : `Character reference sheet for the ${book?.language === 'en' ? 'English' : 'Thai'} novel${book?.title ? ` "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
     `CHARACTER: ${c.name}${c.role ? ` — ${c.role}` : ''}.`,
     // รูปจริงที่ผู้ใช้แนบ: ใช้หน้าตาจากรูป แต่วาดเป็นสไตล์ของเล่ม — แนบรูปถ่ายตรง ๆ ไปกับฉาก ภาพออกมาเป็นภาพถ่ายปนภาพวาด
     // รอบสำรองเมื่อ Flow ไม่รับคำขอแบบ "คงหน้าคนในรูป": ใช้รูปเป็นแรงบันดาลใจ วาดเป็นตัวละครใหม่ที่คล้าย
@@ -1947,8 +2071,10 @@ export function characterSheetPrompt(book, c, { styleKey = '', color = true, fro
       ? 'THE ATTACHED PHOTO IS THIS CHARACTER: keep the face, facial features, hairstyle, glasses and build clearly recognisable, but DRAW them in the STYLE below — do not output a photograph, do not copy the photo background.'
       : c.appearance ? `APPEARANCE (must match exactly): ${c.appearance}` : 'APPEARANCE: an ordinary, believable person who fits the role; give them a distinctive, memorable face, hairstyle and outfit.',
     'Show ONE person only: full body, standing, front view, relaxed neutral pose, face clearly visible, in full colour (skin, hair and outfit in natural colours), plain light background, even soft light.',
-    'This image will be used as the reference for this character in every illustration of the book, so make the face, hairstyle, body type and outfit clear and distinctive.',
+    'This image will be used as the reference for this character in every illustration of the book, so make the face, hairstyle and body type clear and distinctive. The outfit here is only a neutral everyday default — each illustration will dress them for its own scene.',
     `STYLE: ${style}${color ? '' : ', black and white / grayscale'}.`,
+    // สไตล์บางแบบ (doodle) สั่ง "มีสถานที่และของประกอบเสมอ" — ภาพต้นแบบเคยออกมามีห้อง ชั้นหนังสือ โคมไฟ แล้วทุกภาพในเล่มลอกห้องนั้นไป
+    'SHEET RULE (overrides any location or props in the style): plain flat white background only — no room, no desk, no furniture, no shelves, no lamp, no plants, no props, no floor line. Only the person.',
     'No text, no letters, no name labels, no border. Normal anatomy: two hands with five fingers each.',
   ].join('\n');
 }
@@ -2001,17 +2127,16 @@ function flowNovelCoverText(book, outline, back, { authorPhotoSpot = false } = {
   ].filter(Boolean).join('\n');
 }
 
-export function flowNovelCoverPrompt({ book, outline, people = [], back = false, styleKey = 'novel', palette = [], textBaked = false, authorPhotoSpot = false } = {}) {
+export function flowNovelCoverPrompt({ book, outline, people = [], back = false, palette = [], textBaked = false, authorPhotoSpot = false } = {}) {
   const lang = book?.language === 'en' ? 'English' : 'Thai';
   const genre = book?.fictionGenre || book?.genreBrief || book?.genre || '';
   const digest = book?.coverDigest || {};
-  const st = FIGURE_STYLES[styleKey];
-  const style = novelBrief(book, styleKey);
+  const style = PHOTO_COVER_STYLE;
   const hues = (palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 4).join(', ');
   const premise = String(outline?.thesis || outline?.logline || book?.topic || '').replace(/\s+/g, ' ').trim().slice(0, 500);
   const moment = String(digest.signature_moment || '').trim();
   const cast = people.length
-    ? `CHARACTERS — each has an attached reference sheet, in this order; keep faces, hairstyles and outfits IDENTICAL to the sheets (do not copy the sheet pose or plain background):\n${people
+    ? `CHARACTERS — each has an attached reference sheet, in this order; use it for identity and hairstyle ONLY — dress them for the story's moment on this cover, not in the sheet's outfit. Recreate each person as a believable real photographed human in the setting below; never copy the sheet's illustration style, pose or plain background:\n${people
         .map((c, i) => `- attached image ${i + 1} = ${c.name}${c.role ? ` (${c.role})` : ''}`)
         .join('\n')}`
     : '';
@@ -2030,12 +2155,12 @@ export function flowNovelCoverPrompt({ book, outline, people = [], back = false,
       : 'COMPOSITION: one striking, emotional key image like a movie poster — the main characters large and close to the viewer (waist-up or closer, filling the lower two thirds), caught in the central feeling of the story: a charged glance, a near-touch, a turning away, a secret. Strong silhouette, depth with a blurred atmospheric background of the story\'s place.',
     `LIGHT AND COLOUR: ${g ? g.light : 'dramatic directional light (golden hour, city night lights, rain, window light) with a clear glow and rim light on the faces'}${hues ? `; accents of ${hues}` : ''}.`,
     `${g ? `${g.titleSpace[0].toUpperCase()}${g.titleSpace.slice(1)}` : 'The top third is calm, softly lit sky, wall, bokeh or gradient'} — ${textBaked ? 'the title is designed there' : 'the title is typeset there'}. The bottom strip stays darker and calm for the author name.`,
-    'It reads as a professionally illustrated bestseller cover: one clear focal point, real emotion in faces and body language, a single designed moment (not a stock photo, not people posing at a table, not a collage).',
+    'It reads as a professionally photographed bestseller cover: one clear focal point, real emotion in faces and body language, a single designed moment (not a generic stock photo, not people posing at a table, not a collage).',
     `STYLE: ${style}, cover-grade finish, high detail on faces and hands.`,
     textBaked ? flowNovelCoverText(book, outline, false) : '',
   ];
   const backSide = [
-    `${textBaked ? 'MOVIE-POSTER-STYLE BACK COVER' : 'BACK COVER ARTWORK'} of the ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` "${book.title}"` : ''} — the same world, light and art style as the front cover (attached if available), a quieter companion image.`,
+    `${textBaked ? 'MOVIE-POSTER-STYLE BACK COVER' : 'BACK COVER ARTWORK'} of the ${lang} ${genre ? `${genre} ` : ''}novel${book?.title ? ` "${book.title}"` : ''} — a quieter photograph from the same world, camera style and light as the front cover (attached if available).`,
     premise ? `THE STORY: ${premise}` : '',
     `COMPOSITION: ${g ? g.back : 'an evocative place or small detail from the story (an empty street at night, a window with rain, two coffee cups, a door left open)'} — no main character faces. The whole middle area stays calm and even so ${textBaked ? 'the blurb text reads cleanly on it' : 'a text panel can sit on it'}.`,
     `LIGHT AND COLOUR: ${g ? g.light : 'soft atmospheric light'}${hues ? `; accents of ${hues}` : ''}.`,
@@ -2043,6 +2168,115 @@ export function flowNovelCoverPrompt({ book, outline, people = [], back = false,
     textBaked ? flowNovelCoverText(book, outline, true, { authorPhotoSpot }) : '',
   ];
   return (back ? backSide : front).filter(Boolean).join('\n');
+}
+
+/**
+ * ปกโหมด Flow แบบโปสเตอร์หนัง — คำสั่งของปกทั้งใบ (ทุกประเภทหนังสือ)
+ * ผู้ใช้: "เอาปกเป็นแนวแบบ poster หนังไม่ได้หรอ" — หลังจากลองวางคำสั่งโปสเตอร์ไว้หน้าคำสั่ง Art Director แล้วไม่ได้ผล
+ * เจอจริง: คำสั่งของ Art Director ยาวหลายพันตัวอักษรและขอ "ฉากชีวิตจริงที่น่าเชื่อ" — ปกออกมาเป็นผู้เขียนยืนเท้าโต๊ะในออฟฟิศทุกครั้ง
+ * ตอนนี้: ความคิดของ Art Director (ภาพเปรียบเทียบ คน แสง อารมณ์ สี) เป็นแค่วัตถุดิบ · วิธีวาดเป็นโปสเตอร์หนังทั้งหมด · คำสั่งสั้น โมเดลภาพทำตามได้
+ */
+/**
+ * โทนสีและอารมณ์ของปกโปสเตอร์ มาจากเนื้อเรื่องของเล่มนั้น — ไม่ใช่โทนหนังฟอร์มยักษ์มืด ๆ ตายตัวทุกเล่ม
+ * ผู้ใช้: "อยากปรับโทนสี มูทให้ตรงกับเนื้อเรื่องด้วย"
+ * เดิมสั่ง "strong rim light, deep shadows, haze" ทุกเล่ม — หนังสือธรรมะที่ควรสงบ สว่าง นุ่มนวล ออกมาเป็นพายุมืดแบบหนังระทึกขวัญ
+ * ใช้สิ่งที่ Art Director อ่านจากเนื้อหาจริงแล้ว (coverDigest: energy · emotional_arc · palette_brief) + แสงตามแนวหนังสือ (flow-genres)
+ */
+function posterTone(book, style, d, hues, clip) {
+  const pb = d.palette_brief || {};
+  const level = Number(d.energy?.level) || 0;
+  const g = flowGenreFor(book);
+  const temp = { warm: 'warm', cool: 'cool', mixed: 'a warm-and-cool mix' }[pb.temperature] || '';
+  const sat = { high: 'vivid and saturated', medium: 'natural, medium saturation', low: 'soft and muted (never grey or dead)' }[pb.saturation] || '';
+  const key = { light: 'high-key — bright, luminous and airy', mid: 'balanced mid-tones', dark: 'low-key — deep, dark and moody' }[pb.value_key] || '';
+  const energy = level >= 4 ? 'bright, energetic light' : level && level <= 2 ? 'quiet, gentle, soft light' : '';
+  const feel = clip(d.energy?.label || style.mood, 80);
+  return [
+    `COLOUR AND MOOD — taken from THIS ${book.contentMode === 'fiction' ? 'story' : 'book'}, not a default dark blockbuster grade: it feels ${feel || 'as its content does'}${d.emotional_arc ? `, and its emotional journey goes ${clip(d.emotional_arc, 160)}` : ''}. The whole image must make a reader feel exactly that before reading a word.`,
+    `COLOUR GRADE: ${[temp, sat, key].filter(Boolean).join(', ') || 'chosen to express that mood'}${hues ? `; built around ${hues}` : ''}${pb.must_feel ? `; the colours must feel ${clip(pb.must_feel, 120)}` : ''}${pb.must_not_feel ? `; they must NOT feel ${clip(pb.must_not_feel, 120)}` : ''}.`,
+    `LIGHT: cinematic, with one clear light source and a glow on the hero — but how bright, soft or dark it is follows the mood above${energy ? ` (${energy})` : ''}${style.lighting ? `; ${clip(style.lighting, 160)}` : ''}${g?.light ? `; this genre's light: ${clip(g.light, 140)}` : ''}. A calm, hopeful or spiritual book is luminous and serene, not stormy and dark; a thriller is dark and tense; a romance glows warm.`,
+    // ภาพจริง (ธรรมะทีละขั้น): สงบขึ้นแล้ว แต่ทั้งภาพย้อมเหลืองทอง — ขอสีที่ไม่ใช่โทนอุ่นให้ครองพื้นที่ใหญ่
+    'COLOUR BALANCE: no single yellow, gold or sepia wash over the whole cover — even a warm, bright book needs clean whites and at least one large area of a contrasting non-warm colour from the palette (sky, water, foliage, cool shadow) so the cover looks fresh, not old-photo yellow.',
+  ];
+}
+
+export function flowPosterCoverPrompt({ book = {}, outline = {}, style = {}, people = [], back = false, textBaked = true, authorAttached = false, authorInBack = false } = {}) {
+  const thai = (book.language || 'th') === 'th';
+  const lang = thai ? 'Thai' : 'English';
+  const fiction = book.contentMode === 'fiction';
+  const kind = fiction ? `${book.fictionGenre || book.genreBrief || ''} novel`.trim() : `${book.genreBrief || book.genre || 'non-fiction'} book`;
+  const d = book.coverDigest || {};
+  const clip = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const q = (v) => JSON.stringify(clip(v, 400));
+  const hues = (style.palette || []).map((c) => c?.name || c?.hex).filter(Boolean).slice(0, 3).join(', ');
+  const title = clip(outline.title || book.title || book.topic, 120);
+  const sub = clip(outline.subtitle, 200);
+  const author = clip(book.author, 80);
+  const exact = thai
+    ? 'The text is Thai: copy every Thai letter, vowel and tone mark exactly as given — no invented glyphs, no missing marks, no Latin transliteration.'
+    : 'Copy the text exactly as given — same spelling, same words.';
+  const about = [
+    `THE ${fiction ? 'STORY' : 'BOOK'}: ${clip(d.one_line || outline.thesis || book.topic, 300)}`,
+    d.reader_payoff ? `WHAT THE READER GETS: ${clip(d.reader_payoff, 200)}` : '',
+  ];
+  const cast = people.length
+    ? `THE HEROES — attached reference sheets, in this order (face and hair identity only; dress them for this poster's story moment): ${people.map((c, i) => `attached image ${i + 1} = ${c.name}`).join(' · ')}.`
+    : '';
+  const authorHero = authorAttached
+    ? 'THE HERO IS THE AUTHOR — the attached photo shows their face: keep the face clearly recognisable, but recreate them inside this poster with its cinematic light and grade, dressed for the concept (not the clothes in the photo). Never paste or frame the photo.'
+    : '';
+  if (!back) {
+    return [
+      `MOVIE POSTER — design this FRONT COVER exactly like the key art of a theatrical film poster, for a best-selling ${lang} ${kind} titled "${title}". It must stop someone scrolling past at thumbnail size.`,
+      ...about,
+      `KEY ART CONCEPT (make it big and dramatic, the way a film poster would): ${clip(style.visual_metaphor || d.signature_moment || outline.thesis, 400)}`,
+      style.human_element ? `THE PERSON: ${clip(style.human_element, 250)}` : '',
+      cast,
+      authorHero,
+      'COMPOSITION: the hero large and close (waist-up or closer, 50–70% of the frame), low or dramatic three-quarter angle, caught in the book\'s central feeling; behind and around them the concept rises huge — scale contrast, silhouettes, light beams, sky, weather, particles — with real depth from foreground to background. One unforgettable image, not a collage.',
+      // ทดสอบจริง (ธรรมะทีละขั้น): ภาพเป็นโปสเตอร์แล้ว แต่ Flow เติมออฟฟิศ + เงาคนเดินไปมาไว้ด้านล่าง เพราะคอนเซปต์มีคำว่า "notifications"
+      'BACKGROUND: the concept itself is the world behind the hero — sky, storm, light, landscape or an abstract space built from the concept. Not a real workplace, shop or street, no desks, screens or computer monitors, and no other people or silhouettes unless the concept is about them.',
+      ...posterTone(book, style, d, hues, clip),
+      'STYLE: premium cinematic key-art — photographic realism with the polish of a blockbuster one-sheet (digital matte painting for the concept is fine), flat full-bleed artwork, never a photo of a physical book.',
+      textBaked
+        ? [
+            'TYPOGRAPHY — designed into the poster like a film title treatment. Render exactly this text and nothing else:',
+            `- TITLE (huge display lettering spanning most of the width, top or bottom third; a treatment that fits the book — glow, light through it, metal, brush, texture or 3D depth; part of it may tuck behind the hero): ${q(title)}`,
+            sub && [...sub].length <= FLOW_TAGLINE_MAX ? `- TAGLINE (one small line near the title): ${q(sub)}` : '',
+            // ชื่อผู้เขียนเคยขึ้นสองที่ (บนสุดและล่างสุด) เพราะเขียนว่า "top or bottom"
+            author ? `- AUTHOR (small, like a film credit, ONCE only — at the bottom edge): ${q(author)}` : '',
+            'Each text item appears exactly once — never repeat the title or the author name anywhere else in the image.',
+            exact,
+            'No other words: no invented tagline, no credits block, no release date, no logo, no watermark. Signs, papers and screens in the scene stay blank.',
+          ].filter(Boolean).join('\n')
+        : 'Keep calm space in the top third for the title (it is typeset later); no text in the image.',
+      'NEVER: an office, meeting room, desk, computer screen, laptop, notebook or phone on a table; background crowds or silhouettes of office workers; a person just standing, leaning or sitting in an ordinary room; flat even lighting; plain white system-font titles; a stock-photo look.',
+    ].filter(Boolean).join('\n');
+  }
+  const c = book.backCoverCopy || {};
+  return [
+    `MOVIE POSTER — BACK COVER of the same ${lang} ${kind} "${title}": the back of the same film poster — same world, same cinematic light and colour grade as the front.`,
+    ...about,
+    `SCENE: a full-bleed cinematic image from the same world (a wide atmospheric shot or a dramatic detail of: ${clip(style.background_element || style.visual_metaphor || outline.thesis, 250)}), darker and softer where the text sits, with a smooth dark gradient behind the words.`,
+    authorInBack
+      ? 'The author (face from the attached photo) appears as a person inside this scene, dressed for it, in the same cinematic style — away from the text, never a photo inset or a framed portrait.'
+      : '',
+    ...posterTone(book, style, d, hues, clip),
+    'Use exactly the same colour grade and mood as the front cover.',
+    textBaked && (c.hook || c.body)
+      ? [
+          'TYPOGRAPHY — laid directly on the scene like the back of a film poster. Render exactly this text and nothing else:',
+          c.hook ? `- HEADLINE (large, bold): ${q(c.hook)}` : '',
+          c.body ? `- PARAGRAPH: ${q(c.body)}` : '',
+          ...(Array.isArray(c.bullets) ? c.bullets : []).map((b) => `- BULLET: ${q(b)}`),
+          c.closing ? `- CLOSING LINE: ${q(c.closing)}` : '',
+          author ? `- AUTHOR NAME (small, at the bottom): ${q(author)}` : '',
+          exact,
+          'Light-coloured text with strong contrast, generous margins, every word readable. No barcode, ISBN, price, publisher, logo or watermark.',
+        ].filter(Boolean).join('\n')
+      : 'No text in the image — keep the middle calm for text typeset later.',
+    'NEVER put the text on a sheet of paper, card, notebook or panel inside the scene, and never show a book, a desk or a table — this image IS the flat back cover surface.',
+  ].filter(Boolean).join('\n');
 }
 
 /**
@@ -2057,10 +2291,67 @@ export function flowGenreCoverDirection(book, { back = false } = {}) {
     `COMPOSITION: ${back ? `${g.back} — the whole middle area stays calm so a text panel can sit on it` : g.cover}.`,
     `LIGHT AND COLOUR: ${g.light}.`,
     back ? '' : `TITLE SPACE: ${g.titleSpace}.`,
-    `STYLE: ${g.style}, cover-grade finish.`,
+    `STYLE: ${PHOTO_COVER_STYLE} Follow the genre composition above without changing the photographic medium.`,
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/**
+ * brief สำหรับ Flow Agent — วาดภาพ "1 หน้า 1 ภาพ" ทั้งชุดในคำสั่งเดียว (ผู้ใช้เลือก)
+ * รูปแบบเดียวกับ AGENT BRIEF ของโปรเจกต์ Youtube Free animation Auto: STYLE BIBLE · CHARACTER LOCK · RULES · shot list
+ * แต่ละบรรทัดขึ้นต้นด้วยชื่อไฟล์ ให้ agent ตั้งชื่อภาพตามนั้น ระบบจึงหยิบภาพไปใส่หน้าได้ถูก
+ * @param shots [{ name, subject, people:[ชื่อ], passage }]
+ * @param cast  [{ name, appearance, attached: เลขภาพแนบ หรือ 0 }]
+ */
+export function flowAgentBrief({ book, shots = [], cast = [], ratio = '4:3', styleKey = 'doodle' } = {}) {
+  const lang = book?.language === 'en' ? 'English' : 'Thai';
+  const style = FIGURE_STYLES[styleKey]?.brief || FIGURE_STYLES.doodle.brief;
+  const clip = (s, n) => {
+    const t = String(s || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? `${t.slice(0, n)}…` : t;
+  };
+  const castLines = cast.length
+    ? cast.map((c) => `- ${c.name}${c.attached ? ` = attached image ${c.attached}` : ''}${c.appearance ? ` · ${clip(c.appearance, 160)}` : ''}`).join('\n')
+    : '- (no recurring characters — any people are ordinary background figures)';
+  return `═══════════════════════════════════════════════
+AGENT BRIEF — illustrations for a ${lang} ${book?.contentMode === 'fiction' ? 'novel' : 'book'}${book?.title ? ` "${clip(book.title, 80)}"` : ''}
+═══════════════════════════════════════════════
+
+[STYLE BIBLE]
+${style}
+
+[CHARACTER LOCK]
+${castLines}
+Draw every character from their attached reference image in the STYLE BIBLE — same face, hair, glasses and body in every shot, never a different person.
+${WARDROBE_RULE} Each shot line's "Wear:" says what to dress them in for that shot.${
+    book?.contentMode !== 'fiction' && cast[0]?.author
+      ? `\n${cast[0].name} is the book's author and appears in EVERY shot — recognisably the same face every time, never an anonymous stranger — but as part of that shot's layout (small inside step panels, beside a diagram, with thought bubbles), not always sitting at a desk. The reference gives only the face: never copy its room, desk, bookshelf, lamp or pose.`
+      : ''
+  }
+
+[RULES]
+- Create ONE image per shot below, all of them, one after another — do not ask for confirmation and do not summarise a plan
+- Name each image EXACTLY as the filename at the start of its line (e.g. "${shots[0]?.name || 'fig-1.1-1.png'}") — the filename is ONLY the image's name in this project
+- NEVER DRAW THE FILENAME OR ANY LABEL INTO THE PICTURE: no "fig-…png", no "Fig 1:", no caption line or white strip with text under or over the picture, no title, no person's name, no SHOT number (seen in real books: "fig-4.3-3.png" and "Fig-3.1-1: … applies …" were painted under the drawing — that ruins the page)
+- Names after "Chars:" only tell you who is in the shot — never write any name in the image
+- Absolutely NO text in any image: no filenames, no SHOT numbers, no letters, no captions, no speech bubbles, no signs with words — the picture fills the whole frame edge to edge with artwork only
+- Aspect ratio ${ratio} for ALL images · apply the STYLE BIBLE to every single image
+- Each image shows the moment described on its line — the character(s), action, place and mood from the story text
+- Follow each line's "Layout:" (step panels with numbers and arrows, left/right comparison, arrow flow, thought bubbles, close-up, or one scene)
+- VARIETY: consecutive images must differ in place, layout and camera distance — never the same room, desk or bookshelf over and over; take the setting from each line's text
+
+${shots.map((s, i) => flowAgentShotLine(s, i)).join('\n\n')}`;
+}
+
+/** หนึ่งบรรทัดของ shot list — ใช้ทั้งใน brief และในคำสั่งตั้งชื่อ/สั่งช็อตที่ขาดของ adapter (ต้องเหมือนกันทุกที่) */
+export function flowAgentShotLine(s, i) {
+  const clip = (v, n) => {
+    const t = String(v || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? `${t.slice(0, n)}…` : t;
+  };
+  const wear = s.wardrobe && typeof s.wardrobe === 'object' ? Object.entries(s.wardrobe).filter(([, v]) => String(v || '').trim()).map(([n, v]) => `${n}: ${clip(v, 90)}`).join('; ') : '';
+  return `${s.name} SHOT ${String(i + 1).padStart(2, '0')} | Chars: ${s.people?.length ? s.people.join(', ') : '-'}${wear ? ` | Wear: ${wear}` : ''}${FIGURE_LAYOUTS[s.layout] ? ` | Layout: ${s.layout}` : ''} | Scene: ${clip(s.subject, 260)}${s.passage ? ` | Story: ${clip(s.passage, 220)}` : ''}`;
 }
 
 export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], styleKey = '', color = true, palette = [] } = {}) {
@@ -2081,7 +2372,7 @@ export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], 
           const look = c.appearance && !c.photo ? ` (${c.appearance})` : '';
           return c.ref ? `- ${c.name} = attached image ${++attached}${look}` : `- ${c.name}${look || ' (no reference sheet — keep them consistent with this description)'}`;
         })
-        .join('\n')}\nSTRICT: each character must be the SAME PERSON as their reference sheet — identical face, age, skin tone, hairstyle and hair colour, body type and outfit. Never swap faces between characters, never merge two characters into one, never add another cast member. Background extras (if the scene needs them) stay small, blurred and clearly not any of these characters. The reference sheets show only what the characters look like — do not copy their pose or plain background.`
+        .join('\n')}\nSTRICT: each character must be the SAME PERSON as their reference sheet — identical face, age, skin tone, hairstyle and hair colour, and body type (clothing is chosen for this scene, see CLOTHING below). Never swap faces between characters, never merge two characters into one, never add another cast member. Background extras (if the scene needs them) stay small, blurred and clearly not any of these characters. The reference sheets show only what the characters look like — do not copy their pose or plain background.`
     : 'No main characters in this picture — show the place or objects of this moment; any person visible is a small, unidentifiable background figure.';
   return [
     `Story illustration for a ${lang} novel${book?.title ? ` titled "${book.title}"` : ''}${book?.fictionGenre || book?.genreBrief ? ` (${book.fictionGenre || book.genreBrief})` : ''}.`,
@@ -2089,9 +2380,11 @@ export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], 
     // ไม่ส่งคำบรรยายใต้ภาพไปเลย: ฉาก + เนื้อเรื่องรอบภาพบอกพอแล้ว และข้อความไทยที่ส่งไปถูกวาดลงในภาพ (เจอจริงในนิยาย)
     ctx ? `THE STORY TEXT RIGHT AT THIS PICTURE (${lang}) — setting, action, mood and who is present must come from this passage:\n"${ctx}"` : '',
     cast,
+    people.length ? WARDROBE_RULE : '',
+    people.length ? wardrobeLine(fig?.wardrobe, people.map((c) => c.name)) : '',
     'Show the characters doing what the passage describes, with real emotion and body language — not posing for the camera. Reveal nothing that happens later in the story.',
     // "colours in the family of <palette>" ทำให้ทั้งภาพถูกย้อมเป็นสีเดียว (เจอจริง: ทุกภาพแดงหม่น) — palette เป็นแค่สีเน้น
-    `STYLE: ${style}${color ? `, natural full colour${hues ? ` with accents of ${hues}` : ''} — never a monochrome or single-tint wash` : ', black and white / grayscale only'}. The same art style as the book cover and the character sheets. Fill the whole frame, no border.`,
+    `STYLE: ${style}${color ? `, natural full colour${hues ? ` with accents of ${hues}` : ''} — never a monochrome or single-tint wash` : ', black and white / grayscale only'}. ${styleKey === 'doodle' ? 'The same doodle style in every illustration of this book — draw each character from their reference sheet in this doodle style (same face, hair and body; clothes chosen for this scene), not in the style of the sheet' : 'The same art style as the book cover and the character sheets'}. Fill the whole frame, no border.`,
     'No text, no letters, no speech bubbles, no captions inside the picture. Normal anatomy: two hands with five fingers each, no extra limbs.',
   ]
     .filter(Boolean)
@@ -2122,8 +2415,9 @@ export function interiorFigurePrompt(styleKey, subject, widthMm, heightMm = 45, 
    * ผลคือปกเป็นภาพถ่ายจริงแต่ภาพข้างในเป็นกราฟิกแบน ๆ คนละโทน เปิดดูแล้วเหมือนคนละเล่มปนกัน
    */
   const cover = opts.cover || null;
+  const matchCoverMedium = /^photo/i.test(styleKey);
   const coverEcho = cover?.style
-    ? `\nSAME BOOK AS THE COVER — this figure must sit in the same visual world as this book's cover artwork: ${cover.style}.${cover.lighting ? ` The cover light is ${cover.lighting}; use light of the same kind and direction.` : ''}${cover.texture ? ` Materials and surfaces seen on the cover: ${cover.texture}.` : ''} Match its medium, its level of realism, its light and its colour temperature so the cover and the interior read as one designed book. But this is a DIFFERENT moment inside that world, never a restatement of the cover: same world and same materials, different vantage, different distance, different arrangement. Do not invent a different look for the inside, and do not redraw the cover either.`
+    ? `\nSAME BOOK AS THE COVER — this figure must sit in the same visual world as this book's cover artwork: ${cover.style}.${cover.lighting ? ` The cover light is ${cover.lighting}; use light of the same kind and direction.` : ''}${cover.texture ? ` Materials and surfaces seen on the cover: ${cover.texture}.` : ''} ${matchCoverMedium ? 'Match its medium, its level of realism, its light and its colour temperature' : `Keep the selected ${styleKey} illustration medium for this interior figure; borrow only the cover's subject world, light and colour temperature, not its photographic medium`} so the cover and the interior read as one designed book. But this is a DIFFERENT moment inside that world, never a restatement of the cover: same world and same materials, different vantage, different distance, different arrangement. Do not redraw the cover.`
     : '';
   // สไตล์บางตัวเขียนล็อกไว้ว่าขาวดำ ถ้าเล่มนี้เอาภาพสีต้องถอดคำพวกนั้นออก
   // ไม่งั้นคำสั่งจะขัดกันเอง ("black line art on white" ปะทะ "full colour")
@@ -2234,8 +2528,45 @@ function coverArtworkSpec(book = {}) {
  * สารคดีโหมด Flow จึงยังเป็น artwork ล้วน แล้วให้ Typst เรียงพิมพ์ชื่อทับ
  * นิยายโหมด Flow ผู้ใช้สั่ง: ปกหน้า-หลังแนวโปสเตอร์หนัง ตัวหนังสือสร้างมาพร้อมภาพ ไม่วางทับทีหลัง
  */
+// โหมด Flow ทุกประเภทหนังสือ (ผู้ใช้สั่ง: "ภาพปก ให้สร้างพร้อมกับตัวหนังสือเลย") — เดิมเฉพาะนิยาย สารคดีได้ปกไม่มีตัวหนังสือ
 export const coverTextBaked = (book) =>
-  book?.imageSource === 'flow' ? book?.contentMode === 'fiction' : (book?.coverTextMode || 'baked') === 'baked';
+  book?.imageSource === 'flow' ? true : (book?.coverTextMode || 'baked') === 'baked';
+
+/**
+ * ปกหน้าต้องน่าตื่นเต้น (ผู้ใช้: "เพิ่มให้น่าตื่นเต้นกว่านี้ด้วยกับปกหน้า")
+ * เจอจริง: ปกสารคดีได้ภาพสต็อก "ผู้ชายยืนถือแฟ้มในออฟฟิศ" แสงเรียบ ไม่มีจุดดึงสายตา
+ */
+export const FLOW_COVER_PUNCH = `MAKE IT EXCITING — this cover must grab attention from across a bookshop:
+- one bold, dramatic focal moment with real tension or energy — never a person standing still holding an object, never a posed stock photo, never a plain office
+- dynamic composition: strong diagonal, low or high camera angle, dramatic perspective or scale contrast, depth from foreground to background
+- cinematic lighting with high contrast: rim light, glow, light beams, deep shadows — never flat even lighting
+- confident, saturated colour with one striking accent colour that pops at thumbnail size
+- the title is a bold display typographic element: large, heavy, with depth (glow, texture, shadow, metallic or 3D feel that suits the book), integrated into the image — not a small label pasted on top`;
+
+/**
+ * ปกโหมด Flow แนวโปสเตอร์หนัง ทุกประเภทหนังสือ — วางบนสุดของ prompt ของ Art Director และย้ำท้ายสุด
+ * ผู้ใช้ (ส่งภาพปกคู่มือรับมือหวัดมา): "ปกหลังทุเรศมาก ปกหน้าเชยมาก ให้ทำเป็นแนว poster หนังสิ"
+ * เจอจริง: ปกหน้าเป็นภาพสต็อก "ผู้ชายนั่งเขียนสมุดที่โต๊ะ" · ปกหลังเป็นรูปถ่ายหนังสือวางบนโต๊ะ มีคำโปรยบนแผ่นกระดาษ
+ * Art Director ยังเป็นคนคิดเนื้อหา/คน/สี/โลกของปก ส่วนนี้คุมแค่ "วิธีถ่ายทำ" ให้เป็นโปสเตอร์หนัง
+ */
+export const FLOW_POSTER_FRONT = `MOVIE-POSTER KEY ART — design this front cover like a theatrical movie poster. This overrides any calmer composition, "negative space", "editorial" or "quiet" instruction further down; keep the art director's subject, person, world and colours, but shoot them as a blockbuster poster:
+- HERO SHOT: the main person large and close (waist-up or closer, filling 50-70% of the frame), caught in the book's central feeling or struggle, lit like a film still — strong rim light, glow on the face, deep shadows, haze or atmosphere
+- STORY LAYER: the book's world or problem rises behind or around them — scale contrast, silhouettes, light beams, weather, a symbolic object shown huge in the background — real depth from foreground to background
+- CONCEPT: show the book's problem and its promise as ONE big, surprising visual metaphor you would remember — the inner struggle made visible and huge around the person (e.g. a storm of thoughts swirling around a calm centre, a path of light cutting through chaos, the old life shattering into pieces behind them). NEVER a literal office, meeting room, desk, laptop, notebook or phone on a table, and never a person just standing, leaning or sitting in an ordinary room — that is a stock photo, not a poster
+- CAMERA: low angle or dramatic three-quarter, shallow depth of field. Never a flat front-on shot of someone sitting at a desk writing, never a calm stock photo, never a plain room
+- COLOUR GRADE: rich cinematic grade with one striking accent colour, deep blacks, glowing highlights — never flat, grey or washed out
+- TYPOGRAPHY LIKE A FILM POSTER: the title is a designed display lettering, not plain white type — huge, heavy and cinematic with a treatment that suits the book (glow, light passing through it, metallic, brush, texture or 3D depth, part of it tucked behind the subject), spanning most of the width in the top or bottom third; the subtitle (if given) is one small tagline line; the author name sits at the bottom like a film credit
+- It must stop a person scrolling past at thumbnail size, exactly like a movie poster does`;
+
+export const FLOW_TAGLINE_MAX = 45;
+
+export const FLOW_POSTER_BACK = `MOVIE-POSTER BACK COVER — the back of the same film poster: same world, same person, same colour grade and light as a movie-poster front. This overrides any "near-uniform cream/beige text area", "paper" or "calm page" instruction further down:
+- a full-bleed cinematic scene from the same world (a wide atmospheric shot or a dramatic detail), slightly darker and softer where the text sits, with a smooth dark gradient or vignette behind the words
+- the text is laid DIRECTLY on the scene like the back of a movie poster or Blu-ray case: headline large and bold, paragraph and bullets in clean light-coloured text, strong contrast
+- NEVER put the text on a sheet of paper, card, notebook, panel, box or document inside the scene, and NEVER show a book, a desk, a table or hands holding anything — this image IS the flat back cover surface`;
+
+// ย้ำท้ายคำสั่ง — ปกเคยออกมาเป็น "ผู้เขียนยืนเท้าโต๊ะในออฟฟิศ มีโทรศัพท์บนโต๊ะ" เพราะคำสั่งยาวของ Art Director กับกติกาแนบรูปผู้เขียนอยู่ท้ายและกลบคำสั่งโปสเตอร์ที่อยู่บนสุด (ผู้ใช้: "หน้าปกยังเชยมาก")
+export const FLOW_POSTER_REMINDER = `FINAL CHECK — this must be a MOVIE POSTER, not a stock photo: one huge visual metaphor of the book's struggle and promise around the person, dramatic cinematic light and colour grade, designed display title lettering. If the image would show an office, a desk, a laptop, a phone on a table, or someone simply standing or leaning in an ordinary room, redesign it. The movie-poster direction at the very top wins over any conflicting instruction in between (including any request for a real-world everyday moment).`;
 
 /**
  * ภาพปกหน้าที่มีอยู่จริงมีชื่อเรื่องวาดอยู่แล้วไหม — ใช้ตัดสินตอนเรียงพิมพ์/ส่งออกว่าจะพิมพ์ชื่อทับหรือไม่
@@ -2246,7 +2577,9 @@ export const frontCoverTextInImage = (book) =>
 
 function bakedCoverTextRule(book, outline) {
   const title = (outline?.title || book?.topic || '').trim();
-  const subtitle = (outline?.subtitle || '').trim();
+  // ปกโปสเตอร์ของ Flow: ชื่อรองยาวหลายบรรทัดทำให้ปกรก (เจอจริง: 4 บรรทัดใต้ชื่อเรื่อง) — ยาวเกินหนึ่งบรรทัด tagline ไม่ใส่บนปกหน้า
+  const fullSub = (outline?.subtitle || '').trim();
+  const subtitle = book?.imageSource === 'flow' && [...fullSub].length > FLOW_TAGLINE_MAX ? '' : fullSub;
   const author = (book?.author || '').trim();
   const thai = (book?.language || 'th') === 'th';
 
@@ -2294,15 +2627,15 @@ export function frontCoverPrompt(style, book, outline) {
   return `Generate a TALL PORTRAIT image, ${spec.widthMm.toFixed(0)}×${spec.heightMm.toFixed(0)} mm (ratio ${spec.ratio}) — noticeably taller than wide. Do NOT return a square or landscape image.
 
 COVER ARTWORK ONLY for a ${book.genre || (book.contentMode === 'fiction' ? 'fiction' : 'non-fiction')} book about ${book.topic}.
-Visual language — execute EXACTLY this, chosen by the art director because it fits this book: ${style.style}. Commit to it fully and craft it to a level that sells: if it is photographic, it must read as a real photograph with real light, real material texture and natural depth of field; if it is painted, printed, drawn, collaged or rendered, the medium itself must be visible and convincing — real pigment, ink, paper, tool marks or physically-lit materials. What is never acceptable in any medium is generic clip-art: default flat vector shapes, stock icon sets, and the same weightless corporate illustration used on every website. This artwork is only the visual layer; the system will typeset the exact real title, subtitle and author later according to the GPT art-director layout below.
+Visual language — ${PHOTO_COVER_STYLE}. Use the art director's concept and composition, but translate any suggested drawing, painting or collage into a believable real photographed scene. This artwork is only the visual layer; the system will typeset the exact real title, subtitle and author later according to the GPT art-director layout below.
 
 Art-director direction: ${style.name || 'recommended direction'}.
 Sales angle: ${style.sales_angle || ''}
 Why it fits: ${style.why_it_fits || ''}
 Visual concept: ${style.visual_metaphor}.${digestCue}
 Human subject (REQUIRED — the cover must include a person so readers connect with it): ${style.human_element || 'a person from the book\'s world actively doing the thing this book is about, shown in a real setting — not posing for the camera'}.
-How this person is made: ${style.human_render_style || `made in the same visual language as the rest of the cover (${style.style}), at the same distance, angle and light as the rest of the frame`}.${digest?.human?.feeling ? ` Their emotional state: ${digest.human.feeling}.` : ''}
-The person must be genuinely doing something meaningful to the subject matter, caught mid-action, with readable body language and real feeling in posture, gesture and face${energy >= 4 ? ' — this book is energetic, so give them visible movement or expression, not calm standing' : ''}. Never a smiling model facing the viewer, thumbs-up, crossed arms, blank neutral expression, or any posed stock-photo attitude. An expressionless, generically handsome face staring out of the cover is a failed output. Render them in the same visual language as the rest of the cover, executed at the same level of craft — a photographic cover needs a real person really photographed; a painted, printed, drawn, collaged or rendered cover needs that medium honestly applied to the figure too. What fails in every medium is a generic faceless mannequin or a default stock figure dropped into the scene. If a full face would weaken the design, show them from behind, in silhouette, cropped at the shoulders, or only their hands at work — but a human presence must be visible and must carry emotion.
+How this person is made: a real human photographed in the scene, at the same distance, angle and light as the rest of the frame.${digest?.human?.feeling ? ` Their emotional state: ${digest.human.feeling}.` : ''}
+The person must be genuinely doing something meaningful to the subject matter, caught mid-action, with readable body language and real feeling in posture, gesture and face${energy >= 4 ? ' — this book is energetic, so give them visible movement or expression, not calm standing' : ''}. Never a smiling model facing the viewer, thumbs-up, crossed arms, blank neutral expression, or any posed stock-photo attitude. An expressionless, generically handsome face staring out of the cover is a failed output. Photograph a believable person naturally present in the scene, never a faceless mannequin or a stock figure dropped into it. If a full face would weaken the design, show them from behind, in silhouette, cropped at the shoulders, or only their hands at work — but a human presence must be visible and must carry emotion.
 Composition: ${style.composition || 'one dominant focal point with strong thumbnail readability'}.
 ${fictionCue}
 
@@ -2319,7 +2652,7 @@ Keep the area under each text block calm and low-detail so the letters stay cris
 - ${zone('author')}
 Do not place faces, critical clues, small focal details, or high-contrast texture underneath those text boxes.`}
 
-Execution: ${style.style}. Surfaces and materials that must be visible: ${style.texture}. Light: ${style.lighting}.
+Execution: ${PHOTO_COVER_STYLE}. Surfaces and materials that must be visible: ${style.texture}. Light: ${style.lighting}.
 Colour: let the colour come out of that scene, that light and those materials. ${pal(style)} are colours sampled FROM this intended image, given so the system knows what to typeset the title in — they are NOT a three-colour palette to repaint the whole cover with, and the image may hold far more colour than these. Do not flatten everything into three flat fills, and do not lay a vintage filter, sepia, duotone or single-tone wash over the frame unless the concept genuinely calls for it.${style.color_strategy ? ` Where those colours come from in the frame: ${style.color_strategy}.` : ''}
 ${energyRule}
 Mood: ${style.mood}.
@@ -2470,7 +2803,7 @@ ${thai ? '- The text is Thai. Reproduce every Thai character, tone mark and vowe
  */
 export const backCoverTextBaked = (book = {}) =>
   !!book?.backCoverCopy?.hook &&
-  (book?.imageSource === 'flow' ? book?.contentMode === 'fiction' : (book?.coverMode || 'prompt') === 'auto');
+  (book?.imageSource === 'flow' ? true : (book?.coverMode || 'prompt') === 'auto');
 
 /** ภาพปกหลังที่มีอยู่จริงมีคำโปรยวาดอยู่แล้วไหม (เหตุผลเดียวกับ frontCoverTextInImage) */
 export const backCoverTextInImage = (book = {}) =>
@@ -2486,12 +2819,19 @@ export function backCoverPrompt(style, book = {}) {
    * อีกท่อนแนบรูปหน้ามาแล้วสั่งให้วาดคนคนนี้ลงไป — โมเดลจะเลือกทางใดทางหนึ่งแบบเดาไม่ได้
    */
   const refOnBack = (book.authorRefTargets || []).includes('cover-back');
-  const drawAuthor =
-    refOnBack || (book.authorPhotoMode || (book.authorPhotoOnCover ? 'upload' : 'none')) === 'generated';
+  /**
+   * โหมด Flow: ไม่แปะรูปถ่ายผู้เขียนทับปกหลังอีก (ผู้ใช้: "ยกเลิกการแนบภาพตรงๆ แบบนี้")
+   * เจอจริง: รูปถ่ายสี่เหลี่ยมแปะมุมซ้ายบนทับหัวคำโปรย ดูเป็นของแปะ ไม่ใช่ส่วนของปก
+   * (ก่อนหน้านั้นเคยได้หน้าสองรูปซ้อนกัน เพราะทั้งแปะรูปและให้ Flow วาดด้วย)
+   * ตอนนี้: เลือกผู้เขียนบนปกหลัง = Flow วาดผู้เขียนเป็นคนในภาพ ใช้รูปเป็นต้นแบบหน้าตาเท่านั้น · เครื่องเรียงพิมพ์ไม่แปะรูป
+   */
+  // ทุกโหมด (ผู้ใช้: "ยกเลิกทุกโหมดเลย") — ไม่มีการแปะรูปถ่ายอีกแล้ว เลือกผู้เขียนบนปกหลัง = วาดเป็นคนในภาพ
+  const drawAuthor = refOnBack || !!book.authorPhotoOnCover || book.authorPhotoMode === 'generated';
+  const photoLater = false;
   const authorDrawn = drawAuthor
-    ? ` Include a small author portrait as part of the artwork in the upper-left area, roughly 30 × 38 mm at print size: a single person seen from a natural angle, consistent with the book's visual language, not a photographic headshot pasted on top. No name, no caption, no frame around it.`
+    ? ` The book's author (face from the attached reference photo) appears as a person INSIDE this back-cover scene, dressed for this scene (not in the clothes from the photo), drawn in exactly the same style, light and colour as the rest of the artwork — part of the world, placed away from the text area, never overlapping any text. Never a rectangular photo inset, never a pasted headshot, never a framed portrait. No name or caption next to them.`
     : '';
-  const authorArea = book.authorPhotoOnCover && !drawAuthor
+  const authorArea = photoLater && !drawAuthor
     ? ' Keep the upper-left area especially calm and low-detail because a small author portrait will be overlaid there later; do not draw a person in that reserved area.'
     : '';
   const spec = coverArtworkSpec(book);
@@ -2509,7 +2849,7 @@ export function backCoverPrompt(style, book = {}) {
   const baked = backCoverTextBaked(book);
   return `Generate a TALL PORTRAIT image, ${spec.widthMm.toFixed(0)}×${spec.heightMm.toFixed(0)} mm (ratio ${spec.ratio}) — noticeably taller than wide. Do NOT return a square or landscape image.
 
-BACK COVER for the same book, and it must come from THE SAME PRODUCTION as the front cover — same visual language, same medium and craft, same place and world, same light, same materials, same colour of that light. A photographic front means a photograph from the same shoot; a painted, printed, collaged or rendered front means the same hand, tools and stock. Build it from the written spec below only; there is no front cover file to look at and none is needed: visual language ${style.style}, surfaces and materials ${style.texture}, light ${style.lighting}, colours present in that world ${pal(style)}.${baked ? '' : ' Artwork only — the system will typeset all real text later.'}
+BACK COVER for the same book, a quieter real photograph from the same shoot as the front cover — same place and world, camera style, light, materials and colour. Build it from the written spec below only; there is no front cover file to look at and none is needed: visual language ${PHOTO_COVER_STYLE}, surfaces and materials ${style.texture}, light ${style.lighting}, colours present in that world ${pal(style)}.${baked ? '' : ' Artwork only — the system will typeset all real text later.'}
 
 Concept: a designed continuation of the same visual world described in this style spec — use ${style.background_element} as a recognisable secondary motif, with the main subject transformed, cropped, repeated, or reduced rather than merely deleted.
 Composition: ${baked

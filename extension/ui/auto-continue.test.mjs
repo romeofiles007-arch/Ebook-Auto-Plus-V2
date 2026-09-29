@@ -36,8 +36,8 @@ test('ผู้ใช้สั่งหยุดเอง (ปลดโหมด
   assert.equal(decide({ ...stalled, unattended: false }), false);
 });
 
-test('รอฐานเนื้อหาจากผู้ใช้ ห้ามยิงทำต่ออัตโนมัติด้วยข้อมูลเดิม', () => {
-  assert.equal(decide({ ...stalled, job: { step: 'write', status: 'waiting_content_input' } }), false);
+test('งานรุ่นเก่าที่ค้างรอข้อมูลให้กู้ต่ออัตโนมัติหลังนิ่ง', () => {
+  assert.equal(decide({ ...stalled, job: { step: 'write', status: 'waiting_content_input' } }), true);
 });
 
 test('งานที่จบแล้วหรือไม่มีงานค้าง ไม่มีอะไรให้ทำต่อ', () => {

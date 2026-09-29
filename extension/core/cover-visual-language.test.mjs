@@ -35,22 +35,19 @@ const paintedStyle = {
 const book = { topic: 'งานไม้', genre: 'how-to', trim: { preset: 'a5' }, style: photoStyle };
 const outline = { thesis: 'ลงมือทำจริง', chapters: [] };
 
-test('ปกยึดภาษาภาพที่ art director เลือก ไม่ล็อกว่าต้องเป็นภาพถ่าย', () => {
+test('ปกใช้ฉากภาพถ่ายจริง แม้ทิศทางเดิมจะเป็นภาพวาด', () => {
   const photo = frontCoverPrompt(photoStyle, book, outline);
-  assert.match(photo, /execute EXACTLY this[\s\S]{0,120}documentary photograph, real workshop/);
-  assert.match(photo, /if it is photographic, it must read as a real photograph/);
+  assert.match(photo, /premium photorealistic editorial photograph/);
 
   const painted = frontCoverPrompt(paintedStyle, { ...book, style: paintedStyle }, outline);
-  assert.match(painted, /gouache painting on rough paper/);
-  assert.match(painted, /the medium itself must be visible and convincing/);
-  // ไม่มีการแบนภาพวาด/เวกเตอร์/คอลลาจ/3D อีกต่อไป
-  assert.equal(/are all failed output/.test(painted), false);
+  assert.match(painted, /translate any suggested drawing, painting or collage into a believable real photographed scene/);
+  assert.match(painted, /never a doodle, cartoon, painting, vector graphic or 3D render/);
 });
 
-test('สิ่งที่ยังห้ามคือคลิปอาร์ต ไม่ใช่การวาด', () => {
+test('ปกไม่ใช้คลิปอาร์ตหรือภาพ doodle', () => {
   const p = frontCoverPrompt(paintedStyle, book, outline);
-  assert.match(p, /never acceptable in any medium is generic clip-art/);
-  assert.match(p, /stock icon sets/);
+  assert.match(p, /never a doodle/);
+  assert.match(p, /believable real photographed scene/);
 });
 
 test('palette เหลือหน้าที่เดียวคือบอกสีตัวหนังสือ ไม่ใช่ย้อมทั้งปก', () => {
@@ -63,17 +60,16 @@ test('palette เหลือหน้าที่เดียวคือบอ
   assert.equal(/beats a default photoreal person/.test(p), false);
 });
 
-test('คนบนปกทำด้วยสื่อเดียวกับปก และห้ามเป็นหุ่นสต็อก', () => {
+test('คนบนปกเป็นคนจริงในฉาก ไม่ใช่หุ่นสต็อก', () => {
   const p = frontCoverPrompt(photoStyle, book, outline);
-  assert.match(p, /same visual language as the rest of the cover, executed at the same level of craft/);
-  assert.match(p, /generic faceless mannequin or a default stock figure/);
+  assert.match(p, /a real human photographed in the scene/);
+  assert.match(p, /never a faceless mannequin or a stock figure/);
 });
 
 test('ปกหลังมาจากการผลิตชุดเดียวกับปกหน้า', () => {
   const p = backCoverPrompt(photoStyle, book, outline);
-  assert.match(p, /THE SAME PRODUCTION as the front cover/);
-  assert.match(p, /same visual language, same medium and craft/);
-  assert.match(p, /photographic front means a photograph from the same shoot/);
+  assert.match(p, /real photograph from the same shoot as the front cover/);
+  assert.match(p, /premium photorealistic editorial photograph/);
   assert.match(p, /reads as a different book and is a failed output/);
 });
 
@@ -97,18 +93,15 @@ test('ไม่รู้จักปก ก็ยังสร้างคำส�
   assert.match(p, /Interior book illustration/);
 });
 
-test('บรีฟ art director เปิดให้เลือกทุกภาษาภาพ แต่ต้องมีเหตุผล', async () => {
+test('บรีฟ art director เสนอภาพถ่ายจริงหลายมุม โดยไม่เสนอ doodle', async () => {
   const src = await readFile(new URL('./prompts.js', import.meta.url), 'utf8');
-  const start = src.indexOf('8. ภาษาภาพของปกเลือกได้ทุกแบบ');
-  assert.ok(start > 0, 'กติกาข้อ 8 ต้องเปิดให้เลือกภาษาภาพ');
+  const start = src.indexOf('8. ภาษาภาพของปกทุกทิศทาง');
+  assert.ok(start > 0, 'กติกาข้อ 8 ต้องกำหนดภาพถ่ายจริง');
   const rule = src.slice(start, start + 900);
-  assert.match(rule, /ภาพถ่ายเหมือนจริง ภาพวาด ภาพเวกเตอร์ กราฟิกแบน คอลลาจ ภาพพิมพ์ 3D render/);
-  assert.match(rule, /ต้องบอกใน why_it_fits ว่าทำไมภาษาภาพนี้ถึงเหมาะกับเล่มนี้/);
-  assert.match(rule, /ไม่ใช่ภาพเวกเตอร์สำเร็จรูปแบบคลิปอาร์ต/);
-  // กติกาเดิมที่บังคับกลยุทธ์สีเป็นตัวแยกสามทิศทาง ต้องไม่เหลืออยู่
+  assert.match(rule, /ภาพถ่ายเหมือนจริงระดับปกหนังสือ/);
+  assert.match(rule, /ห้าม doodle ภาพวาด เวกเตอร์ คอลลาจ หรือ 3D render/);
+  assert.match(src, /เลนส์ ระยะชัดลึกและแหล่งแสง/);
   assert.equal(/ทั้ง 3 ทิศทางต้องต่างกันที่ "กลยุทธ์สี"/.test(src), false);
-  // และต้องไม่แบนภาษาภาพใด
-  assert.equal(/ห้ามเสนอภาพประกอบวาด/.test(src), false);
 });
 
 test('มีสไตล์ภาพในเล่มแบบภาพถ่ายสีให้เลือกด้วย', async () => {
@@ -119,7 +112,7 @@ test('มีสไตล์ภาพในเล่มแบบภาพถ่�
 
 test('บรีฟทิศทางปกยังสร้างได้ครบหลังแก้กติกา', () => {
   const p = styleTokenPrompt(book, outline);
-  assert.match(p, /ภาษาภาพของปกเลือกได้ทุกแบบ/);
+  assert.match(p, /ภาษาภาพของปกทุกทิศทางต้องเป็นภาพถ่ายเหมือนจริง/);
   assert.match(p, /"palette"/);
 });
 

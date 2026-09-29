@@ -68,17 +68,18 @@ test('failed composition leaves original intact and next attempt reuses the raw 
   assert.match(f.calls[2].prompt, /รอบ 2:/);
 });
 
-test('missing information blocks regeneration without overwriting original or repeating turns', async () => {
+test('missing information after one recovery is omitted and writing continues, not blocked', async () => {
+  // เดิมหยุดรอให้คนกรอกข้อมูล — ตอนนี้ลองเติมหนึ่งรอบ ถ้ายังขาดให้ตัดข้ออ้างนั้นออกแล้วเขียนต่อ (core/content-readiness.js)
   const gap = answer('ข้อมูลไม่ครบ', { missing_information: ['หลักฐานผลลัพธ์'] });
-  const f = fixture([gap, gap]);
+  const f = fixture([gap, gap, answer(final, { summary: 'เสร็จ' })]);
   const result = await f.run();
-  assert.equal(result.ok, false);
-  assert.match(result.error, /หลักฐานผลลัพธ์/);
-  assert.equal(f.rec.md, 'ต้นฉบับเดิม');
-  assert.equal((await f.run()).ok, false);
-  assert.equal(f.calls.length, 2);
-  assert.equal(f.scope.book.job.status, 'waiting_content_input');
-  assert.equal(result.inputNeeded, true);
+  assert.equal(result.ok, true);
+  assert.equal(f.calls.length, 3);
+  assert.match(f.calls[2].prompt, /รอบ 2:/);
+  assert.match(f.calls[2].prompt, /หลักฐานผลลัพธ์/);
+  assert.deepEqual(f.rec.contentDraft.meta.omitted_information, ['หลักฐานผลลัพธ์']);
+  assert.notEqual(f.scope.book.job?.status, 'waiting_content_input');
+  assert.equal(f.rec.history[0].md, 'ต้นฉบับเดิม');
 });
 
 test('fiction regenerates once and locked/approved manuscripts are protected', async () => {

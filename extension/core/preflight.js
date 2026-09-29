@@ -186,12 +186,7 @@ export function preflight({ book, sections, pages, assetNames = [] }) {
   const refWhere = authorRefSummary(book);
   if (refWhere) {
     const hasPhoto = assetNames.includes('author-photo.png');
-    if (book.authorPhotoOnCover && (book.authorRefTargets || []).includes('cover-back'))
-      warn(
-        'author_ref_double',
-        'ปกหลังทั้งให้โมเดลวาดผู้เขียนลงไปในภาพ และให้ระบบแปะรูปจริงทับอีกชั้น',
-        'ปกหลังจะมีผู้เขียนสองคน — เลือกอย่างใดอย่างหนึ่ง ระหว่างติ๊ก "เพิ่มรูปผู้เขียนบนปกหลัง" กับ "แนบรูปผู้เขียน · ปกหลัง"',
-      );
+    // ไม่มีการแปะรูปถ่ายบนปกหลังแล้ว ทั้งสองตัวเลือกหมายถึง "วาดผู้เขียนในภาพปกหลัง" จึงไม่มีทางได้ผู้เขียนสองคน
     if (hasPhoto) ok('author_ref', `แนบรูปผู้เขียนไปให้โมเดลดูตอนสร้าง ${refWhere}`);
     else
       warn(

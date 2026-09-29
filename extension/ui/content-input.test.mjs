@@ -69,6 +69,17 @@ test('source mode requires new input and keeps source text intact', async () => 
   assert.equal(f.calls.at(-1)[0], 'resume');
 });
 
+test('no-data choice needs no invented source and resumes only this section', async () => {
+  const f = fixture(); const dialog = await f.open();
+  dialog.all('select')[0].value = 'no_data';
+  await submit(dialog);
+  assert.equal(f.scope.book.contentInputs['1.1'].omitUnsupportedClaims, true);
+  assert.equal(f.scope.book.contentInputs['1.1'].sourceText, '');
+  assert.equal(f.scope.book.contentAuthoring, undefined);
+  assert.equal(f.scope.book.job.cursor, 3);
+  assert.equal(f.calls.at(-1)[0], 'resume');
+});
+
 test('cancel or saving unchanged input does not repeat the blocked request', async () => {
   const f = fixture();
   f.scope.book.contentInputs = { '1.1': { sourceText: 'ข้อมูลเดิม', guidance: '', allowOriginalInterpretation: false } };

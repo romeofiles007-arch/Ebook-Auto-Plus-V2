@@ -160,7 +160,8 @@ export function plannedImageCount({
     else {
       const perSections = { light: 3, rich: 1.5, max: 0.75 }[illustrationLevel] || 3;
       figures = illustrationLevel === 'none' ? 0
-        : illustrationLevel === 'page' ? Math.max(1, Math.round(targetPages * 2))
+        // ตามความเหมาะสม: เฉพาะหน้าที่ควรมีภาพจริง ราว 1 ภาพต่อ 3–4 หน้า (ผู้ใช้เปลี่ยนจาก 1 หน้า 1 ภาพ)
+        : illustrationLevel === 'page' ? Math.max(1, Math.round(targetPages / 3.5))
         : Math.round(sections / perSections);
     }
   }

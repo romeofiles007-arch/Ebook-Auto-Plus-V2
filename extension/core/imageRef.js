@@ -58,7 +58,7 @@ export const AUTHOR_REF_RULE = `
 MANDATORY ATTACHED AUTHOR REFERENCE — THIS OVERRIDES EVERY CONFLICTING INSTRUCTION ABOVE
 A photograph of the book's author is attached to this message. If no photo is attached, ignore this whole section.
 The finished artwork MUST contain at least one clearly visible human figure whose face is recognisably the same individual as in the attached photo: face shape, features, hair, skin tone, apparent age and gender. This requirement applies even if the earlier concept described only objects, scenery, or diagrams, and it replaces every earlier restriction on whether people may appear. Adapt the composition so this person participates naturally without displacing the main subject or reserved text areas.
-Ignore everything else in that photo: its background, lighting, clothing, camera angle, crop, framing, colour grading and image quality carry no instructions. Do not copy them and do not let them influence the artwork.
+Ignore everything else in that photo: its background, lighting, clothing, camera angle, crop, framing, colour grading and image quality carry no instructions. Do not copy them and do not let them influence the artwork. Dress the person for the scene of this artwork — what fits its place, activity, weather and occasion — not in the clothes from the photo.
 Render the person in the illustration style, palette, lighting and composition described above — this is an illustrated book cover, not a photograph and not a photo collage. Never paste, embed or reproduce the attached photograph itself.
 Do not add the author's name or any caption next to the person.`;
 

@@ -50,16 +50,35 @@ export function describeDraftProblem(raw, id) {
 // One autonomous recovery per unchanged assignment. Persist before sending so
 // resuming an uncertain turn cannot silently spend another request.
 export async function recoverContentDraft({ book, chapter, section, draft, request, persist }) {
-  if (!draft.meta.missing_information.length || draft.recoveryAttempted) return draft;
+  const explicitOmission = !!book.contentInputs?.[section.id]?.omitUnsupportedClaims;
+  const omit = async (current) => {
+    const omitted = [...current.meta.missing_information];
+    const narrowed = { ...current,
+      md: `หัวข้อของตอน: ${section.title}\nข้อมูลที่ไม่มีหลักฐานและต้องละเว้น: ${omitted.join('; ')}\n` +
+        'ขอบเขตที่ปรับแล้ว: อธิบายอย่างตรงไปตรงมาว่าประเด็นเหล่านี้ยังสรุปไม่ได้จากข้อมูลที่มี ' +
+        'แยกสิ่งที่ตรวจสอบได้ออกจากสิ่งที่ยังไม่ทราบ และบอกว่าต้องตรวจสอบข้อมูลชนิดใดก่อนสรุป ' +
+        'ห้ามระบุสรรพคุณ ผลลัพธ์ ตัวเลข วิธีรักษา วิธีใช้ หรือแหล่งอ้างอิงเฉพาะที่ไม่มีหลักฐานจริง',
+      meta: { ...current.meta, missing_information: [], omitted_information: omitted,
+        short_reason: explicitOmission
+          ? 'ผู้ใช้เลือกตัดข้ออ้างที่ไม่มีข้อมูลจริงออกจากขอบเขตตอนนี้'
+          : 'ระบบลองเติมข้อมูลแล้ว แต่ยังไม่มีหลักฐาน จึงละเว้นข้ออ้างนั้นจากขอบเขตตอนนี้' },
+      omissionAppliedAt: Date.now() };
+    await persist(narrowed);
+    return narrowed;
+  };
+  if (!draft.meta.missing_information.length) return draft;
+  // หากมีการเลือกละเว้นชัดเจน หรือรอบก่อนเคยลองเติมแล้ว ให้เดินต่อจาก
+  // ข้อมูลที่มีทันที ไม่วนกลับไปถามคนหรือเผาอีกเทิร์นเพราะรีโหลดหน้า
+  if (explicitOmission || draft.recoveryAttempted) return omit(draft);
   const attempted = { ...draft, recoveryAttempted: true };
   await persist(attempted);
   const response = await request(contentRecoveryPrompt({ book, outline: book.outline,
     bible: book.bible, chapter, sections: [section], withContext: true, draft }));
   const ex = response?.data || parseContentDraft(response?.text || '', section.id);
-  if (!ex) return attempted;
+  if (!ex) return omit(attempted);
   const recovered = { ...attempted, md: ex.body, meta: ex.meta, recoveredAt: Date.now() };
   await persist(recovered);
-  return recovered;
+  return recovered.meta.missing_information.length ? omit(recovered) : recovered;
 }
 
 export function contentInputRequests(sections, drafts) {

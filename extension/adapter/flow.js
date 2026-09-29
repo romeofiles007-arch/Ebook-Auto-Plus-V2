@@ -644,7 +644,28 @@
     return i >= 0 ? t.slice(0, i) : t;
   };
 
-  async function waitNewTile(before, beforeEls, { timeout = 5 * 60000, ratio = '', skipNames = [], prompt = '' } = {}) {
+  /**
+   * ปุ่ม "ลองใหม่อีกครั้ง" ที่ Flow แสดงบนภาพที่ล้ม (หรือในกล่องแจ้งเตือน)
+   * ผู้ใช้: "บางทีกดสร้างภาพใน google flow จะเจอปุ่ม ลองใหม่อีกครั้ง ก็ให้กดลองใหม่อีกครั้งไปเลย"
+   */
+  const RETRY_TEXT = /ลองใหม่|ลองอีกครั้ง|try again|retry/i;
+  const retryButton = (root) =>
+    root ? $('button, [role="button"]', root).find((b) => visible(b) && !b.disabled && RETRY_TEXT.test(`${text(b)} ${b.getAttribute('aria-label') || ''}`)) : null;
+  const FLOW_RETRY_CLICKS = 2;
+
+  async function waitNewTile(before, beforeEls, opts = {}) {
+    const deadline = Date.now() + (opts.timeout || 5 * 60000);
+    for (let clicks = 0; ; clicks++) {
+      const res = await waitNewTileOnce(before, beforeEls, { ...opts, timeout: Math.max(30000, deadline - Date.now()), canRetry: clicks < FLOW_RETRY_CLICKS });
+      if (!res.retry) return { ...res, retried: clicks };
+      // กดแบบคนกดจริง — ปุ่มของ Flow บางปุ่มไม่รับคลิกจากสคริปต์ (ดู trustedClick)
+      at(`Flow ขึ้นปุ่ม "ลองใหม่อีกครั้ง" — กดให้ (ครั้งที่ ${clicks + 1}/${FLOW_RETRY_CLICKS})`);
+      await trustedClick(res.retry);
+      await sleep(3000);
+    }
+  }
+
+  function waitNewTileOnce(before, beforeEls, { timeout = 5 * 60000, ratio = '', skipNames = [], prompt = '', canRetry = false } = {}) {
     const skip = new Set(skipNames.filter(Boolean));
     const key = promptKey(prompt);
     let mine = null; // tile กำลังวาดที่แสดง prompt ของเรา
@@ -660,6 +681,9 @@
           if (id && img.complete && img.naturalWidth > 0) return { tile: mine, id };
           if (!id && !isPending(mine) && FAIL_TEXT.test(statusText(mine, prompt))) {
             const why = statusText(mine, prompt);
+            // ล้มธรรมดาและมีปุ่มลองใหม่ = กดลองใหม่ · "กิจกรรมที่ผิดปกติ" ห้ามกดซ้ำ (ยิ่งสั่งถี่ยิ่งโดน) ต้องหยุดทั้งคิว
+            const again = canRetry && !UNUSUAL_TEXT.test(why) ? retryButton(mine) : null;
+            if (again) return { retry: again };
             const e = new Error(`Flow สร้างภาพไม่สำเร็จ: ${why.slice(0, 200) || 'ไม่ทราบสาเหตุ'}`);
             e.code = UNUSUAL_TEXT.test(why) ? 'unusual_activity' : 'generation_failed';
             throw e;
@@ -684,6 +708,8 @@
           (a) => visible(a) && FAIL_TEXT.test(text(a)),
         );
         if (alert) {
+          const again = canRetry && !UNUSUAL_TEXT.test(text(alert)) ? retryButton(alert) : null;
+          if (again) return { retry: again };
           const e = new Error(`Flow แจ้งว่า: ${text(alert).slice(0, 200)}`);
           e.code = UNUSUAL_TEXT.test(text(alert)) ? 'unusual_activity' : 'generation_failed';
           throw e;
@@ -838,6 +864,345 @@
     throw new Error(`โหลดภาพจาก Flow ไม่ได้ (${errors.join(' · ')})`);
   }
 
+  // ── Flow Agent: ภาพชุดใหญ่ด้วยคำสั่งเดียว ──
+  /**
+   * ภาพโหมด "1 หน้า 1 ภาพ" หลายสิบรูปต่อเล่ม — สั่งทีละรูปดูผิดปกติในสายตา Google (ผู้ใช้เจอ "พบกิจกรรมที่ผิดปกติ")
+   * ผู้ใช้เลือกให้ส่งเป็นชุดผ่าน Agent แบบโปรเจกต์ Youtube Free animation Auto (content-flow-agent.js ตรวจกับหน้าจริง ก.ย. 2026)
+   * ลำดับ: ตรวจ 0 เครดิตที่ช่องพิมพ์ปกติ → ตั้ง Agent (Image · สัดส่วน · x1 · โมเดลเดียวกัน · ไม่ต้องยืนยัน) →
+   *        แนบภาพต้นแบบตัวละคร → ส่ง brief ทั้งชุด → รอ agent นิ่ง → สั่งตั้งชื่อ/สั่งช็อตที่ขาด → คืนรายชื่อภาพที่ได้
+   * ตัวภาพดึงทีหลังด้วย generate (onlyExisting) ทีละชื่อ — ไม่สร้างภาพใหม่
+   */
+  const AL = {
+    settings: ['Settings', 'การตั้งค่า'],
+    save: ['Save', 'บันทึก'],
+    stop: ['Stop', 'หยุด', 'หยุดสร้าง'],
+    back: ['Back', 'กลับ'],
+    imageModel: ['Image generation default model', 'โมเดลเริ่มต้นของการสร้างรูปภาพ'],
+    imageDefault: /Image generation default|ค่าเริ่มต้นสำหรับการสร้างรูปภาพ/,
+    videoDefault: /Video generation default|ค่าเริ่มต้นของการสร้างวิดีโอ/,
+    never: /^(Never|ไม่เลย)/,
+    highDemand: /experiencing high demand|มีผู้ใช้งานจำนวนมาก|มีความต้องการสูง/gi,
+  };
+  const byAria = (labels, root = document, tag = 'button') => $$(tag, root).filter((b) => labels.includes(b.getAttribute('aria-label')));
+  const agentPanel = () => document.querySelector('flow-agent-panel');
+  const agentBusy = () => !!byAria(AL.stop).find(visible);
+  const AGENT_GAP_MS = 2 * 60000; // เว้นอย่างน้อย 2 นาทีระหว่างข้อความที่ส่งให้ Agent (ค่าเดียวกับโปรเจกต์ Youtube)
+  let lastAgentPromptAt = 0;
+
+  async function agentOn_() {
+    await closeAgentChat();
+    for (let i = 0; i < 6 && !agentOn(); i++) {
+      const chip = await waitFor(SEL.agentChip, { label: 'ปุ่ม Agent' });
+      i % 2 === 0 ? chip.click() : realClick(chip);
+      await waitFor(agentOn, { timeout: 2500, label: 'เปิด Agent' }).catch(() => null);
+      await sleep(300);
+    }
+    if (!agentOn()) throw new Error('เปิดโหมด Agent ของ Flow ไม่สำเร็จ — กดปุ่ม Agent ในช่องพิมพ์เองแล้วสั่งใหม่');
+  }
+
+  /** รอจนแผงหยุดวาดใหม่ — แผง Agent settings โหลดค่าที่บันทึกไว้แล้ววาดทับหลังเปิดไม่กี่ร้อยมิลลิวินาที */
+  async function waitSettled(getRoot, { quietMs = 1200, timeout = 15000 } = {}) {
+    const deadline = Date.now() + timeout;
+    let last = '';
+    let since = Date.now();
+    while (Date.now() < deadline) {
+      const root = getRoot();
+      const snap = root ? `${root.innerHTML.length}|${$$('[aria-checked="true"], input:checked', root).length}|${text(root)}` : '';
+      if (snap !== last) {
+        last = snap;
+        since = Date.now();
+      } else if (root && Date.now() - since >= quietMs) return root;
+      await sleep(200);
+    }
+    return getRoot();
+  }
+
+  async function configureAgent(model, ratio) {
+    await agentOn_();
+    const openPanel = () => (visible(agentPanel()) && AL.imageDefault.test(text(agentPanel())) ? agentPanel() : null);
+    if (!openPanel()) realClick(await waitFor(() => byAria(AL.settings).find(visible), { label: 'ปุ่ม Settings ของ Agent' }));
+    await waitFor(openPanel, { label: 'Agent settings' });
+    await waitSettled(openPanel);
+    // query ใหม่ทุกครั้ง — แผงวาดใหม่แล้ว element เดิมหลุดจากหน้า
+    const read = () => {
+      const panel = openPanel();
+      if (!panel) return null;
+      const labels = $$('.settings-section-label', panel);
+      const imageLabel = labels.find((l) => AL.imageDefault.test(text(l)));
+      const videoLabel = labels.find((l) => AL.videoDefault.test(text(l)));
+      const inImage = (el) =>
+        imageLabel && imageLabel.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        (!videoLabel || videoLabel.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING);
+      const buttons = $$('button[role="radio"]', panel).filter(inImage);
+      const never = $$('mat-radio-button', panel).find((r) => AL.never.test(text(r)));
+      const modelBtn = byAria(AL.imageModel, panel)[0];
+      const checked = (re) => text(buttons.find((b) => b.getAttribute('aria-checked') === 'true' && re.test(text(b)))).split(' ').pop();
+      return {
+        panel, buttons, modelBtn,
+        neverInput: never?.querySelector('input[type="radio"]'),
+        state: {
+          confirm: never?.querySelector('input')?.checked ? 'Never' : 'Always',
+          ratio: checked(/:/),
+          count: checked(/(^|\s)x\d$/),
+          model: text(modelBtn).replace(/arrow_drop_down/, '').replace(/^\S+\s/, '').trim(),
+        },
+      };
+    };
+    const ok = (st) => st.confirm === 'Never' && st.ratio === ratio && st.count === 'x1' && st.model === model;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      let cur = read();
+      if (!cur) throw new Error('แผง Agent settings ปิดไปเอง');
+      if (ok(cur.state)) break;
+      // ไม่ต้องยืนยันก่อนสร้าง → agent วาดต่อเนื่องเองทั้งชุด
+      if (cur.state.confirm !== 'Never' && cur.neverInput) {
+        realClick(cur.neverInput);
+        await sleep(400);
+      }
+      for (const label of [ratio, 'x1']) {
+        cur = read();
+        const btn = cur?.buttons.find((b) => text(b).split(' ').pop() === label);
+        if (!btn) throw new Error(`ไม่พบตัวเลือก ${label} ใน Agent settings`);
+        if (btn.getAttribute('aria-checked') !== 'true') {
+          realClick(btn);
+          await sleep(400);
+        }
+      }
+      cur = read();
+      if (cur && cur.state.model !== model) {
+        realClick(cur.modelBtn);
+        const item = await waitFor(() => $$('[role="menuitem"]').find((m) => visible(m) && text(m).replace(/^\S+\s/, '') === model), {
+          timeout: 5000,
+          label: `เมนูโมเดล ${model}`,
+        }).catch(() => null);
+        if (item) realClick(item);
+        else escape();
+        await sleep(700);
+      }
+      await waitSettled(openPanel, { quietMs: 600, timeout: 5000 });
+      if (attempt === 4 && !ok(read()?.state ?? {})) {
+        const st = read()?.state ?? {};
+        throw new Error(`ตั้ง Agent settings ไม่สำเร็จ (ตอนนี้: ${st.confirm} · ${st.ratio} · ${st.count} · ${st.model}) — ตั้งเองในแผง Agent settings เป็น ไม่เลย · ${ratio} · x1 · ${model} แล้วกดบันทึก แล้วสั่งใหม่`);
+      }
+    }
+    realClick(await waitFor(() => $$('button', openPanel() ?? document).find((b) => AL.save.includes(text(b))), { label: 'ปุ่มบันทึกของ Agent settings' }));
+    await waitFor(() => !openPanel(), { timeout: 10000, label: 'บันทึก Agent settings' });
+    await sleep(800);
+  }
+
+  // grid เป็น virtual scroll (วาดเฉพาะที่อยู่บนจอ) — จำทุก tile ที่เคยโผล่ ชื่อภาพคือ aria-label ของ tile
+  const seenTiles = new Map(); // media id → ชื่อ
+  function collectTiles() {
+    for (const t of SEL.tiles()) {
+      const id = tileId(t);
+      if (id) seenTiles.set(id, t.getAttribute('aria-label') || '');
+    }
+    return seenTiles;
+  }
+  new MutationObserver(() => collectTiles()).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-label', 'src'] });
+
+  function gridScroller() {
+    const viewport = document.querySelector('cdk-virtual-scroll-viewport');
+    if (!viewport) return null;
+    for (let el = viewport; el; el = el.parentElement) {
+      if (/(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 10) return el;
+    }
+    return viewport;
+  }
+
+  /** ให้ tile ทุกใบถูกวาดอย่างน้อยหนึ่งครั้ง: ย่อหน้าจอชั่วคราว (วาดทุกใบพร้อมกัน) แล้วเลื่อนไล่อีกรอบเป็นทางสำรอง */
+  async function scanAllTiles() {
+    collectTiles();
+    const html = document.documentElement;
+    const old = html.style.zoom;
+    html.style.zoom = '0.06';
+    window.dispatchEvent(new Event('resize'));
+    let last = -1;
+    for (let i = 0; i < 20; i++) {
+      await sleep(700);
+      collectTiles();
+      const loaded = SEL.tiles().filter(tileId).length;
+      if (loaded === last && i >= 3) break;
+      last = loaded;
+    }
+    html.style.zoom = old;
+    window.dispatchEvent(new Event('resize'));
+    await sleep(500);
+    const scroller = gridScroller();
+    if (scroller) {
+      scroller.scrollTop = 0;
+      await sleep(400);
+      for (let guard = 0; guard < 600; guard++) {
+        collectTiles();
+        const before = scroller.scrollTop;
+        scroller.scrollTop += Math.max(200, scroller.clientHeight * 0.7);
+        await sleep(400);
+        if (scroller.scrollTop === before) break;
+      }
+      collectTiles();
+      scroller.scrollTop = 0;
+    }
+    return seenTiles;
+  }
+
+  /** เลื่อน grid จน tile ของภาพนี้ถูกวาด — เมนูดาวน์โหลด 2K ต้องกดจากตัว tile จริง */
+  async function revealTile(id) {
+    if (findTile(id)) return true;
+    const scroller = gridScroller();
+    if (!scroller) return false;
+    scroller.scrollTop = 0;
+    await sleep(400);
+    for (let guard = 0; guard < 600 && !findTile(id); guard++) {
+      const before = scroller.scrollTop;
+      scroller.scrollTop += Math.max(200, scroller.clientHeight * 0.7);
+      await sleep(350);
+      if (scroller.scrollTop === before) break;
+    }
+    return !!findTile(id);
+  }
+
+  /** ชื่อภาพตรงชื่อไฟล์ที่สั่ง — agent อาจต่อท้ายว่า "SHOT 03" จึงรับทั้งชื่อเป๊ะ และชื่อที่ขึ้นต้นด้วยชื่อไฟล์แล้วเว้นวรรค */
+  const nameMatches = (label, name) => label === name || label.startsWith(`${name} `);
+  function namedIds(names) {
+    const out = new Map();
+    for (const [id, label] of collectTiles()) {
+      for (const n of names) if (!out.has(n) && nameMatches(label, n)) out.set(n, id);
+    }
+    return out;
+  }
+
+  async function sendAgentPrompt(prompt) {
+    const wait = lastAgentPromptAt + AGENT_GAP_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    if (agentBusy()) await waitFor(() => !agentBusy(), { timeout: 15 * 60000, interval: 2000, label: 'Agent ว่าง' });
+    await typePrompt(prompt);
+    const send = await waitFor(() => (SEL.send() && !SEL.send().disabled ? SEL.send() : null), { label: 'ปุ่มส่งของ Agent' });
+    lastAgentPromptAt = Date.now();
+    let taken = false;
+    for (let attempt = 0; attempt < 3 && !taken; attempt++) {
+      const btn = attempt === 0 ? send : SEL.send();
+      if (btn && !btn.disabled) await trustedClick(btn);
+      taken = !!(await waitFor(() => agentBusy() || text(SEL.editor()).length < 5, { timeout: 15000, label: 'Agent รับข้อความ' }).catch(() => false));
+    }
+    if (!taken) throw new Error('ส่งข้อความให้ Flow Agent ไม่สำเร็จ (ข้อความยังค้างในช่องพิมพ์)');
+  }
+
+  /** agent นิ่ง = ไม่มีปุ่มหยุดนาน 75 วินาที (ระหว่างวาดปุ่มหยุดอาจหายแวบ ๆ) · เพดานรอบละ 45 นาที */
+  async function waitAgentIdle() {
+    const started = Date.now();
+    let idleSince = null;
+    for (;;) {
+      await sleep(5000);
+      collectTiles();
+      if (unusualShown()) return 'unusual';
+      if (agentBusy()) idleSince = null;
+      else {
+        idleSince ??= Date.now();
+        if (Date.now() - idleSince > 75000) return 'idle';
+      }
+      if (Date.now() - started > 45 * 60000) return 'timeout';
+    }
+  }
+
+  const unusualShown = () =>
+    SEL.tiles().some((t) => !tileId(t) && UNUSUAL_TEXT.test(text(t))) || UNUSUAL_TEXT.test(text(agentPanel()));
+  const highDemandCount = () => (text(agentPanel()).match(AL.highDemand) || []).length;
+
+  const shotList = (shots) => shots.map((s) => s.line).join('\n\n');
+  const goInstruction = (shots) =>
+    `เริ่มสร้างภาพได้เลยทุกช็อตตาม shot list ที่ส่งไป ไม่ต้องถามยืนยันและไม่ต้องสรุปแผน ใช้ STYLE BIBLE และ CHARACTER LOCK เดิม\nตั้งชื่อแต่ละภาพเป็นชื่อไฟล์หน้าบรรทัดเป๊ะ ๆ เช่น "${shots[0].name}" (ชื่อภาพเท่านั้น ห้ามเขียนลงในภาพ)`;
+  const renameInstruction = (shots) =>
+    `เปลี่ยนชื่อภาพที่สร้างแล้วให้ตรงกับ shot ของมัน โดยใช้ชื่อไฟล์หน้าบรรทัดเป๊ะ ๆ เช่น ภาพของ\n\n${shots[0].line}\n\nให้ชื่อว่า ${shots[0].name}\n\nห้ามสร้างภาพใหม่ แค่เปลี่ยนชื่อภาพที่มีอยู่ให้ครบ`;
+  const continueInstruction = (batch, remaining) =>
+    `ยังขาดภาพอีก ${remaining} ช็อต — รอบนี้สร้าง ${batch.length} ช็อตนี้ ใช้ STYLE BIBLE และ CHARACTER LOCK เดิมทุกอย่าง (ตัวละครหน้าตาเหมือนภาพที่ทำไปแล้ว)\nตั้งชื่อแต่ละภาพเป็นชื่อไฟล์หน้าบรรทัดเป๊ะ ๆ (ชื่อภาพเท่านั้น ห้ามเขียนชื่อไฟล์หรือตัวหนังสือใด ๆ ลงในภาพ)\n\n${shotList(batch)}`;
+
+  async function opAgentBatch(args = {}) {
+    const shots = args.shots || [];
+    if (!shots.length) return { named: [], missing: [] };
+    const wanted = shots.map((s) => s.name);
+    at('เปิด project');
+    await openProject();
+    await goRoot().catch(() => {});
+    if (args.refCollection) {
+      for (const r of args.refs || []) {
+        if (!r.dataUrl || r.tile) continue;
+        at(`เตรียมภาพต้นแบบ ${r.name}`);
+        await ensureRefUploaded(r, args.refCollection).catch(() => {});
+      }
+      await goRoot().catch(() => {});
+    }
+    at(`ตรวจ 0 เครดิต ${args.ratio}`);
+    const cfg = await configure({ ratio: args.ratio, models: args.models }); // ไม่ใช่ 0 เครดิต = โยน not_free ไม่สั่ง agent
+    at('ตั้งค่า Agent');
+    await configureAgent(cfg.model, args.ratio);
+    at('ภาพต้นแบบตัวละคร');
+    await clearRefs();
+    let attachError = '';
+    if (args.refs?.length) await attachRefs(args.refs).catch((e) => { attachError = e?.message || String(e); });
+    at('นับภาพเดิมใน project');
+    await scanAllTiles();
+    const base = new Set(collectTiles().keys());
+    const seenDemandAtStart = highDemandCount();
+    at('ส่ง brief ให้ Agent');
+    await sendAgentPrompt(args.brief);
+
+    let nudges = 0;
+    let stalls = 0;
+    let busyWaits = 0;
+    let seenDemand = seenDemandAtStart;
+    let picks = new Map();
+    for (let round = 1; round <= 12; round++) {
+      at(`Agent กำลังวาด (รอบ ${round})`);
+      const before = collectTiles().size;
+      const how = await waitAgentIdle();
+      if (how === 'unusual') {
+        const e = new Error('Flow แจ้งว่า: เราพบกิจกรรมที่ผิดปกติบางอย่าง');
+        e.code = 'unusual_activity';
+        throw e;
+      }
+      await scanAllTiles();
+      const made = [...collectTiles().keys()].filter((id) => !base.has(id));
+      picks = namedIds(wanted);
+      // ยังไม่มีภาพใหม่เลย = agent ถามยืนยัน/สรุปแผนแทนการวาด → สั่งให้เริ่ม
+      if (!made.length && !picks.size && nudges < 3) {
+        nudges++;
+        await sendAgentPrompt(goInstruction(shots));
+        continue;
+      }
+      // มีภาพใหม่ที่ยังไม่ได้ตั้งชื่อ → ให้ agent ตั้งชื่อก่อน
+      const unnamed = made.filter((id) => !wanted.some((n) => nameMatches(seenTiles.get(id) || '', n))).length;
+      if (unnamed > 0 && picks.size < wanted.length) {
+        at('ให้ Agent ตั้งชื่อภาพ');
+        await sendAgentPrompt(renameInstruction(shots.filter((s) => !picks.has(s.name))));
+        await waitAgentIdle();
+        await scanAllTiles();
+        picks = namedIds(wanted);
+      }
+      const missing = shots.filter((s) => !picks.has(s.name));
+      if (!missing.length) break;
+      // Flow คิวเต็ม → ไม่นับเป็นรอบที่ล้ม รอนานขึ้นเรื่อย ๆ แล้วสั่งช็อตที่ขาด
+      if (highDemandCount() > seenDemand) {
+        seenDemand = highDemandCount();
+        const wait = [2, 4, 8][Math.min(busyWaits++, 2)] * 60000;
+        if (busyWaits > 4) break;
+        at(`Flow คิวเต็ม รอ ${wait / 60000} นาที`);
+        await sleep(wait);
+      } else {
+        busyWaits = 0;
+        stalls = collectTiles().size > before ? 0 : stalls + 1;
+        if (stalls >= 3) break;
+      }
+      await sendAgentPrompt(continueInstruction(missing.slice(0, 10), missing.length));
+    }
+    return {
+      model: cfg.model,
+      credits: cfg.credits,
+      attachError,
+      named: [...picks.keys()],
+      missing: wanted.filter((n) => !picks.has(n)),
+      projectUrl: location.href,
+    };
+  }
+
   // ── งานที่ Studio สั่ง ──
 
   let busy = false;
@@ -878,6 +1243,25 @@
     if (done && args.reuse !== false) {
       at('ใช้ภาพเดิมที่ตั้งชื่อไว้แล้ว');
       return finishTile(tileId(done), args, { reused: true });
+    }
+    /**
+     * ภาพที่ Flow Agent วาดไว้แล้ว (โหมด 1 หน้า 1 ภาพ) — หยิบตามชื่อเท่านั้น ห้ามสร้างเอง
+     * ภาพของ agent อยู่หน้าหลักของ project และอาจยังไม่ถูกวาดใน grid (virtual scroll) → กวาดทั้ง grid ก่อนหา
+     */
+    if (args.onlyExisting) {
+      at('หาภาพที่ Agent วาดไว้');
+      await goRoot().catch(() => {});
+      let id = namedIds([args.name]).get(args.name);
+      if (!id) {
+        await scanAllTiles();
+        id = namedIds([args.name]).get(args.name);
+      }
+      if (!id || !(await revealTile(id))) {
+        const e = new Error(`ไม่พบภาพ ${args.name} ที่ Flow Agent วาดไว้ — ไม่สร้างใหม่ทีละภาพ (ภาพตามความเหมาะสม)`);
+        e.code = 'not_found';
+        throw e;
+      }
+      return finishTile(id, args, { reused: true });
     }
 
     at(`ตั้งค่า ${args.ratio || ''}`);
@@ -938,13 +1322,13 @@
     }
     if (!taken) throw new Error('กดปุ่มสร้างของ Flow แล้วแต่ Flow ไม่รับ prompt (ข้อความยังค้างในช่องพิมพ์)');
     at('รอภาพใหม่');
-    const { id } = await waitNewTile(before, beforeEls, {
+    const { id, retried } = await waitNewTile(before, beforeEls, {
       timeout: args.timeoutMs || 5 * 60000,
       ratio: args.ratio,
       skipNames: (args.refs || []).flatMap((r) => [r.name, r.tile]),
       prompt: args.prompt,
     });
-    return finishTile(id, { ...args, cfg, attached, attachError });
+    return { ...(await finishTile(id, { ...args, cfg, attached, attachError })), retried };
   }
 
   /** ตั้งชื่อ · ดึงไฟล์ 2K ที่ตรวจแล้วว่าเป็นภาพของ tile นี้จริง · ถอยไป 1K ถ้าไม่ใช่ */
@@ -997,7 +1381,7 @@
     };
   }
 
-  const OPS = { prepare: opPrepare, generate: opGenerate };
+  const OPS = { prepare: opPrepare, generate: opGenerate, agentBatch: opAgentBatch };
 
   async function run(op, args) {
     if (!OPS[op]) throw new Error(`ไม่รู้จักคำสั่ง ${op}`);

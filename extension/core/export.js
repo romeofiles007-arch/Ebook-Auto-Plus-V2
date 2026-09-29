@@ -278,7 +278,8 @@ function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
   const fullH = geo.heightMm;
   const panelW = book.trim.widthMm;
   const panelH = book.trim.heightMm;
-  const showAuthorPhoto = !!(book.authorPhotoOnCover && authorPath);
+  // ไม่แปะรูปถ่ายผู้เขียนในทุกโหมด — ผู้เขียนถูกวาดเป็นคนในภาพปกหลังแล้ว (ผู้ใช้: "ยกเลิกทุกโหมดเลย")
+  const showAuthorPhoto = false;
   const backTextY = bleed + (showAuthorPhoto ? 66 : 30);
   const authorPhotoBlock = showAuthorPhoto
     ? `#place(top + left, dx: ${bleed + 12}mm, dy: ${bleed + 14}mm)[\n        #image(${JSON.stringify(authorPath)}, width: 30mm, height: 38mm, fit: \"cover\")\n      ]`
@@ -658,7 +659,7 @@ ${(book.coverPrompts?.front || '(ยังไม่ได้สร้างท�
 ${(book.coverPrompts?.back || '(ยังไม่ได้สร้าง)') + authorRefFor(book, 'cover-back')}
 \`\`\`
 
-${book.authorPhotoOnCover ? '### รูปผู้เขียน → บันทึกเป็น `author-photo.png`\n\nใช้รูปจริงของผู้เขียน ระบบจะวางขนาดประมาณ 30 × 38 มม. บนปกหลังโดยไม่ให้โมเดลสร้างหน้าคนขึ้นใหม่\n' : ''}${authorRefSummary(book)
+${book.authorPhotoOnCover ? '### รูปผู้เขียน → บันทึกเป็น `author-photo.png`\n\nแนบรูปนี้ไปกับ Prompt ปกหลัง ให้โมเดลวาดผู้เขียนเป็นคนในภาพ (ใช้รูปเป็นต้นแบบหน้าตาเท่านั้น ไม่แปะรูปถ่ายลงปก)\n' : ''}${authorRefSummary(book)
     ? `### ต้องแนบรูปผู้เขียนไปกับคำสั่งด้วย\n\nเล่มนี้เลือกให้ ${authorRefSummary(book)} ใช้หน้าจริงของผู้เขียน\nคำสั่งของช่องเหล่านั้นมีหัวข้อ ATTACHED REFERENCE PHOTO ต่อท้ายอยู่แล้ว — ตอนสั่งวาด ให้แนบไฟล์รูปผู้เขียนไปในข้อความเดียวกันด้วย ไม่งั้นจะได้หน้าคนที่โมเดลแต่งขึ้นเอง\n`
     : ''}
 ---
@@ -715,7 +716,7 @@ ${p.front || '(ยังไม่ได้สร้าง)'}
 ${p.back || '(ยังไม่ได้สร้าง)'}
 \`\`\`
 
-${book.authorPhotoOnCover ? '## รูปผู้เขียนบนปกหลัง\nอัปโหลดรูปจริงเป็น `author-photo.png` ระบบจะวางประมาณ 30 × 38 มม. และจะไม่ให้โมเดลสร้างใบหน้าผู้เขียนขึ้นใหม่\n\n' : ''}## ขนาดไฟล์ที่ต้องได้
+${book.authorPhotoOnCover ? '## ผู้เขียนบนปกหลัง\nแนบรูป `author-photo.png` ไปกับ Prompt ปกหลัง ให้โมเดลวาดผู้เขียนเป็นคนในภาพ — ระบบไม่แปะรูปถ่ายลงปก\n\n' : ''}## ขนาดไฟล์ที่ต้องได้
 ${(() => {
   const pages = book.finalPages || book.targetPages;
   const g = coverGeometry({
