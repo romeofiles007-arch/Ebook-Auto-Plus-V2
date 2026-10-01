@@ -36,7 +36,9 @@ test('poems are one left-aligned block centred on the page, verses are paragraph
   assert.ok(!src.includes(' \\\n'), 'verses must not be joined with forced line breaks any more');
   assert.match(src, /#item-stanza/, 'blank line between stanzas is kept as space');
   assert.ok(!/size: 2[0-9]pt/.test(src), 'no poster-sized text anywhere');
-  assert.match(src, /numbering\("1", \.\.n\)/, 'page numbers are small, not body sized');
+  assert.match(src, /text\(size: 8pt[^\n]*numbering\("1", n\.pos\(\)\.first\(\)\)/, 'page numbers are small, not body sized');
+  // ห้ามส่ง ..n ต่อทั้งก้อน: มี (หน้า, จำนวนหน้าทั้งหมด) เลขจะต่อกัน หน้า 2 จาก 25 กลายเป็น "225" (เจอจริง)
+  assert.ok(!src.includes('numbering("1", ..n)'), 'only the current page number is printed');
 });
 
 test('short quotes stay centred and wrap in a comfortable measure', () => {
@@ -141,4 +143,15 @@ test('every item page carries its own theme background when the image exists', a
   assert.deepEqual(bgs.map((j) => j.name), [itemBgName(1), itemBgName(2)], 'one background per theme');
   assert.ok(bgs.every((j) => j.grayscale === false && j.prompt));
   assert.equal(plannedImageJobs(baseBook({ figureMode: 'none', outline })).filter((j) => j.kind === 'background').length, 0);
+});
+
+test('theme background files pass every asset filter that feeds the PDF (they used to be dropped)', async () => {
+  const fs = await import('node:fs');
+  const compiler = fs.readFileSync(new URL('./compiler.js', import.meta.url), 'utf8');
+  const exp = fs.readFileSync(new URL('../core/export.js', import.meta.url), 'utf8');
+  assert.match(compiler, /bg-theme-\[\^\/\]\+\\.png/, 'compileBook (studio preview) packs bg-theme files');
+  assert.match(exp, /const interiorAsset = .*isThemeBg\(a\.name\)/, 'interior/draft export keeps bg-theme files');
+  assert.match(exp, /exportBookPdf[\s\S]*?isThemeBg\(a\.name\)/, 'single-file book PDF keeps bg-theme files');
+  const re = /^bg-theme-[^/]+\.png$/;
+  assert.ok(re.test('bg-theme-3.png') && !re.test('bg-theme-3xpng'));
 });

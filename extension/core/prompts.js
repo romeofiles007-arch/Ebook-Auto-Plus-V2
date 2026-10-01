@@ -2893,7 +2893,9 @@ export function itemBackgroundPrompt(book = {}, outline = {}, theme = {}) {
     `THIS SECTION: "${theme.title || ''}"${theme.angle ? ` — ${theme.angle}` : ''}. The image must carry the feeling of this section through place, light, season and texture (a landscape, sky, water, garden, room or abstract atmosphere) — a quiet, meaningful mood, not a literal illustration of one piece.`,
     `COMPOSITION: portrait page ${pw}×${ph} mm, full bleed. The middle two-thirds must stay open, soft and low in detail, because text is printed over it; put the details, shapes and strongest colours toward the edges and corners. No single strong subject in the centre.`,
     `STYLE: soft painterly illustration (watercolour or gouache feel), gentle light, harmonious colours${palette ? ` related to ${palette}` : ''}; each section of the book should feel different from the others.`,
-    'No text, no letters, no numbers, no people\'s faces, no border, no frame. Flat artwork only, never a photo of a page or a book.',
+    // เคยได้ภาพคนยืนกลางภาพ (Flow ถือว่า "ห้ามหน้าคน" = วาดคนหันหลังได้) ข้อความพิมพ์ทับตัวคนพอดี
+    'NO PEOPLE AT ALL: no person, no figure seen from behind, no silhouette, no hands. An empty place or atmosphere only: this is a page background, not an illustration.',
+    'No text, no letters, no numbers, no border, no frame. Flat artwork only, never a photo of a page or a book.',
   ].join('\n');
 }
 

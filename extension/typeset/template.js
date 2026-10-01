@@ -692,7 +692,8 @@ ${patternPreamble(opts)}#set page(
 
 ${frontMatter(front, outline, opts)}
 
-#set page(numbering: ${book.itemPageNumbers === false ? 'none' : '(..n) => text(size: 8pt, fill: luma(130), numbering("1", ..n))'}, number-align: center)
+// Typst ส่ง (หน้าปัจจุบัน, จำนวนหน้าทั้งหมด) มาให้ฟังก์ชันเลขหน้า ถ้าส่งต่อทั้งคู่ เลขจะต่อกัน: หน้า 2 จาก 25 พิมพ์เป็น "225" (เจอจริง)
+#set page(numbering: ${book.itemPageNumbers === false ? 'none' : '(..n) => text(size: 8pt, fill: luma(130), numbering("1", n.pos().first()))'}, number-align: center)
 #counter(page).update(1)
 
 ${body.join('\n\n')}

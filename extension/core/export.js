@@ -89,7 +89,9 @@ const outFile = (book, suffix, ext) => {
  * พอ page-pattern.png ไม่ถูกแพ็ก assetNames ก็ไม่มีชื่อมัน เครื่องเรียงพิมพ์เลยไม่วางพื้นหลังให้
  * ผลคือ Phase 2 ขึ้นว่า "บันทึกแล้ว" แต่เปิดเล่มจริงไม่มีลายสักหน้า
  */
-const interiorAsset = (a) => !!a?.blob && (a.name?.startsWith('fig-') || a.name === 'page-pattern.png');
+// ภาพพื้นหลังหมวดของงานรายชิ้น (bg-theme-N.png) ต้องผ่านด้วย — เดิมตกตัวกรองนี้ ภาพสร้างเสร็จแต่ไม่เคยขึ้นใน PDF (เจอจริง)
+export const isThemeBg = (name) => /^bg-theme-[^/]+\.png$/.test(name || '');
+const interiorAsset = (a) => !!a?.blob && (a.name?.startsWith('fig-') || a.name === 'page-pattern.png' || isThemeBg(a.name));
 
 export async function exportInterior(book, sections, { withBleed = true } = {}) {
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
@@ -135,6 +137,7 @@ export async function exportBookPdf(book, sections) {
       a?.blob &&
       (a.name?.startsWith('fig-') ||
         a.name === 'page-pattern.png' ||
+        isThemeBg(a.name) ||
         a.name === 'cover-front.png' ||
         a.name === 'cover-back.png' ||
         a.name === 'author-photo.png'),

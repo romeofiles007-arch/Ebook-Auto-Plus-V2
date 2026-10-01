@@ -198,7 +198,8 @@ export async function compileBook({ book, outline, sections, assets = [], withBl
    * ฝั่ง export.js แก้เรื่องนี้ไปแล้ว (interiorAsset) แต่ฝั่งคอมไพล์ตกหล่น เกณฑ์สองที่จึงต้องตรงกัน
    */
   const usable = assets.filter(
-    (a) => a?.blob && (a.name?.startsWith('fig-') || a.name === 'page-pattern.png'),
+    // bg-theme-N.png = ภาพพื้นหลังหมวดของงานรายชิ้น ต้องแพ็กไปด้วย ไม่งั้นสร้างภาพแล้วไม่ขึ้นในเล่ม
+    (a) => a?.blob && (a.name?.startsWith('fig-') || a.name === 'page-pattern.png' || /^bg-theme-[^/]+\.png$/.test(a.name || '')),
   );
 
   // โหมดรายชิ้นใช้เอกสารคนละแบบทั้งหมด ไม่ใช่แค่ปรับค่า
