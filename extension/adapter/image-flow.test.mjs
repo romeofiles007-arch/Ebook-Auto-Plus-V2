@@ -64,7 +64,7 @@ function worker({ mismatch = false, staleDisabledStop = false, realDraft = null,
         };
         const page = { document: {
           activeElement: null,
-          querySelector: (selector) => selector === '#prompt-textarea' ? box : null,
+          querySelector: (selector) => selector.startsWith('#prompt-textarea') ? box : null,
           querySelectorAll: (selector) => selector === '[data-testid="stop-button"]' ? [stop] : [],
         } };
         const result = vm.runInNewContext(
@@ -260,7 +260,7 @@ async function adapterFixture() {
   const images = [];
   const document = {
     querySelector: () => null,
-    querySelectorAll: (sel) => sel === 'img' ? images : sel === '[data-message-author-role="user"]' ? nodes : [],
+    querySelectorAll: (sel) => sel === 'img' ? images : sel.startsWith('[data-message-author-role="user"]') ? nodes : [],
   };
   document.body = document;
   const context = {

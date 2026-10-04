@@ -29,12 +29,14 @@
   window.__ebookAutoAdapterAlive = adapterAlive;
 
   const DEFAULT_SELECTORS = {
-    composer: '#prompt-textarea, div[contenteditable="true"][id="prompt-textarea"]',
+    // ต.ค. 2026: ChatGPT ถอด id prompt-textarea ออกจากช่องพิมพ์ เหลือ div.ProseMirror ใน form[data-chatgpt-composer]
+    composer: '#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"]',
     sendButton: '[data-testid="send-button"], button[aria-label*="send" i], button[aria-label*="ส่ง" i], button[title*="send" i]',
     stopButton: '[data-testid="stop-button"], button[aria-label*="Stop" i]',
-    assistantTurn: '[data-message-author-role="assistant"], [data-turn="assistant"]:not(:has([data-message-author-role="assistant"]))',
+    // ต.ค. 2026: ห้องแชตรุ่นใหม่ไม่มี data-message-author-role — คำตอบคือกล่องที่ตามหลังหัวข้อ "ChatGPT said:"
+    assistantTurn: '[data-message-author-role="assistant"], [data-turn="assistant"]:not(:has([data-message-author-role="assistant"])), h4[data-conversation-role="assistant"] ~ div',
     turnContainer: 'main',
-    codeBlock: 'pre code',
+    codeBlock: 'pre code, [data-markdown-copy="code-block"] code',
     copyButton: '[data-testid="copy-turn-action-button"], button[aria-label*="Copy" i]',
     modelBadge: '[data-testid="model-switcher-dropdown-button"]',
     newChatButton: '[data-testid="create-new-chat-button"], button[aria-label*="new chat" i], button[title*="new chat" i], a[aria-label*="new chat" i], a[href="/"]',
@@ -95,15 +97,27 @@
     return IMAGE_QUOTA_PATTERNS.some((re) => re.test(t)) ? t.replace(/\s+/g, ' ').slice(0, 200) : '';
   }
 
+  /**
+   * ข้อความฝั่งผู้ใช้ และขอบของหนึ่งเทิร์น — รองรับทั้งโครงเก่าและโครงใหม่ของ ChatGPT (ต.ค. 2026)
+   * โครงใหม่: [data-turn-key] ครอบทั้งคำสั่งและคำตอบ · ข้อความเราเป็น [data-chatgpt-search-unit-key$=":user"]
+   */
+  const USER_TURN = '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]';
+  const ANY_MESSAGE = '[data-message-author-role], [data-turn-key]';
+  const TURN_EDGE = 'article, [data-testid^="conversation-turn"], [data-turn-key]';
+  const CODE_BOX = 'pre, [data-markdown-copy="code-block"]';
+
   let S = { ...DEFAULT_SELECTORS };
   let LIMITS = [...DEFAULT_LIMIT_PATTERNS];
 
   chrome.storage.local.get(['selectors', 'limitPatterns']).then((o) => {
     if (o.selectors) S = { ...DEFAULT_SELECTORS, ...o.selectors };
     // Migrate the old saved selector too: image-only replies now use data-turn.
-    if (S.assistantTurn === '[data-message-author-role="assistant"]') {
+    if (!/data-conversation-role/.test(S.assistantTurn || '')) {
       S.assistantTurn = DEFAULT_SELECTORS.assistantTurn;
     }
+    // ค่าที่เคยบันทึกไว้ซึ่งรู้จักแค่ #prompt-textarea จะหาช่องพิมพ์รุ่นใหม่ไม่เจอ — ใช้ค่าตั้งต้นแทน
+    if (!/ProseMirror/.test(S.composer || '')) S.composer = DEFAULT_SELECTORS.composer;
+    if (!/data-markdown-copy/.test(S.codeBlock || '')) S.codeBlock = DEFAULT_SELECTORS.codeBlock;
     if (o.limitPatterns?.length) LIMITS = o.limitPatterns;
   });
 
@@ -265,7 +279,7 @@
 
   /** ข้อความล่าสุดที่ "เรา" ส่ง ใช้เป็นหมุดว่าอะไรคือคำตอบของเทิร์นนี้ */
   function lastUserTurn() {
-    const turns = $$('[data-message-author-role="user"]');
+    const turns = $$(USER_TURN);
     return turns[turns.length - 1] || null;
   }
 
@@ -343,7 +357,7 @@
    * (อาการที่เห็น: "ไม่พบสารบัญที่เลือกได้ในคำตอบ [ยาว 39 ตัวอักษร ...]")
    */
   function inCodeBlock(btn) {
-    if (btn.closest('pre')) return true;
+    if (btn.closest(CODE_BOX)) return true;
     /**
      * ไต่จนถึงขอบกล่องคำตอบ ไม่ใช่แค่ 4 ชั้นตายตัว เพราะ ChatGPT ห่อหัวบล็อกโค้ดลึกขึ้นทุกครั้งที่ปรับหน้า
      * ถ้าไต่ไม่ถึง ปุ่ม Copy ของบล็อกโค้ดจะถูกนับเป็นแถบปุ่มใต้คำตอบ แล้วตัดคำตอบกลางคัน
@@ -354,7 +368,7 @@
      */
     for (let el = btn.parentElement, i = 0; el && i < 12; el = el.parentElement, i++) {
       if (el.matches?.(S.assistantTurn) || el.querySelector(S.assistantTurn)) break;
-      if (el.querySelector('pre')) return true;
+      if (el.querySelector(CODE_BOX)) return true;
     }
     return false;
   }
@@ -372,7 +386,10 @@
       // ในกล่องคำตอบเองไม่เคยมีแถบปุ่มจริง มีแต่ปุ่มของบล็อกโค้ด
       // จึงยอมรับเฉพาะ testid ตรงตัวเท่านั้น ส่วน selector สำรองใช้ได้แค่ชั้นนอกกล่อง
       if (el !== turn) {
-        const any = [...el.querySelectorAll(S.copyButton)].find((b) => !inCodeBlock(b));
+        // โครงใหม่: ปุ่ม "Copy message" ของคำสั่งเราอยู่ในเทิร์นเดียวกันและมาก่อนคำตอบ — แถบปุ่มจริงอยู่หลังคำตอบเสมอ
+        const any = [...el.querySelectorAll(S.copyButton)].find(
+          (b) => !inCodeBlock(b) && !b.closest(USER_TURN) && !(turn.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING),
+        );
         if (any) return any;
       }
 
@@ -384,7 +401,7 @@
        * ของแถบเครื่องมืออื่นในหน้า แล้วนับว่า "คำตอบจบแล้ว" ตั้งแต่พ่นได้สิบกว่าตัวอักษร
        * (อาการที่เห็น: ตอบเป็นข้อความแทนภาพ: "ตอนนี้ระบบสร้าง")
        */
-      if (el !== turn && el.matches?.('article, [data-testid^="conversation-turn"]')) break;
+      if (el !== turn && el.matches?.(TURN_EDGE)) break;
     }
     return null;
   }
@@ -433,7 +450,7 @@
     /แชตหยุดชั่วคราว|แชทหยุดชั่วคราว|หยุดชั่วคราวจนกว่า|ใช้ถึงลิมิต|ถึงลิมิตสำหรับ|chat (?:is )?paused|paused until|reached (?:the |your )?limit for (?:chats?|conversations?)|start a new (?:text[- ]only )?chat/i;
   function chatPausedNotice() {
     for (const el of $$('[role="alert"], [role="dialog"], [aria-live], [class*="banner" i], [class*="toast" i], form ~ div, main div')) {
-      if (el.closest('[data-message-author-role]') || el.closest(S.composer)) continue;
+      if (el.closest(ANY_MESSAGE) || el.closest(S.composer)) continue;
       if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
       const t = (el.innerText || '').trim();
       if (!t || t.length > 400 || !CHAT_PAUSED.test(t)) continue;
@@ -448,7 +465,7 @@
     // "usage limit" เอง ทำให้ระบบหยุดทั้งที่ ChatGPT ไม่ได้ติดลิมิตจริง
     // ตรวจเฉพาะ UI แจ้งเตือนนอกกล่องข้อความสนทนาเท่านั้น
     return $$(S.limitNotice).some((el) => {
-      if (el.closest('[data-message-author-role]') || el.closest(S.composer)) return false;
+      if (el.closest(ANY_MESSAGE) || el.closest(S.composer)) return false;
       if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
       const t = (el.innerText || el.textContent || '').toLowerCase();
       return LIMITS.some((p) => t.includes(p.toLowerCase()));
@@ -1167,7 +1184,9 @@
   const normalizeMessage = (text) => String(text || '').replace(/\s+/g, ' ').trim();
   function userMessageKey(node) {
     return node.getAttribute('data-message-id') ||
-      node.closest('[data-testid^="conversation-turn"]')?.getAttribute('data-testid') || '';
+      node.getAttribute('data-chatgpt-search-message-ids') ||
+      node.closest('[data-testid^="conversation-turn"]')?.getAttribute('data-testid') ||
+      node.closest('[data-turn-key]')?.getAttribute('data-turn-key') || '';
   }
   /**
    * ลำดับของเทิร์นในบทสนทนา — ตัวเลขที่เพิ่มขึ้นเรื่อย ๆ และไม่ย้อนกลับ
@@ -1188,7 +1207,7 @@
     return normalizeMessage(body ? (body.innerText || body.textContent) : (node.innerText || node.textContent));
   }
   function snapshotUserMessages(itemReceipt = false) {
-    const rows = $$('[data-message-author-role="user"]').map(node => ({
+    const rows = $$(USER_TURN).map(node => ({
       key:userMessageKey(node), text:userReceiptText(node, itemReceipt),
       turn:turnIndexOf(node),
     }));
@@ -1221,7 +1240,7 @@
   function chatProvesNothingSent(before, urlBefore) {
     if (stopButtonVisible()) return false;
     if (urlBefore && location.href !== urlBefore) return false;
-    const all = $$('[data-message-author-role="user"]');
+    const all = $$(USER_TURN);
     if (all.length > before.length) return false;
     const oldKeys = new Set(before.map((row) => row.key).filter(Boolean));
     const seen = Number(before?.maxTurn ?? -1);
@@ -1243,7 +1262,7 @@
     const looseHead = loose(prompt).slice(0, 60);
     const sameMessage = (text) =>
       text === expected || (!!head && text.startsWith(head)) || (!!looseHead && loose(text).startsWith(looseHead));
-    const all = $$('[data-message-author-role="user"]');
+    const all = $$(USER_TURN);
     const matches = all.filter(node =>
       sameMessage(userReceiptText(node, before.itemReceipt === true)));
     const oldKeys = new Set(before.map(row=>row.key).filter(Boolean));
@@ -1750,7 +1769,7 @@
    */
   function scanImages(before = { sources: new Set(), elements: new Set() }, anchor = null) {
     anchor = liveAnchor(anchor);
-    const nextUser = anchor && $$('[data-message-author-role="user"]').find(
+    const nextUser = anchor && $$(USER_TURN).find(
       (node) => node !== anchor && (anchor.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING),
     );
     const beforeSources = before?.sources instanceof Set ? before.sources : before instanceof Set ? before : new Set();
@@ -1778,7 +1797,7 @@
        * ก็จะนับเป็น "อยู่ข้างใน" ไปด้วย แล้วถูกทิ้งทั้งที่เป็นภาพที่เรารออยู่
        * เกณฑ์ที่ตรงกับเจตนาจริงคือดูว่ารูปนั้นอยู่ในข้อความฝั่งผู้ใช้หรือเปล่า ไม่เกี่ยวกับ anchor
        */
-      if (i.closest('[data-message-author-role="user"]')) continue;
+      if (i.closest(USER_TURN)) continue;
       /**
        * เคยเผลอเพิ่ม "ทั้งเทิร์นที่มีข้อความผู้ใช้ = ของที่เราแนบเอง" ตรงนี้ แล้วพังทันที
        *

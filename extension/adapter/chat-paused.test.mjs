@@ -15,7 +15,7 @@ const machine = await readFile(new URL('../core/machine.js', import.meta.url), '
 function detector(elements) {
   const start = adapter.indexOf('  const CHAT_PAUSED =');
   const end = adapter.indexOf('  function hitLimit()', start);
-  const ctx = { $$: () => elements, S: { composer: '#prompt-textarea' }, getComputedStyle: () => ({ position: 'static' }) };
+  const ctx = { $$: () => elements, S: { composer: '#prompt-textarea' }, ANY_MESSAGE: '[data-message-author-role], [data-turn-key]', getComputedStyle: () => ({ position: 'static' }) };
   vm.runInNewContext(`${adapter.slice(start, end)}\nthis.chatPausedNotice = chatPausedNotice;`, ctx);
   return ctx.chatPausedNotice();
 }

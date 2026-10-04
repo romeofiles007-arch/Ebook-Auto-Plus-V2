@@ -591,7 +591,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             target,
             args: [text, !!msg.requireDraft || !!msg.enterOnly],
             func: (expected, requireDraft) => {
-              const box = document.querySelector('#prompt-textarea');
+              const box = document.querySelector('#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"]');
               if (!box) return false;
               if (requireDraft) {
                 /**
@@ -632,7 +632,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             target,
             args: [text, msg.enterOnly ? Number(msg.expectedAttachments || 0) : null],
             func: (expected, expectedAttachments) => {
-              const box = document.querySelector('#prompt-textarea');
+              const box = document.querySelector('#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"]');
               const loose = (v) => String(v || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
               const same = (a, b) => { const g = loose(a), w = loose(b); if (!g || !w) return false; if (g === w) return true; const n = Math.min(40, w.length); return g.length >= w.length * 0.85 && g.length <= w.length * 1.15 && g.includes(w.slice(0, n)) && g.includes(w.slice(-n)); };
               if (expectedAttachments !== null) {

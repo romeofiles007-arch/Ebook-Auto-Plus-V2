@@ -26,6 +26,7 @@ const msg = (text, turn, id = '') => ({
 function pageWith(nodes) {
   const scope = {
     $$: () => nodes,
+    USER_TURN: '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]',
     Number, String,
     normalizeMessage: (t) => String(t || '').replace(/\s+/g, ' ').trim(),
   };
