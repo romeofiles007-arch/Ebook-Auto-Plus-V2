@@ -2905,12 +2905,26 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
        * เพื่อให้ครั้งหน้าที่เจอ มีของให้ดูทันทีโดยไม่ต้องรันซ้ำเพื่อเก็บหลักฐาน
        */
       const src = e?.typstSrc || '';
+      /**
+       * Typst บอกตำแหน่งเป็น "ไฟล์:บรรทัด:คอลัมน์: error: …" — หัวเอกสาร 2000 ตัวแรกแทบไม่เคยเป็นจุดที่พัง
+       * จึงตัดบรรทัดรอบจุดนั้นออกมาให้เห็นตรง ๆ ว่าเนื้อหาส่วนไหนทำให้คอมไพล์ล้ม
+       */
+      const lineNo = Number(/:(\d+):\d+:\s*error/.exec(e?.message || '')?.[1] || 0);
+      const first = Math.max(0, lineNo - 6);
+      const around = lineNo
+        ? src
+            .split('\n')
+            .slice(first, lineNo + 5)
+            .map((l, i) => `${first + i + 1 === lineNo ? '>>' : '  '} ${first + i + 1}: ${l.slice(0, 300)}`)
+            .join('\n')
+        : '';
       this.book.lastCompileFail = {
         at: Date.now(),
         message: e?.message || String(e),
         step: this.job.step,
         srcChars: src.length,
         srcHead: src.slice(0, 4000),
+        around,
       };
       await this.save().catch(() => {});
       this.log(
@@ -2918,6 +2932,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         `เครื่องเรียงพิมพ์คอมไพล์เอกสารไม่ผ่าน: ${e?.message || e}\n` +
           `ต้นฉบับยาว ${src.length.toLocaleString()} ตัวอักษร · ไฟล์ภาพที่ป้อนเข้าไป ${(e?.typstFiles || []).length} ไฟล์` +
           ((e?.typstFiles || []).length ? ` (${e.typstFiles.join(', ')})` : '') +
+          (around ? `\n\n--- บรรทัดที่พัง (${lineNo}) และรอบข้าง ---\n${around}` : '') +
           `\n\n--- ต้นฉบับ Typst 2000 ตัวอักษรแรก ---\n${src.slice(0, 2000)}` +
           (src.length > 2000 ? '\n…' : ''),
       );

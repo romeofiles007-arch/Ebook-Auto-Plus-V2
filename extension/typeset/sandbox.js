@@ -71,7 +71,15 @@
     const opts = await $typst.getCompileOptions({ mainContent: src });
     try {
       return await compiler.runWithWorld(opts, async (world) => {
-        await world.compile();
+        /**
+         * compile() ไม่โยน error เมื่อเอกสารพัง — มันคืนรายการ diagnostics กลับมาเฉย ๆ
+         * เดิมทิ้งค่านี้ไป แล้ว query ถัดมาตอบได้แค่ "document is not compiled, with []"
+         * ซึ่งไม่มีบรรทัด ไม่มีสาเหตุ งานจึงหยุดโดยไม่มีใครรู้ว่าต้องแก้อะไร
+         */
+        const compiled = await world.compile({ diagnostics: 'unix' });
+        const problems = (compiled?.diagnostics || []).map((d) => (typeof d === 'string' ? d : JSON.stringify(d)));
+        const errors = problems.filter((d) => !/\bwarning\b/i.test(d));
+        if (errors.length) throw new Error(`Typst: ${errors.slice(0, 5).join(' | ').slice(0, 900)}`);
         return world.query({ selector, field });
       });
     } finally {

@@ -108,7 +108,8 @@ test('no blank numbered pages before theme dividers, no prose-style fallback for
   assert.ok(!src.includes('pagebreak(to: "odd"') || src.indexOf('pagebreak(to: "odd"') > src.indexOf('หมวดที่ 2'), 'dividers must not force odd pages');
   assert.ok(!src.includes('คำนำ'), 'no generated non-fiction foreword');
   const written = buildItemsDocument({ book, outline: { ...outline, foreword: 'REAL_FOREWORD_TEXT' }, items: items(2, 1) });
-  assert.ok(written.includes('REAL_FOREWORD_TEXT'), 'a real foreword is still printed');
+  // ขีดล่างกลางคำถูก escape เป็น \_ ในต้นฉบับ Typst (พิมพ์ออกมาเป็น _ ตามเดิม)
+  assert.ok(written.replace(/\\/g, '').includes('REAL_FOREWORD_TEXT'), 'a real foreword is still printed');
 });
 
 test('older item books never start planning interior images on their own', async () => {

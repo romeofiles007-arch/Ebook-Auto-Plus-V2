@@ -33,31 +33,96 @@ const INLINE = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*|_[^_\n]+_)|(\[[^\]\n]
 function esc(s) {
   return String(s)
     .replace(/\\/g, '\\\\')
-    .replace(/([#$@<>*_`~\[\]])/g, '\\$1');
+    .replace(/([#$@<>*_`~\[\]])/g, '\\$1')
+    // "//" เปิดคอมเมนต์ใน Typst แล้วกลืนวงเล็บปิดท้ายบรรทัดไปด้วย (เจอในช่องตาราง คำคม คำบรรยายภาพ)
+    .replace(/\/(?=\/)/g, '\\/');
 }
 
+/**
+ * ตัวหนา/ตัวเอียงต้องออกเป็น #strong[…] / #emph[…] ไม่ใช่ *…* / _…_
+ *
+ * เครื่องหมาย * และ _ ของ Typst ทำงานเฉพาะที่ขอบคำ ภาษาไทยไม่เว้นวรรคระหว่างคำ
+ * "**ขั้นที่ 1**เตรียมตัว" จึงเปิดตัวหนาแล้วไม่มีวันปิด เอกสารทั้งเล่มคอมไพล์ไม่ผ่าน
+ * (อาการที่ผู้ใช้เห็น: "document is not compiled, with []" ที่ขั้นปรับจำนวนหน้า)
+ *
+ * ก้อนคำไทย (BOX_OPEN…BOX_CLOSE) ก็คร่อมขอบตัวหนาได้ วงเล็บจึงไม่สมดุลอีกทางหนึ่ง
+ * ที่นี่ปิดก้อนคำก่อนเข้าตัวหนา เปิดใหม่ข้างใน แล้วทำกลับกันตอนออก ให้ทุกชั้นปิดครบในตัวเอง
+ */
+// ต้นบรรทัดหรือต้นเนื้อหาที่ขึ้นด้วย = / + - ตามด้วยช่องว่าง คือหัวข้อ/รายการในภาษา Typst ไม่ใช่ข้อความ
+const escStart = (s) => s.replace(/^([=/+-])(?=\s)/, '\\$1');
+
+function boxOpenAfter(text, open) {
+  for (const ch of text) {
+    if (ch === BOX_OPEN) open = true;
+    else if (ch === BOX_CLOSE) open = false;
+  }
+  return open;
+}
+
+// ห่อเนื้อหาของคำสั่ง Typst หนึ่งตัวให้ก้อนคำไทยปิดครบทั้งข้างนอกและข้างใน
+function wrapBalanced(head, body, openBefore) {
+  const openAfter = boxOpenAfter(body, openBefore);
+  // ";" ปิดนิพจน์ ไม่งั้นอักษรที่ตามมา (เช่น ".ชื่อ") ถูกอ่านเป็นการเรียกฟิลด์ของผลลัพธ์
+  return (
+    (openBefore ? BOX_CLOSE : '') +
+    head + '[' + (openBefore ? BOX_OPEN : '') + escStart(esc(body)) + (openAfter ? BOX_CLOSE : '') + '];' +
+    (openAfter ? BOX_OPEN : '')
+  );
+}
+
+const stripMarkers = (s) => String(s).split(BOX_OPEN).join('').split(BOX_CLOSE).join('').split(THAI_GAP).join(' ').split('​').join('');
+
 function inline(text) {
+  text = String(text);
   let out = '';
   let last = 0;
-  for (const m of String(text).matchAll(INLINE)) {
-    out += esc(text.slice(last, m.index));
+  let open = false; // อยู่ในก้อนคำไทยที่ยังไม่ปิดหรือเปล่า ณ ตำแหน่งนี้
+  for (const m of text.matchAll(INLINE)) {
+    const before = text.slice(last, m.index);
+    out += esc(before);
+    open = boxOpenAfter(before, open);
     const [tok] = m;
-    if (m[1]) out += '`' + tok.slice(1, -1) + '`';
-    else if (m[2]) out += '*' + esc(tok.slice(2, -2)) + '*';
-    else if (m[3]) out += '_' + esc(tok.slice(1, -1)) + '_';
+    const closing = boxOpenAfter(tok, open);
+    /**
+     * ไม่ใช่ทุกคู่ของ * หรือ _ ที่เป็นการเน้นคำ — ใช้กติกาเดียวกับ markdown
+     * "snake_case_word" และ "a * b * c" ต้องออกเป็นตัวอักษรตามเดิม ไม่ใช่ตัวเอียง
+     */
+    if (m[2] || m[3]) {
+      const body = stripMarkers(m[2] ? tok.slice(2, -2) : tok.slice(1, -1));
+      const around = stripMarkers(text.slice(Math.max(0, m.index - 3), m.index)).slice(-1) + stripMarkers(text.slice(m.index + tok.length, m.index + tok.length + 3)).slice(0, 1);
+      if (/^\s|\s$/.test(body) || !body || (tok[0] === '_' && /[A-Za-z0-9]/.test(around))) {
+        out += esc(tok);
+        open = closing;
+        last = m.index + tok.length;
+        continue;
+      }
+    }
+    if (m[1]) {
+      // raw ไม่ตีความอะไรข้างในเลย เครื่องหมายก้อนคำจึงต้องไม่หลุดเข้าไป และต้องไม่คร่อมขอบ
+      out += (open ? BOX_CLOSE : '') + '`' + stripMarkers(tok.slice(1, -1)) + '`' + (closing ? BOX_OPEN : '');
+    } else if (m[2]) out += wrapBalanced('#strong', tok.slice(2, -2), open);
+    else if (m[3]) out += wrapBalanced('#emph', tok.slice(1, -1), open);
     else if (m[4]) {
       const label = tok.slice(1, tok.indexOf(']'));
-      const url = tok.slice(tok.indexOf('(') + 1, -1);
-      out += `#link("${url}")[${esc(label)}]`;
+      const url = stripMarkers(tok.slice(tok.indexOf('(') + 1, -1)).replace(/ /g, '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const openInLabel = boxOpenAfter(label, open);
+      out +=
+        (open ? BOX_CLOSE : '') +
+        `#link("${url}")[` + (open ? BOX_OPEN : '') + esc(label) + (openInLabel ? BOX_CLOSE : '') + '];' +
+        (closing ? BOX_OPEN : '');
     }
+    open = closing;
     last = m.index + tok.length;
   }
   out += esc(text.slice(last));
+  out = escStart(out);
   // ช่องว่างคั่นวรรคไทย → ระยะแบบ weak ที่ Typst ยุบทิ้งเองเมื่ออยู่ต้น/ท้ายบรรทัด
   // ก้อนคำไทย → #box[...] ให้ Typst ตัดบรรทัดได้เฉพาะระหว่างคำที่เราเลือก (core/thai.js BOX_OPEN)
   // ZWSP ไม่ต้องส่งเข้า Typst แล้ว: กล่องคำตัดบรรทัดระหว่างกันได้เอง (ทดสอบแล้วตัดตรงกันทุกบรรทัด)
   // และ ZWSP ที่เหลือไปติดในชั้นข้อความของ PDF — คัดลอกออกมาได้ "ใ" ที่มีอักษรล่องหนนำหน้า ค้นคำไม่เจอ
-  return out.split(THAI_GAP).join('#h(0.42em, weak: true)').split(BOX_OPEN).join('#tw[').split(BOX_CLOSE).join(']').split('​').join('');
+  // ";" ปิดนิพจน์ทุกตัว: "#tw[ออก](dengue)" ถูกอ่านเป็นการเรียกฟังก์ชันด้วยอาร์กิวเมนต์ dengue แล้วเอกสารพังทั้งเล่ม
+  // ภาษาไทยเขียนวงเล็บ/จุดติดคำโดยไม่เว้นวรรคเป็นปกติ ("ไข้เลือดออก(dengue)" "ตาราง.xlsx")
+  return out.split(THAI_GAP).join('#h(0.42em, weak: true);').split(BOX_OPEN).join('#tw[').split(BOX_CLOSE).join('];').split('​').join('');
 }
 
 /**

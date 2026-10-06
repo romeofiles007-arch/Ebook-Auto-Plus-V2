@@ -53,5 +53,5 @@ test('ส่งออก PDF ทุกทางผ่านตัวซ่อม
   const compiler = await readFile(new URL('./compiler.js', import.meta.url), 'utf8');
   assert.match(compiler, /const \{ bytes \} = await fixThaiTextLayer\(pdf\);/);
   const template = await readFile(new URL('./template.js', import.meta.url), 'utf8');
-  assert.match(template, /\.split\(BOX_CLOSE\)\.join\('\]'\)\.split\('\u200b'\)\.join\(''\)/);
+  assert.match(template, /\.split\(BOX_CLOSE\)\.join\('\];'\)\.split\('\u200b'\)\.join\(''\)/);
 });

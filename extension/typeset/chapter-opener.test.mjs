@@ -20,8 +20,8 @@ test('หน้าเปิดบทเต็มหน้า: เลข ชื�
   // ตัวเตรียมข้อความไทยแทรกจุดตัดคำที่มองไม่เห็น (U+200B) และช่องว่างระหว่างชื่อ — ตัดทิ้งก่อนเทียบ
   const src = buildDocument({ book: { ...base, chapterOpener: 'poster', chapterEpigraphs: { 11: { text: 'ความทุกข์ของมนุษย์', by: 'แบลส์ ปาสกาล' } } }, outline, sections })
     .replace(/​/g, '')
-    .replace(/#tw\[([^\]]*)\]/g, '$1')
-    .replace(/#h\([^)]*\)/g, ' ');
+    .replace(/#tw\[([^\]]*)\];?/g, '$1')
+    .replace(/#h\([^)]*\);?/g, ' ');
   // หัวกระดาษไม่ขึ้นบนหน้าเปิดบท — เทียบกับเลขหน้าจริง ไม่ใช่เลขหน้าที่พิมพ์
   assert.match(src, /let pg = here\(\)\.page\(\)\n    let opens = query\(heading\.where\(level: 1\)\)\.any\(h => h\.location\(\)\.page\(\) == pg\)/);
   assert.match(src, /if opens \{ return \}\n    if opener-pages\.final\(\)\.contains\(pg\) \{ return \}/);

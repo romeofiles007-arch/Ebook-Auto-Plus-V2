@@ -44,7 +44,7 @@ test('เอกสาร Typst: กล่องคำเป็น #tw[...] ท�
   assert.match(src, /#let tw\(b\) = box\(text\(bottom-edge: "baseline", b\)\)/);
   assert.match(src, /#tw\[ดีขึ้น\]/);
   assert.doesNotMatch(src, /[]/, 'ตัวครอบต้องแปลงหมด');
-  const plain = src.replace(/​/g, '').replace(/#h\([^)]*\)/g, ' ');
+  const plain = src.replace(/​/g, '').replace(/#h\([^)]*\);?/g, ' ');
   assert.match(plain, /^= บทที่ 1 · รบกวน$/m);
   assert.match(plain, /^== เมื่อวาน$/m);
   // หัวกระดาษ: ชื่อหนังสือไม่มีเครื่องหมายคำพูดติดมา
@@ -79,7 +79,7 @@ test('หัวข้อไม่ตกท้ายหน้า: ตัวหน
   const out = mdToTypst('ย่อหน้า\n\n**2. ปรับแผน**\n\nเนื้อหา\n\n**เหตุผล:**\n\nข้อความ **ตัวหนา** ในประโยค');
   assert.match(out, /#block\(sticky: true, above: 1\.1em, below: 0\.55em, text\(weight: 700\)\[2\. ปรับแผน\]\)/);
   assert.match(out, /#block\(sticky: true[^\n]*\[เหตุผล:\]\)/, 'หัวข้อลงท้ายด้วย : ก็นับ');
-  assert.match(out, /^ข้อความ \*ตัวหนา\* ในประโยค$/m, 'ตัวหนากลางประโยคไม่ใช่หัวข้อ');
+  assert.match(out, /^ข้อความ #strong\[ตัวหนา\]; ในประโยค$/m, 'ตัวหนากลางประโยคไม่ใช่หัวข้อ');
   const src = buildDocument({ book, outline, sections: [{ id: '1.1', md: 'ก' }], opts: {} });
   assert.match(src, /#show heading\.where\(level: 2\): it => block\(sticky: true,/);
   assert.match(src, /#show heading\.where\(level: 3\): it => block\(sticky: true,/);
@@ -98,4 +98,35 @@ test('เครื่องหมายจบเล่ม: นิยาย = "�
   // อยู่ก่อนส่วนท้ายเล่ม
   const s = src(fic, 'ฉากสุดท้าย');
   assert.ok(s.indexOf('[จบ]') > s.indexOf('ฉาก'));
+});
+
+/**
+ * ลูกค้าเจอ "document is not compiled, with []" ที่ขั้นปรับจำนวนหน้า — เอกสาร Typst พังจากข้อความธรรมดา:
+ * วงเล็บ/จุดติดคำไทย ("ไข้เลือดออก(dengue)") ถูกอ่านเป็นการเรียกฟังก์ชันต่อจาก #tw[...]
+ * และตัวหนา/ตัวเอียงติดคำไทยเปิดแล้วไม่ปิด เพราะ * กับ _ ของ Typst ทำงานเฉพาะที่ขอบคำ
+ */
+test('ข้อความไทยติดวงเล็บและตัวหนา: ทุกคำสั่ง Typst ปิดด้วย ; และวงเล็บสมดุล', async () => {
+  const { mdToTypst } = await import('./template.js');
+  const { prepareForTypeset } = await import('../core/thai.js');
+  const out = (md) => mdToTypst(prepareForTypeset(md, 'th'));
+  const balanced = (s) => {
+    let depth = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\\') { i++; continue; }
+      if (s[i] === '[') depth++;
+      if (s[i] === ']' && --depth < 0) return false;
+    }
+    return depth === 0;
+  };
+  const paren = out('ไข้เลือดออก(dengue)พบได้ทุกปี');
+  assert.doesNotMatch(paren, /\]\(/, 'กล่องคำต้องไม่ติดกับวงเล็บเปิด');
+  assert.match(paren, /#tw\[[^\]]*\];\(dengue\)/);
+  for (const md of ['### **ขั้นที่ 1**เตรียมตัวก่อนเดินทาง', 'ผู้อ่านจะใช้ลำดับ**เว**ลาแทนการเดา', 'ปวด*ศีรษะ ปวด*เมื่อย', '> คำคม_สำคัญ_มาก', '| หัว | **หนา**ติดคำ |\n|---|---|\n| ก | ข |']) {
+    const t = out(md);
+    assert.ok(balanced(t), `วงเล็บไม่สมดุล: ${md}`);
+    assert.doesNotMatch(t, /(^|[^\\])[*_]/,`ยังเหลือเครื่องหมายเน้นคำดิบ: ${md}`);
+  }
+  assert.match(out('ข้อความ **ตัวหนา** จบ'), /#strong\[.*ตัว.*หนา.*\];/);
+  assert.equal(mdToTypst('snake_case_word และ a * b * c'), 'snake\\_case\\_word และ a \\* b \\* c');
+  assert.equal(mdToTypst('ดู www.x.com//a // หมายเหตุ'), 'ดู www.x.com\\//a \\// หมายเหตุ');
 });
