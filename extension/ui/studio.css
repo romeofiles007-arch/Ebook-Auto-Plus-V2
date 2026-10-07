@@ -217,6 +217,12 @@ textarea{width:100%;padding:12px 14px;border:1px solid #536f59;border-radius:10p
 
 .apiKeyRow #imageApiModel{flex:0 0 auto;width:170px}
 @media (max-width:620px){.apiKeyRow #imageApiModel{flex:1 1 auto;width:auto}}
+.apiKeyRow{align-items:flex-end}
+.apiKeyRow .apiSetting{flex:1 1 150px;min-width:0}
+.apiKeyRow .apiSettingKey{flex:2 1 220px}
+.apiKeyRow .apiSetting input,.apiKeyRow .apiSetting select,.apiKeyRow .apiSetting #imageApiModel{display:block;width:100%;min-width:0;max-width:none;flex:none}
+.apiKeyRow .apiSetting label{margin-bottom:6px;font-size:12px;font-weight:700;color:#d5e5d1}
+@media (max-width:620px){.apiKeyRow .apiSetting,.apiKeyRow .apiSettingKey{flex:1 1 100%}}
 /**
  * ไอคอน — ชุดเดียวทั้งระบบ วาดด้วยเส้น ไม่ใช่อีโมจิ
  *
@@ -234,6 +240,14 @@ textarea{width:100%;padding:12px 14px;border:1px solid #536f59;border-radius:10p
   color: inherit;
 }
 .i-lg { width: 1.35em; height: 1.35em; vertical-align: -0.3em; }
+label.settingLabel { display: inline-flex; align-items: center; gap: 6px; }
+.field label.settingLabel { display: flex; }
+.field label.settingSubLabel { margin-top: 10px; }
+.settingLabel .i { width: 14px; height: 14px; color: #9fcfb0; }
+.more summary .i { width: 14px; height: 14px; margin-right: 6px; color: #9fcfb0; }
+.sourceAdvanced .sourceLabel { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 750; color: #e6f0e2; cursor: pointer; }
+.checkRow label .i,.field label.muted .i,.authorRef label .i,.authorRefHead .i,.soundToggle .i,.ceoBar label .i { width: 14px; height: 14px; color: #9fcfb0; }
+.authorRefHead .i { margin-right: 6px; }
 .brand { display:flex; align-items:center; gap:10px; }
 .brand-logo { display:block; width:42px; height:42px; object-fit:contain; filter:drop-shadow(0 4px 9px #0007); }
 
@@ -334,6 +348,18 @@ button.reviewIssue:hover{border-color:#8bd7aa}
 .modeCard b{font-size:15px;color:#fff}
 .modeCard .modeWhat{font-size:12.5px;font-weight:600;color:#d0e2d0}
 .modeCard .modeWhat{font-size:14px;line-height:1.45}
+/* แถวโลโก้บนการ์ด: ใครเขียน → ใครวาด เห็นแล้วรู้ว่าต้องล็อกอินเว็บไหนโดยไม่ต้องอ่านคำอธิบาย */
+.modeFlow{display:flex;align-items:flex-start;gap:10px;margin-bottom:6px}
+.modeLogo{display:flex;flex-direction:column;align-items:center;gap:5px}
+.modeLogo img{width:40px;height:40px;box-sizing:border-box;padding:7px;border-radius:10px;background:#fff;border:1px solid #ffffff59;object-fit:contain}
+.modeLogo img.full{padding:0;background:#000}
+/* การ์ดที่เว็บเดียวทำทั้งสองงาน: ป้ายอยู่ข้างโลโก้ ไม่งั้นโลโก้ลอยกลางป้ายยาว */
+.modeFlow>.modeLogo:only-child{flex-direction:row;gap:9px}
+.modeLogo small{font-size:12px;font-weight:700;line-height:1.2;color:#dcebdd;white-space:nowrap}
+.modeArrow{line-height:40px;font-size:18px;font-weight:700;color:#8bd7aa}
+/* สี่ใบเรียง 2×2 — ปล่อย auto-fit แล้วได้ 3+1 ใบสุดท้ายห้อยอยู่แถวล่างเหมือนของแถม */
+.modePicker{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:520px){.modePicker{grid-template-columns:1fr}}
 .modeTags{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
 .modeTags i{font-style:normal;font-size:11.5px;line-height:1;padding:5px 8px;border-radius:999px;border:1px solid #ffffff2e;background:#00000026;color:#dcebdd}
 .modeTags i.good{border-color:#8bd7aa80;background:#8bd7aa26;color:#c9f2d7;font-weight:700}
@@ -345,6 +371,7 @@ button.reviewIssue:hover{border-color:#8bd7aa}
 #feed{background:#030906;color:#72ffa0;font-family:Consolas,"Courier New",monospace}#feed .event{background:#030906;border-color:#245a37;color:#72ffa0}#feed .event pre,#feed .event .head,#feed .event .label,#feed .event .muted{color:#72ffa0;background:transparent}.p2Preview{display:block;margin:8px 0;max-width:210px;color:inherit}.p2Preview img{display:block;width:100%;height:130px;object-fit:contain;background:repeating-conic-gradient(#dce3e8 0% 25%,#fff 0% 50%) 50%/16px 16px;border:1px solid #879b87;border-radius:5px}.p2Preview span{display:block;font-size:12px;margin-top:4px}.p2Source{font-size:12px;overflow-wrap:anywhere;color:#c5dbc5}
 .reference-result{padding:14px 0;border-bottom:1px solid #6d876f;overflow-wrap:anywhere}.reference-result>b{display:block;margin:8px 0}.reference-result a{color:#98dfb5}.reference-result label{display:flex;gap:8px;align-items:center}.reference-result input[type=checkbox]{width:auto}#referenceResults{max-height:460px;overflow:auto}#referenceOptions>label{display:block;margin:12px 0 6px}#referenceOptions .row input{flex:1;min-width:0}#referenceOptions button:disabled{opacity:.6;cursor:wait}
 .reference-format{flex-basis:100%;width:100%;padding:14px 0}.reference-format[hidden]{display:none}.reference-format>label{display:block;margin-bottom:8px}.reference-format select{max-width:440px;width:100%}.reference-example{padding:14px;background:#15251a;border:1px solid #6d876f;border-radius:8px;color:#f2f7ee;line-height:1.7;overflow-wrap:anywhere}.reference-example p{margin:8px 0;max-width:75ch}.reference-format>p{line-height:1.6;max-width:75ch}
+.reference-format>label.settingLabel{display:inline-flex}
 
 /* select ที่วางต่อจากช่องพิมพ์ในฟิลด์เดียวกัน (เช่นตัวเลือกกลุ่มผู้อ่าน) ต้องไม่ติดกันจนดูเป็นช่องเดียว */
 #audiencePreset{margin-top:8px;font-size:14px;padding:11px 14px;color:#d5e5d1}
@@ -445,6 +472,7 @@ button.reviewIssue:hover{border-color:#8bd7aa}
 .castSeeds{margin-top:12px;display:flex;flex-direction:column;gap:6px}
 .castRow{display:grid;grid-template-columns:max-content minmax(110px,1fr) minmax(180px,2fr) auto auto 40px auto;gap:8px;align-items:center;padding:4px;border-radius:10px;border:1px solid transparent}
 .castRow .castLabel{white-space:nowrap;font-size:13px;min-width:92px}
+.castRow .castLabel .i{width:14px;height:14px;color:#9fcfb0}
 .castRow input{min-width:0;font-size:14px;padding:10px 12px}
 .castRow button{padding:9px 12px;font-size:13px;white-space:nowrap}
 .castRow .authorRefThumb{width:40px;height:40px;object-fit:cover;border-radius:6px}

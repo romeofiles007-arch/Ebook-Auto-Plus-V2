@@ -11,6 +11,7 @@ import { ChatGptTabTransport } from './chatgpt-tab.js';
 
 export { hasPendingTurn, recoverQuietTurns } from './chatgpt-tab.js';
 import { FakeTransport } from './fake.js';
+import { GeminiTabTransport } from './gemini-tab.js';
 import { OpenAiApiTransport, DEFAULT_TEXT_MODEL } from './openai-api.js';
 
 export { DEFAULT_TEXT_MODEL };
@@ -21,6 +22,8 @@ export function makeTransport(kind, opts = {}) {
       return new FakeTransport(opts);
     case 'openai_api':
       return new OpenAiApiTransport(opts);
+    case 'gemini_tab':
+      return new GeminiTabTransport(opts);
     case 'chatgpt_tab':
     default:
       return new ChatGptTabTransport(opts);

@@ -493,7 +493,8 @@ export class Machine {
   async reloadChatTab() {
     if (this.tr?.kind !== 'chatgpt_tab') return false;
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return false;
-    const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat' }).catch(() => null);
+    // site มีเฉพาะสายที่ขับเว็บอื่น (Gemini) — สายของ ChatGPT ไม่มีค่านี้ ข้อความจึงเหมือนเดิม
+    const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat', site: this.tr.site }).catch(() => null);
     return !!done?.ok;
   }
 
@@ -735,8 +736,9 @@ ${P.NO_CITATION_RULE}
     if (decision?.action === 'reload_tab') {
       // หน้าเว็บค้างเอง เปิดห้องใหม่ในหน้าที่ค้างอยู่ก็ยังค้างเหมือนเดิม ต้องล้างทั้งหน้า
       // มาถึงตรงนี้ได้เฉพาะความล้มที่คำสั่งไม่เคยออกจากเครื่องเรา จึงส่งซ้ำได้ไม่มีงานซ้อน
-      const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat' }).catch(() => null);
-      this.log(done?.ok ? 'ok' : 'warn', done?.ok ? 'โหลดหน้า ChatGPT ใหม่แล้ว — สั่งขั้นเดิมอีกครั้ง' : 'โหลดหน้า ChatGPT ใหม่ไม่สำเร็จ');
+      const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat', site: opts.wantImages ? undefined : this.tr?.site }).catch(() => null);
+      const chatName = !opts.wantImages && this.tr?.site === 'gemini' ? 'Gemini' : 'ChatGPT';
+      this.log(done?.ok ? 'ok' : 'warn', done?.ok ? `โหลดหน้า ${chatName} ใหม่แล้ว — สั่งขั้นเดิมอีกครั้ง` : `โหลดหน้า ${chatName} ใหม่ไม่สำเร็จ`);
       if (done?.ok) return await this.turn(prompt, opts);
       return last;
     }
@@ -869,6 +871,8 @@ ${P.NO_CITATION_RULE}
   async describeCastPhotos() {
     // ทาง API ไม่ได้ส่งรูปแนบไปด้วย ถ้าถามตรงนี้โมเดลจะแต่งรูปลักษณ์จากรูปที่ไม่เคยเห็น — ข้าม ให้คิดรูปลักษณ์ตอนวางโครงแทน
     if ((this.book.textSource || 'web') === 'api') return;
+    // ตัวขับ Gemini รับเฉพาะข้อความ แนบรูปไม่ได้ — ข้ามด้วยเหตุผลเดียวกับทาง API
+    if (this.book.textSource === 'gemini') return;
     /**
      * ปิดไว้ก่อน: เล่มจริงค้างที่ขั้นแนบรูปเข้าหน้า ChatGPT ("attaching" เกิน 3 นาที หน้าแชตว่าง ไม่มีรูปไม่มีข้อความ)
      * แล้วตัวกดทำต่อเองก็วนกลับมาค้างที่เดิม — ขั้นนี้เป็นของเสริม ไม่คุ้มให้ทั้งเล่มหยุด
@@ -1409,7 +1413,7 @@ ${P.NO_CITATION_RULE}
         const how =
           (this.book.textSource || 'web') === 'api'
             ? 'ตรวจว่า API key ยังใช้ได้และเครดิตยังเหลือ'
-            : 'ตรวจว่าแท็บ ChatGPT ยังตอบได้ปกติ';
+            : `ตรวจว่าแท็บ ${this.book.textSource === 'gemini' ? 'Gemini' : 'ChatGPT'} ยังตอบได้ปกติ`;
         throw new Halt(
           `เขียนเนื้อหาไม่สำเร็จ ${stillEmpty.length} จาก ${all.length} ตอน (${stillEmpty.map((s) => s.id).join(', ')}) — ` +
             `หยุดไว้ก่อนเพื่อไม่ให้ได้เล่มที่หน้าเป็นช่องว่าง ` +

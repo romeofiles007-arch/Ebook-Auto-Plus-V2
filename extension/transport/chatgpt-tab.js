@@ -54,13 +54,13 @@ export async function recoverQuietTurns() {
     p.probing = true;
     p.lastProbeAt = now;
     try {
-      let found = await probeTurn(turnId, p.prompt);
+      let found = await probeTurn(turnId, p.prompt, p.site);
       if (!pending.has(turnId)) continue;
       // The first active-tab probe records a stable visible answer; the next
       // confirms it has stopped changing before accepting it as a result.
       if (found?.state === 'running') {
         await new Promise((r) => setTimeout(r, 1600));
-        found = await probeTurn(turnId, p.prompt);
+        found = await probeTurn(turnId, p.prompt, p.site);
       }
       if (!pending.has(turnId)) continue;
       if (found?.state && found.state !== 'not_sent') p.notSentCount = 0;
@@ -108,12 +108,12 @@ export async function recoverQuietTurns() {
  * ตัวหน้าเว็บรู้แน่นอนทั้งสามข้อ: เก็บผลไว้แล้วหรือเปล่า · ยังทำอยู่ไหม · ข้อความของเราขึ้นไปหรือยัง
  * ถามมันแล้วค่อยตัดสิน ถามไม่ได้ = ตอบไม่ได้ ต้องระวังไว้ก่อน
  */
-async function probeTurn(turnId, prompt) {
+async function probeTurn(turnId, prompt, site) {
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return null;
   let timer;
   try {
     return await Promise.race([
-      chrome.runtime.sendMessage({ type: 'sw.recoverTurn', turnId, prompt }),
+      chrome.runtime.sendMessage({ type: 'sw.recoverTurn', turnId, prompt, site }),
       new Promise((r) => { timer = setTimeout(() => r(null), 15000); }),
     ]);
   } catch {
@@ -137,6 +137,8 @@ export class ChatGptTabTransport {
     this.timeoutMs = opts.timeoutMs ?? 300000; // 5 นาทีต่อเทิร์น
     this.expectModel = opts.expectModel || '';
     this.onProgress = opts.onProgress || (() => {});
+    // เว็บปลายทางของ service worker — ไม่ตั้ง = ChatGPT (คีย์ที่เป็น undefined ไม่ถูกส่งไปกับข้อความเลย)
+    this.site = opts.site;
   }
 
   get kind() {
@@ -206,7 +208,7 @@ export class ChatGptTabTransport {
          */
         const phase = p.lastPhase || '';
         const where = PHASE_LABEL[phase] || phase || 'ไม่ทราบขั้น';
-        probeTurn(turnId, prompt).then((found) => {
+        probeTurn(turnId, prompt, this.site).then((found) => {
           // ผลจริงวิ่งกลับมาระหว่างที่เรากำลังถามแท็บ (ถามได้นานถึง 15 วินาที) — เทิร์นจบไปแล้ว ไม่มีอะไรต้องตัดสิน
           if (!pending.has(turnId)) return;
           /**
@@ -255,13 +257,14 @@ export class ChatGptTabTransport {
       };
       const timer = setTimeout(expire, outerTimeoutMs);
 
-      pending.set(turnId, { resolve:complete, timer, expire, prompt, lastSignalAt:Date.now(), lastProbeAt:0,
+      pending.set(turnId, { resolve:complete, timer, expire, prompt, site:this.site, lastSignalAt:Date.now(), lastProbeAt:0,
         unreachableCount:0, notSentCount:0, probing:false,
         answerBudget:(opts.wantImages ? imageTimeoutMs : answerTimeoutMs)+attachMs+30000, onProgress: this.onProgress });
 
       chrome.runtime
         .sendMessage({
           type: 'sw.runTurn',
+          site: this.site,
           turnId,
           prompt,
           opts: {
@@ -293,7 +296,7 @@ export class ChatGptTabTransport {
   }
 
   async health() {
-    const result = await chrome.runtime.sendMessage({ type: 'sw.healthChat' }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
-    return result?.ok ? result : { ok: false, error: result?.error || 'เชื่อมต่อ ChatGPT ไม่สำเร็จ' };
+    const result = await chrome.runtime.sendMessage({ type: 'sw.healthChat', site: this.site }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+    return result?.ok ? result : { ok: false, error: result?.error || `เชื่อมต่อ ${this.site === 'gemini' ? 'Gemini' : 'ChatGPT'} ไม่สำเร็จ` };
   }
 }

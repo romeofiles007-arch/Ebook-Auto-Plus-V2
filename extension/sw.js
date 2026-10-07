@@ -49,6 +49,17 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // ---------- หา/เปิดแท็บ ----------
 const isChatUrl = (url = '') => /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(url);
+const isGeminiUrl = (url = '') => /^https:\/\/gemini\.google\.com\//.test(url);
+
+/**
+ * เว็บแชตที่ใช้เขียนเนื้อหา — ทุกข้อความที่ไม่ระบุ site คือ ChatGPT ตามเดิมทุกประการ
+ * Gemini มีแท็บ ตัวจำแท็บ และตัวขับของตัวเอง ไม่ปนกับของ ChatGPT เลยสักค่า
+ */
+const CHAT_SITES = {
+  chatgpt: { name: 'ChatGPT', key: 'chatTabId', is: isChatUrl, match: CHAT_MATCH, home: 'https://chatgpt.com/', adapter: 'adapter/chatgpt.js' },
+  gemini: { name: 'Gemini', key: 'geminiTabId', is: isGeminiUrl, match: ['https://gemini.google.com/*'], home: 'https://gemini.google.com/app', adapter: 'adapter/gemini.js' },
+};
+const chatSite = (site) => CHAT_SITES[site] || CHAT_SITES.chatgpt;
 
 async function findTab(urlPatterns) {
   const tabs = await chrome.tabs.query({ url: urlPatterns });
@@ -63,6 +74,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   try {
     const tab = await chrome.tabs.get(tabId);
     if (isChatUrl(tab?.url)) await S.set('chatTabId', tab.id);
+    else if (isGeminiUrl(tab?.url)) await S.set('geminiTabId', tab.id);
   } catch {}
 });
 
@@ -70,6 +82,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   try {
     if ((changeInfo.status === 'complete' || changeInfo.url) && tab?.active && isChatUrl(tab?.url || changeInfo.url)) {
       await S.set('chatTabId', tabId);
+    } else if ((changeInfo.status === 'complete' || changeInfo.url) && tab?.active && isGeminiUrl(tab?.url || changeInfo.url)) {
+      await S.set('geminiTabId', tabId);
     }
   } catch {}
 });
@@ -116,21 +130,22 @@ async function ensureStudioTab(focus = false) {
   } catch (_) {}
 })();
 
-async function ensureChatTab() {
+async function ensureChatTab(siteName) {
+  const site = chatSite(siteName);
   let tab = null;
 
   // 1) ใช้แท็บ ChatGPT ที่ผู้ใช้แตะล่าสุดก่อน — สำคัญมากสำหรับ Phase 2 ที่ผู้ใช้สลับบัญชี
-  const rememberedId = await S.get('chatTabId');
+  const rememberedId = await S.get(site.key);
   if (rememberedId != null) {
     try {
       const remembered = await chrome.tabs.get(rememberedId);
-      if (!remembered.discarded && isChatUrl(remembered.url)) tab = remembered;
+      if (!remembered.discarded && site.is(remembered.url)) tab = remembered;
     } catch {}
   }
 
   // 2) ถ้าแท็บเดิมหาย ให้เลือกแท็บ ChatGPT ที่ active ล่าสุดก่อน แล้วค่อย fallback ไปแท็บแรก
   if (!tab) {
-    const tabs = await chrome.tabs.query({ url: CHAT_MATCH });
+    const tabs = await chrome.tabs.query({ url: site.match });
     tab = tabs.find((t) => t.active && !t.discarded) ||
       tabs.filter((t) => !t.discarded).sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0))[0] ||
       tabs[0] || null;
@@ -151,7 +166,9 @@ async function ensureChatTab() {
         windowId = (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
       } catch {}
     }
-    tab = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: false, ...(windowId != null ? { windowId } : {}) });
+    tab = site !== CHAT_SITES.chatgpt
+      ? await chrome.tabs.create({ url: site.home, active: false, ...(windowId != null ? { windowId } : {}) })
+      : await chrome.tabs.create({ url: 'https://chatgpt.com/', active: false, ...(windowId != null ? { windowId } : {}) });
     await waitForComplete(tab.id);
   }
   // แท็บที่ถูกพักไว้ (discarded) หรือยังโหลดไม่จบ ยังฉีด content script ลงไปไม่ได้จริง
@@ -169,7 +186,7 @@ async function ensureChatTab() {
     /* โหลดไม่ทันก็ปล่อยผ่าน ชั้น adapter มีนาฬิการอของตัวเองอีกชั้น */
   }
 
-  await S.set('chatTabId', tab.id);
+  await S.set(site.key, tab.id);
   return tab;
 }
 
@@ -212,7 +229,7 @@ function waitForComplete(tabId, timeoutMs = 60000) {
 }
 
 /** ฉีด content script ซ้ำ เผื่อแท็บเปิดอยู่ก่อนติดตั้งส่วนขยาย */
-async function ensureAdapter(tabId, timeoutMs = 20000) {
+async function ensureAdapter(tabId, timeoutMs = 20000, siteName) {
   const until = Date.now() + timeoutMs;
   const ping = async () => {
     try {
@@ -229,7 +246,7 @@ async function ensureAdapter(tabId, timeoutMs = 20000) {
     if (await ping()) return true;
     let injected = false;
     try {
-      await chrome.scripting.executeScript({ target: { tabId }, files: ['adapter/chatgpt.js'] });
+      await chrome.scripting.executeScript({ target: { tabId }, files: [chatSite(siteName).adapter] });
       injected = true;
     } catch (_) {
       /* แท็บกำลังเปลี่ยนหน้าอยู่ ฉีดยังไม่ได้ */
@@ -348,7 +365,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // Studio ขอให้เริ่มหนึ่งเทิร์น — ไม่รอผล ผลจะกลับมาเป็น gpt.result
       case 'sw.runTurn': {
         await S.set('studioTabId', sender.tab?.id ?? (await S.get('studioTabId')));
-        const chat = await ensureChatTab();
+        const chat = await ensureChatTab(msg.site);
         const turnTabs = await S.get('turnTabs', {});
         turnTabs[msg.turnId] = chat.id;
         for (const id of Object.keys(turnTabs).slice(0, -40)) delete turnTabs[id];
@@ -361,7 +378,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         await chrome.tabs.update(chat.id, { active: true });
         if (chat.windowId != null) await chrome.windows.update(chat.windowId, { focused: true });
-        const ok = await ensureAdapter(chat.id);
+        const ok = await ensureAdapter(chat.id, 20000, msg.site);
         if (!ok) return sendResponse({ ok: false, error: 'adapter_unavailable' });
         const accepted = await chrome.tabs.sendMessage(chat.id, {
           type: 'gpt.run',
@@ -512,11 +529,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
        * บทสนทนาเดิมไม่หาย เพราะมันอยู่ที่ฝั่งเซิร์ฟเวอร์ ไม่ใช่ในหน้า
        */
       case 'sw.reloadChat': {
-        const chat = await ensureChatTab();
+        const chat = await ensureChatTab(msg.site);
         await chrome.tabs.reload(chat.id);
         const ready = await waitForComplete(chat.id, 60000).catch(() => null);
-        if (!ready) return sendResponse({ ok: false, error: 'โหลดแท็บ ChatGPT ใหม่ไม่สำเร็จ' });
-        const ok = await ensureAdapter(chat.id);
+        if (!ready) return sendResponse({ ok: false, error: `โหลดแท็บ ${chatSite(msg.site).name} ใหม่ไม่สำเร็จ` });
+        const ok = await ensureAdapter(chat.id, 20000, msg.site);
         return sendResponse(ok ? { ok: true, tabId: chat.id } : { ok: false, error: 'adapter_unavailable' });
       }
 
@@ -526,7 +543,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
       case 'sw.focusChat': {
-        const t = await ensureChatTab();
+        // แท็บแชตที่ขอเอง (ตัวขับ Gemini ดึงตัวเองกลับมาหน้าจอ) ต้องได้ตัวมันเอง ไม่ใช่แท็บที่จำไว้ล่าสุด
+        const own = sender.tab?.id != null && chatSite(msg.site).is(sender.tab.url) ? sender.tab : null;
+        const t = own || (await ensureChatTab(msg.site));
         await chrome.tabs.update(t.id, { active: true });
         await chrome.windows.update(t.windowId, { focused: true });
         return sendResponse({ ok: true });
@@ -685,7 +704,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             return sendResponse({ state: 'unreachable' });
           }
         }
-        const tabs = await chrome.tabs.query({ url: ['https://chatgpt.com/*', 'https://chat.openai.com/*'] });
+        // เทิร์นของ Gemini ถามเฉพาะแท็บ Gemini — แท็บของอีกเว็บตอบ not_sent เสมอ จะทำให้นับผิดว่ายังไม่ได้ส่ง
+        const tabs = await chrome.tabs.query({ url: msg.site === 'gemini' ? ['https://gemini.google.com/*'] : ['https://chatgpt.com/*', 'https://chat.openai.com/*'] });
         let notSent = 0;
         for (const t of tabs) {
           try {
@@ -742,14 +762,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
       case 'sw.healthChat': {
-        const chat = await ensureChatTab();
+        const chat = await ensureChatTab(msg.site);
         await chrome.tabs.update(chat.id, { active: true });
         if (chat.windowId != null) await chrome.windows.update(chat.windowId, { focused: true });
-        const ok = await ensureAdapter(chat.id);
-        if (!ok) return sendResponse({ ok: false, error: 'ติดตั้ง content script ของ ChatGPT ไม่สำเร็จ' });
+        const ok = await ensureAdapter(chat.id, 20000, msg.site);
+        if (!ok) return sendResponse({ ok: false, error: `ติดตั้ง content script ของ ${chatSite(msg.site).name} ไม่สำเร็จ` });
         try {
           const result = await chrome.tabs.sendMessage(chat.id, { type: 'gpt.health' });
-          return sendResponse(result || { ok: false, error: 'ChatGPT ไม่ตอบ healthcheck' });
+          return sendResponse(result || { ok: false, error: `${chatSite(msg.site).name} ไม่ตอบ healthcheck` });
         } catch (e) {
           return sendResponse({ ok: false, error: `content script ไม่ตอบ: ${e?.message || e}` });
         }
@@ -801,5 +821,6 @@ chrome.alarms.onAlarm.addListener(async (a) => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (tabId === (await S.get('studioTabId'))) await S.set('studioTabId', null);
   if (tabId === (await S.get('chatTabId'))) await S.set('chatTabId', null);
+  if (tabId === (await S.get('geminiTabId'))) await S.set('geminiTabId', null);
   if (tabId === (await S.get('flowTabId'))) await S.set('flowTabId', null);
 });

@@ -1108,7 +1108,7 @@ async function sendTurn(transport, prompt, opts = {}, { attempts = 3, onRetry, p
       unstuck = true;
       noteTrouble({ step: opts.label || '', symptom: 'composer_busy', move: 'reload_tab', by: 'หน้า Studio' });
       addEvent('system', 'ปุ่มส่งเป็นวงกลมหมุนค้าง', `ขั้น ${opts.label || '-'} · กดปลดแล้วไม่หาย — โหลดหน้า ChatGPT ใหม่เองหนึ่งครั้ง คำสั่งยังไม่เคยถูกส่งจึงไม่มีงานซ้อน`);
-      const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat' }).catch(() => null);
+      const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat', site: transport.site }).catch(() => null);
       if (done?.ok) {
         i--;
         continue;
@@ -1181,7 +1181,7 @@ async function sendTurn(transport, prompt, opts = {}, { attempts = 3, onRetry, p
       unstuck = true;
       noteTrouble({ step: opts.label || '', symptom: 'prompt_not_sent', move: 'reload_tab', detail: res.error || res.status || '', by: 'หน้า Studio' });
       addEvent('system', 'ห้องใหม่แล้วยังไม่ผ่าน — โหลดแท็บ ChatGPT ใหม่', `ขั้น ${opts.label || '-'} · ${res.error || res.status} — ล้างสถานะค้างของหน้าเว็บทั้งใบ`);
-      await chrome.runtime.sendMessage({ type: 'sw.reloadChat' }).catch(() => null);
+      await chrome.runtime.sendMessage({ type: 'sw.reloadChat', site: transport.site }).catch(() => null);
     }
 
     onRetry?.(i, attempts, res);
@@ -1272,7 +1272,7 @@ async function superviseFailure(last, prompt, opts, { attempts = 1, transport } 
      * จึงมาถึงตรงนี้ได้เฉพาะความล้มที่คำสั่งไม่เคยออกจากเครื่องเรา
      */
     addEvent('system', 'ผู้คุมกระบวนการสั่งโหลดหน้า ChatGPT ใหม่', decision.reason || 'ล้างสถานะค้างของหน้าเว็บ');
-    const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat' }).catch((e) => ({ ok: false, error: e?.message }));
+    const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat', site: chatSiteOf(book) }).catch((e) => ({ ok: false, error: e?.message }));
     if (!done?.ok) {
       addEvent('system', 'โหลดหน้า ChatGPT ใหม่ไม่สำเร็จ', done?.error || 'ไม่ทราบสาเหตุ');
       return null;
@@ -2303,8 +2303,16 @@ const bookDrawsInTab = (b) =>
   (b?.imageSource || 'web') === 'web' && !['none', 'upload'].includes(b?.coverMode || 'prompt');
 const uiUsesApi = () => val('textSource', 'web') === 'api';
 const useTextApi = (forBook = null) => (forBook ? bookUsesApi(forBook) : uiUsesApi());
+/**
+ * หน้าเว็บที่ใช้เขียนมีสองเว็บ — textSource 'gemini' คือขับ gemini.google.com แทน chatgpt.com
+ * ค่าอื่นทุกค่า (รวมเล่มเก่าที่ไม่มีค่านี้) ยังเป็น ChatGPT ตามเดิม
+ * site ที่เป็น undefined ไม่ถูกส่งไปกับข้อความถึง service worker เลย ทางของ ChatGPT จึงเหมือนเดิมทุกไบต์
+ */
+const textSourceOf = (forBook = null) => (forBook ? forBook.textSource : val('textSource', 'web')) || 'web';
+const chatSiteOf = (forBook = null) => (textSourceOf(forBook) === 'gemini' ? 'gemini' : undefined);
+const chatNameOf = (forBook = null) => (chatSiteOf(forBook) ? 'Gemini' : 'ChatGPT');
 const transportKind = (forBook = null) =>
-  useTextApi(forBook) ? 'openai_api' : 'chatgpt_tab';
+  useTextApi(forBook) ? 'openai_api' : chatSiteOf(forBook) ? 'gemini_tab' : 'chatgpt_tab';
 
 /**
  * ตัวเลือกที่ transport ต้องใช้ รวมไว้ที่เดียว
@@ -2326,7 +2334,7 @@ const transportOpts = (extra = {}, forBook = null) => ({
 const focusChat = async (forBook = null) => {
   // ทาง API ไม่มีแท็บ ChatGPT ให้ต้องเรียกขึ้นมา การสลับหน้าต่างตอนนั้นมีแต่จะรบกวนคนใช้งาน
   if (useTextApi(forBook)) return;
-  await chrome.runtime.sendMessage({ type: 'sw.focusChat' }).catch(() => {});
+  await chrome.runtime.sendMessage({ type: 'sw.focusChat', site: chatSiteOf(forBook) }).catch(() => {});
 };
 
 /**
@@ -2351,7 +2359,7 @@ function showRunningCost() {
    */
   if (book && !bookUsesApi(book)) {
     el.classList.remove('hidden');
-    el.textContent = 'เขียนด้วยหน้าเว็บ ChatGPT — ใช้โควตาข้อความของแพ็กเกจ ไม่มีค่าใช้จ่ายเป็นเงิน';
+    el.textContent = `เขียนด้วยหน้าเว็บ ${chatNameOf(book)} — ใช้โควตาข้อความของแพ็กเกจ ไม่มีค่าใช้จ่ายเป็นเงิน`;
     return;
   }
   if (!u?.turns) {
@@ -3102,7 +3110,7 @@ function showResume(b) {
    * เพราะค่านี้ถูกล็อกไว้กับเล่ม ไม่ได้ตามตัวเลือกบนหน้าจอ ณ ตอนนี้
    * ถ้าไม่บอก ผู้ใช้ที่สลับตัวเลือกไปแล้วจะงงว่าทำไมกดทำต่อแล้วไม่ตรงกับที่ตั้งไว้
    */
-  const engine = (b.textSource || 'web') === 'api' ? `API · ${b.textApiModel || 'ค่าเริ่มต้น'}` : 'หน้าเว็บ ChatGPT';
+  const engine = (b.textSource || 'web') === 'api' ? `API · ${b.textApiModel || 'ค่าเริ่มต้น'}` : `หน้าเว็บ ${chatNameOf(b)}`;
   $('resumeInfo').textContent =
     `${b.targetPages} หน้า · เขียนด้วย ${engine} · ใช้ไป ${b.job?.turnNo || 0} ${(b.textSource || 'web') === 'api' ? 'เทิร์น' : 'ข้อความ'} · ค้างที่ขั้น ${STEP_NAMES[b.job?.step] || b.job?.step || '-'}` +
     (seen ? ` · แตะล่าสุด${sinceText(seen)}` : '') +
@@ -6057,7 +6065,7 @@ $('trim').innerHTML = Object.entries(TRIM_PRESETS)
 
 $('folder').onclick = chooseFolder;
 $('create').onclick = create;
-$('chat').onclick = () => chrome.runtime.sendMessage({ type: 'sw.focusChat' });
+$('chat').onclick = () => chrome.runtime.sendMessage({ type: 'sw.focusChat', site: chatSiteOf(book) });
 function stopRun(from = 'ผู้ใช้สั่งหยุดงาน') {
   machine?.stop();
   status(machineBusy || hasPendingTurn() ? 'รับคำสั่งหยุดแล้ว — รอบปัจจุบันจะบันทึกก่อนหยุด' : 'หยุดแล้ว');
@@ -6080,7 +6088,7 @@ $('unstickChat').onclick = async (ev) => {
   button.disabled = true;
   status('กำลังโหลดหน้า ChatGPT ใหม่เพื่อล้างสถานะค้าง');
   try {
-    const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat' }).catch((e) => ({ ok: false, error: e?.message }));
+    const done = await chrome.runtime.sendMessage({ type: 'sw.reloadChat', site: chatSiteOf(book) }).catch((e) => ({ ok: false, error: e?.message }));
     addEvent(
       'system',
       done?.ok ? 'ปลดหน้า ChatGPT ที่ค้างแล้ว' : 'ปลดหน้า ChatGPT ไม่สำเร็จ',
@@ -6252,7 +6260,9 @@ function syncApiSources() {
   $('textApiRow').hidden = !textApi;
   $('textSourceNote').textContent = textApi
     ? 'เร็วกว่าและไม่มีลิมิตข้อความรายสามชั่วโมง แต่จ่ายตามจำนวน token ที่ใช้จริง และไม่แตะบัญชี ChatGPT ของคุณ'
-    : 'ขับหน้าเว็บ ChatGPT ตามแพ็กเกจของบัญชีที่ล็อกอินอยู่ · ช้ากว่าทาง API และมีลิมิตข้อความ';
+    : val('textSource', 'web') === 'gemini'
+      ? 'ขับหน้าเว็บ Gemini ด้วยบัญชี Google ที่ล็อกอินอยู่ · ใช้โหมดที่เลือกค้างไว้ในหน้า Gemini (เช่น Flash) · ต้องเปิดแท็บ gemini.google.com ให้มองเห็นระหว่างเขียน'
+      : 'ขับหน้าเว็บ ChatGPT ตามแพ็กเกจของบัญชีที่ล็อกอินอยู่ · ช้ากว่าทาง API และมีลิมิตข้อความ';
   renderModelOptions();
   renderTextPrice();
 }
@@ -6371,12 +6381,14 @@ $('wizardNext').onclick = () => wizardShift(1);
   */
 const MODE_PRESET = {
   flow: { textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
+  gemini: { textSource: 'gemini', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
   plus: { textSource: 'web', imageSource: 'web', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
   api: { textSource: 'api', imageSource: 'api', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
 };
 
 const MODE_NOTE = {
   flow: 'โหมด Ebook Plus: เขียนเนื้อหาผ่านหน้าเว็บ ChatGPT แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูปตามแผนของ ChatGPT · ภาพถูกตั้งชื่อตามตำแหน่งในเล่ม เก็บลงโฟลเดอร์ของเล่ม แล้วใส่เข้าหน้าให้เอง · ต้องเปิดแท็บ chatgpt.com และล็อกอิน flow.google.com ไว้',
+  gemini: 'โหมด Gemini + Flow: เขียนเนื้อหาผ่านหน้าเว็บ Gemini แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูปตามแผนของ Gemini · ใช้บัญชี Google เดียวทั้งสองเว็บ ไม่ต้องมีบัญชี ChatGPT · ต้องล็อกอิน gemini.google.com และ flow.google.com ไว้ และเลือกโหมดของ Gemini (เช่น Flash) ค้างไว้ในหน้าเว็บ · ระหว่างเขียนต้องปล่อยแท็บ Gemini ไว้หน้าจอ (Gemini หยุดทำงานเมื่อมองไม่เห็น ระบบจะดึงแท็บกลับมาให้เอง) ดูความคืบหน้าได้จากแถบข้าง',
   plus: 'โหมด Plus: เขียนและสร้างภาพด้วยบัญชีเดียว ระบบดึงภาพมาใส่ให้เอง · หรือจะเปลี่ยนเป็นเอา Prompt ไปสร้างเองแล้วแนบก็ได้ที่ขั้นรูปเล่มและภาพ · ต้องเปิดแท็บ chatgpt.com ค้างไว้ตลอด',
   api: 'โหมด API: เขียนและสร้างภาพผ่าน API ไม่ต้องเปิดแท็บ ChatGPT เลย · เปลี่ยนเป็นเอา Prompt ไปสร้างเองก็ได้เหมือนกัน · ต้องใส่ API key และจ่ายตามจำนวน token ที่ใช้จริง',
 };
@@ -6422,6 +6434,7 @@ function syncModeFromForm() {
   const i = val('imageSource', 'web');
   if (t === 'api' && i === 'api') return highlightMode('api');
   if (t === 'web' && i === 'flow') return highlightMode('flow');
+  if (t === 'gemini' && i === 'flow') return highlightMode('gemini');
   // การ์ด ChatGPT ฟรี ถูกเอาออกแล้ว (ผู้ใช้สั่ง) — หน้าเว็บทั้งคู่ไฮไลต์ Plus เฉพาะตอนที่เลือกการ์ดนั้นเอง ไม่งั้นแสดงเป็นค่าที่ตั้งเอง
   if (t === 'web' && i === 'web' && chosenMode === 'plus') return highlightMode('plus');
   /**
@@ -6433,7 +6446,7 @@ function syncModeFromForm() {
     .querySelectorAll('[data-mode]')
     .forEach((b) => b.classList.remove('sel'));
   $('modePickerNote').textContent =
-    `ตั้งเอง: เขียนด้วย${t === 'api' ? ' OpenAI API' : 'หน้าเว็บ ChatGPT'} · สร้างภาพด้วย${i === 'api' ? ' OpenAI API' : i === 'flow' ? ' Google Flow' : 'หน้าเว็บ ChatGPT'}`;
+    `ตั้งเอง: เขียนด้วย${t === 'api' ? ' OpenAI API' : t === 'gemini' ? 'หน้าเว็บ Gemini' : 'หน้าเว็บ ChatGPT'} · สร้างภาพด้วย${i === 'api' ? ' OpenAI API' : i === 'flow' ? ' Google Flow' : 'หน้าเว็บ ChatGPT'}`;
   $('sourceAdvanced').open = true;
 }
 
@@ -6851,9 +6864,9 @@ function renderCastSeeds() {
   if (!box) return;
   box.innerHTML = CAST_SLOTS.map(
     (c) => `<div class="castRow" data-slot="${c.slot}">
-      <b class="castLabel">${esc(c.label)}</b>
-      <input data-cast="name" placeholder="ชื่อ — ว่างไว้ได้" autocomplete="off">
-      <input data-cast="appearance" placeholder="รูปลักษณ์ — ว่างได้ · วางรูปได้" autocomplete="off">
+      <b class="castLabel"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>${esc(c.label)}</b>
+      <input data-cast="name" aria-label="ชื่อ${esc(c.label)}" placeholder="ชื่อ — ว่างไว้ได้" autocomplete="off">
+      <input data-cast="appearance" aria-label="รูปลักษณ์${esc(c.label)}" placeholder="รูปลักษณ์ — ว่างได้ · วางรูปได้" autocomplete="off">
       <button type="button" data-cast-lib title="เลือกตัวละครที่เคยสร้างไว้จากคลัง">คลัง</button>
       <button type="button" data-cast-pick>แนบรูป</button>
       <img class="authorRefThumb hidden" alt="">
