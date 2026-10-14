@@ -10,6 +10,7 @@
  */
 
 import { readTable } from './md-table.js';
+import { FIG_RE } from './figure-markers.js';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
 export const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ESC[c]);
@@ -22,7 +23,7 @@ export const inlineHtml = (s) =>
     .replace(/`([^`]+)`/g, '<code>$1</code>');
 
 /** ต้องตรงกับที่ machine.js แทรกไว้ และที่ template.js / docx.js อ่าน */
-export const FIG_RE = /^!\[([^\]]*)\]\(fig:([A-Za-z0-9._-]+)(?:\s+(\d{1,3})%)?(?:\s+(\d+(?:\.\d+)?)mm)?\)$/;
+export { FIG_RE };
 const CAPTION_NUM = /^\s*(?:รูป|ภาพ|แผนภาพ|Fig(?:ure)?)\s*(?:ที่)?\s*\d+\s*[:.\-–]\s*/i;
 
 export const isItemsBook = (b) =>

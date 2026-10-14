@@ -65,10 +65,18 @@ test('ภาพที่แทรกในต้นฉบับไทยถู�
 });
 
 test('ภาพที่มีไฟล์แล้วแต่ไม่ถูกวางในเนื้อหา ต้องไม่ส่งออก PDF เงียบ ๆ', () => {
-  assert.throws(() => buildDocument({
-    book: { ...book, figures: [{ kind: 'image', name: 'fig-1.1-1.png', section: '1.1' }] },
-    outline,
+  const figures = [{ kind: 'image', name: 'fig-1.1-1.png', section: '1.1', widthPct: 80, heightMm: 45 }];
+  // เครื่องหมายหายแต่ตอนยังมีเนื้อหา = วางคืนจากแผนภาพ (เดิมหยุดทั้งเล่มตรงนี้ ทั้งที่ภาพสร้างครบแล้ว)
+  const src = buildDocument({
+    book: { ...book, figures }, outline,
     sections: [{ id: '1.1', md: 'เนื้อหาไม่มีตำแหน่งภาพ' }],
+    opts: { assetNames: ['fig-1.1-1.png'] },
+  });
+  assert.match(src, /image\("\/img\/fig-1\.1-1\.png", width: 80%, height: 45mm/);
+  // ไม่มีเนื้อหาให้วางเลย = ยังต้องหยุดและบอก ไม่ส่งออกเล่มที่ภาพหายเงียบ ๆ
+  assert.throws(() => buildDocument({
+    book: { ...book, figures }, outline,
+    sections: [{ id: '1.1', md: '' }],
     opts: { assetNames: ['fig-1.1-1.png'] },
   }), /ภาพที่สร้างแล้วไม่ถูกวางใน PDF: fig-1\.1-1\.png/);
 });

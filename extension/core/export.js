@@ -17,6 +17,7 @@ import { buildDocx, readDocx } from './docx.js';
 import { countUnits } from './thai.js';
 import { stripEchoedHeading } from './extract.js';
 import { mdToHtml } from './md-html.js';
+import { withFigureMarkers } from './figure-markers.js';
 import { frontMatterPages } from './book-parts.js';
 
 let exportDirectoryHandle = null;
@@ -468,7 +469,7 @@ export async function exportEpub(book, sections) {
           .map((s, sceneIndex) => {
             const rec = sections.find((x) => x.id === s.id);
             // หัวข้อที่ต้นฉบับพิมพ์ซ้ำมาเองต้องถูกตัด ไม่งั้นได้หัวข้อเดียวกันสองครั้งติดกัน
-            const text = md(stripEchoedHeading(rec?.md || '', s));
+            const text = md(withFigureMarkers(book, s.id, stripEchoedHeading(rec?.md || '', s)));
             if (fiction) return `${sceneIndex ? '<div class="scene-break">* * *</div>\n' : ''}${text}`;
             return `<h2>${esc(s.title)}</h2>\n${text}`;
           })

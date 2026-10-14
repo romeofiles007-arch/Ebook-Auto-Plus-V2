@@ -28,7 +28,10 @@ test('เครื่องหมายภาพต้องกลายเป�
 
 test('รูปแบบเครื่องหมายภาพต้องตรงกับที่ Typst อ่าน', async () => {
   const template = await readFile(new URL('../typeset/template.js', import.meta.url), 'utf8');
-  assert.ok(template.includes(FIG_RE.source), 'ถ้าสองฝั่งอ่านคนละแบบ ภาพจะหายไปฝั่งใดฝั่งหนึ่งโดยไม่มีใครรู้');
+  // สองฝั่งใช้แบบเดียวกันด้วยการนำเข้าค่าคงที่ตัวเดียว (core/figure-markers.js) ไม่ใช่คัดลอกแบบมาไว้สองที่
+  const shared = await import('../core/figure-markers.js');
+  assert.equal(FIG_RE, shared.FIG_RE);
+  assert.ok(/import \{[^}]*\bFIG_RE\b[^}]*\} from '\.\.\/core\/figure-markers\.js'/.test(template) && !/const FIG_RE\s*=/.test(template),'ถ้าสองฝั่งอ่านคนละแบบ ภาพจะหายไปฝั่งใดฝั่งหนึ่งโดยไม่มีใครรู้');
 });
 
 test('กล่องสรุปต้องเป็นกล่อง ไม่ใช่ย่อหน้าที่มี ::: ติดมา', () => {

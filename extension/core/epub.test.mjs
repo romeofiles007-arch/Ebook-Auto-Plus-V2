@@ -61,6 +61,6 @@ test('ภาพที่ยังไม่มีไฟล์ต้องไม�
 });
 
 test('หัวข้อที่ต้นฉบับพิมพ์ซ้ำมาเองต้องถูกตัด ไม่ใช่โผล่สองครั้งติดกัน', () => {
-  assert.match(src, /const text = md\(stripEchoedHeading\(rec\?\.md \|\| '', s\)\)/);
+  assert.match(src, /const text = md\(withFigureMarkers\(book, s\.id, stripEchoedHeading\(rec\?\.md \|\| '', s\)\)\)/);
   assert.match(src, /import \{ stripEchoedHeading \} from '\.\/extract\.js'/);
 });

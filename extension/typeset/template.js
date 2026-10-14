@@ -12,6 +12,7 @@ import { referenceLines, REFERENCE_STYLES } from '../core/references.js';
 import { stripEchoedHeading, cleanEpigraph } from '../core/extract.js';
 import { itemTypeSize, ITEM_BLOCK_KINDS } from '../core/items.js';
 import { readTable } from '../core/md-table.js';
+import { withFigureMarkers, FIG_RE } from '../core/figure-markers.js';
 
 const mm = (v) => `${round(v)}mm`;
 const pt = (v) => `${round(v)}pt`;
@@ -134,7 +135,7 @@ function inline(text) {
  * ถ้ายังไม่มีไฟล์ภาพ จะวาดเป็นกรอบว่างที่กินพื้นที่เท่าของจริง
  * เพื่อให้จำนวนหน้าที่นับได้ตรงกับตอนที่ใส่ภาพจริงแล้ว
  */
-const FIG_RE = /^!\[([^\]]*)\]\(fig:([A-Za-z0-9._-]+)(?:\s+(\d{1,3})%)?(?:\s+(\d+(?:\.\d+)?)mm)?\)$/;
+// แบบของบรรทัดเครื่องหมายภาพอยู่ที่ core/figure-markers.js ที่เดียว (FIG_RE)
 
 function figureToTypst(m, have, prompts = new Map()) {
   const [, rawCaption, name, pct, heightRaw] = m;
@@ -339,7 +340,9 @@ export function mdToTypst(md, baseLevel = 3, have = new Set(), t = { sizePt: 15 
       continue;
     }
 
-    const fig = line.trim().match(FIG_RE);
+    // ตัวเตรียมข้อความไทยครอบคำที่ติดวงเล็บเหลี่ยมด้วยเครื่องหมายภายใน (คำบรรยาย "โครงสร้าง [Verse]") — บรรทัดเครื่องหมายภาพ
+    // จึงไม่เข้าแบบแล้วถูกพิมพ์เป็นข้อความดิบ ถอดเครื่องหมายภายในออกก่อนเทียบ
+    const fig = line.includes('(fig:') ? line.trim().replaceAll(BOX_OPEN, '').replaceAll(BOX_CLOSE, '').match(FIG_RE) : null;
     if (fig) {
       listCtx = null;
       out.push(figureToTypst(fig, have, prompts), '');
@@ -458,7 +461,8 @@ export function buildDocument({ book, outline, sections, opts = {} }) {
       const s = ch.sections[sceneIndex];
       const rec = secById.get(s.id);
       // ตัวเรียงพิมพ์พิมพ์ชื่อตอนให้อยู่แล้ว เนื้อหาไม่ต้องทวนชื่อตัวเองอีกบรรทัด
-      const md = stripEchoedHeading(rec?.md, s).trim();
+      // ภาพในแผนของตอนนี้ที่เครื่องหมายหายหรือเสียรูป (โมเดลทิ้งตอนแก้ · คำบรรยายขึ้นบรรทัดใหม่) ซ่อมจากแผนภาพก่อนเรียงพิมพ์
+      const md = withFigureMarkers(book, s.id, stripEchoedHeading(rec?.md, s).trim());
       if (!isFiction) body.push(`== ${inline(headingText(s.title, lang))}`, '');
       else if (sceneIndex > 0) body.push('#align(center)[• • •]', '');
       if (md) {
