@@ -18,7 +18,7 @@
 export const SOURCE_LIMIT = 600000;
 
 /** งบอักษรของต้นฉบับต่อหนึ่งข้อความ แยกตามขั้น */
-export const SOURCE_BUDGET = { outline: 24000, ideas: 12000, write: 12000, edit: 6000 };
+export const SOURCE_BUDGET = { outline: 14000, ideas: 7000, write: 6000, edit: 4000 };
 
 const CHUNK = 1200;
 
@@ -209,4 +209,26 @@ export function sourceOnlyRule(book, stage = 'write') {
 - สิ่งที่ทำได้: เรียบเรียงถ้อยคำใหม่ จัดลำดับ ย่อ เชื่อมประเด็นที่ต้นฉบับพูดไว้ และอธิบายคำที่ต้นฉบับใช้ ให้อ่านง่ายขึ้นโดยความหมายไม่เปลี่ยน
 - ถ้าใบสั่งต้องการสิ่งที่ต้นฉบับไม่มี ให้ข้ามสิ่งนั้นไป เขียนเฉพาะส่วนที่ต้นฉบับรองรับ สั้นกว่าเป้าความยาวได้และไม่ต้องขยายให้ถึง ห้ามเขียนลงในเนื้อหาว่า "ต้นฉบับไม่ได้ระบุ"
 ${STAGE_RULES[stage] ? STAGE_RULES[stage] + '\n' : ''}`;
+}
+
+const OPEN = '<<<ต้นฉบับผู้ใช้>>>\n';
+const CLOSE = '\n<<<จบต้นฉบับผู้ใช้>>>';
+
+/**
+ * ChatGPT ตอบ "ข้อความที่คุณส่งยาวเกินไป" → ตัดต้นฉบับที่แนบมาในคำสั่งให้เหลือราวครึ่งหนึ่ง แล้วส่งใหม่
+ * ตัดตามขอบย่อหน้า ไม่ตัดกลางคำ · คืน null เมื่อไม่มีต้นฉบับแนบหรือสั้นจนตัดต่อไม่ได้แล้ว
+ * (ต้นฉบับเป็นส่วนเดียวที่ย่อได้โดยไม่ทำให้คำสั่งเสีย — ใบสั่ง กติกา และรูปแบบคำตอบต้องอยู่ครบ)
+ */
+export function shrinkSourceInPrompt(prompt, ratio = 0.5) {
+  const s = String(prompt || '');
+  const a = s.indexOf(OPEN);
+  const b = a < 0 ? -1 : s.indexOf(CLOSE, a + OPEN.length);
+  if (b < 0) return null;
+  const body = s.slice(a + OPEN.length, b);
+  if (body.length < 1500) return null;
+  const want = Math.floor(body.length * ratio);
+  const cut = body.lastIndexOf('\n\n', want);
+  const kept = body.slice(0, cut > want * 0.5 ? cut : want).trimEnd();
+  const note = '\n\n[…ต้นฉบับส่วนที่เหลือถูกตัดออกจากข้อความนี้ เพราะ ChatGPT รับข้อความยาวเท่าเดิมไม่ได้…]';
+  return s.slice(0, a + OPEN.length) + kept + note + s.slice(b);
 }

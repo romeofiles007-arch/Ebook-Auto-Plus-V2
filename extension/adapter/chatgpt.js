@@ -491,6 +491,23 @@
     /error in (?:the )?message stream|something went wrong|network error|เกิดข้อผิดพลาดในการ|เกิดข้อผิดพลาด/i;
   const ERROR_BOX = '[role="alert"], [class*="error" i], [class*="text-red" i], [class*="danger" i]';
 
+  /**
+   * "ข้อความที่คุณส่งยาวเกินไป โปรดแก้ไขแล้วส่งอีกครั้ง" — ChatGPT ไม่รับข้อความนี้เลย จะไม่มีคำตอบมา
+   * เดิมไม่รู้จัก ต้องรอจนหมดเวลาแล้วจบเป็น "ยืนยันผลไม่ได้" ซึ่งหยุดทั้งเล่ม (ลูกค้าส่งภาพมา)
+   * จับได้ = ชั้นบนตัดต้นฉบับที่แนบให้สั้นลงแล้วส่งใหม่เอง (Machine.turnWithRetry)
+   */
+  const TOO_LONG = /message you submitted was too long|message (?:is|was) too long|ข้อความที่คุณส่งยาวเกินไป|ข้อความยาวเกินไป/i;
+  function tooLongAfter(anchor) {
+    return (
+      $$(`${ERROR_BOX}, [class*="red" i]`).find((el) => {
+        if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+        if (anchor && !(anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+        const t = (el.innerText || '').trim();
+        return t.length > 0 && t.length <= 200 && TOO_LONG.test(t);
+      }) || null
+    );
+  }
+
   function streamErrorAfter(anchor) {
     return (
       $$(ERROR_BOX).find((el) => {
@@ -1467,6 +1484,11 @@
       const check = () => {
         if (done) return;
         if (hitLimit()) return finish('rate_limited');
+        // ต้องมาก่อนปุ่ม Retry — กล่องข้อความยาวเกินอาจมีปุ่มของมันเอง และต้องรู้ว่าล้มเพราะยาว ไม่ใช่ล้มเฉย ๆ
+        if (tooLongAfter(anchor)) {
+          report(turnId, 'received', 'ChatGPT ไม่รับข้อความนี้: ยาวเกินไป — จะตัดให้สั้นลงแล้วส่งใหม่');
+          return finish('too_long');
+        }
         if ($(S.errorRetry)) return finish('error');
         // ท่อสตรีมขาด = คำตอบไม่มีทางมาแล้ว จบทันทีแทนการรอจนหมดเพดานแล้วนับเป็น "ยืนยันผลไม่ได้"
         if (streamErrorAfter(anchor)) {
@@ -2616,6 +2638,12 @@
        * และชั้นบนใช้ข้อความนี้ตัดสินใจว่าจะสั่งใหม่แบบห้ามใช้เครื่องมือหรือไม่
        * ถ้าไม่ส่งไปด้วย ชั้นบนก็ได้แต่ยิงคำสั่งเดิมซ้ำจนครบสามรอบแล้วล้มเหมือนเดิม
        */
+      if (status === 'too_long')
+        return { turnId, status: 'error', text: '', meta: {
+          model: modelBefore, sendMs, answerMs: Date.now() - submittedAt,
+          error: 'message_too_long', promptChars: String(prompt).length,
+          detail: `ChatGPT ไม่รับข้อความยาว ${String(prompt).length.toLocaleString()} ตัวอักษร ("ข้อความที่คุณส่งยาวเกินไป")`,
+        } };
       if (status !== 'ok') {
         const seen = status === 'empty' ? String(readAnswer(anchor)?.text || '').trim().slice(0, 120) : '';
         return { turnId, status, text: '', meta: {

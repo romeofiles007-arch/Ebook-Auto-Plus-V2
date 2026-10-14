@@ -11,7 +11,7 @@ import * as W from './workspace.js';
 import * as P from './prompts.js';
 import * as X from './extract.js';
 import * as B from './bible.js';
-import { sourceOnly } from './source-material.js';
+import { sourceOnly, shrinkSourceInPrompt } from './source-material.js';
 import { keepFigureMarkers, healFigureMarkers, markerFor } from './figure-markers.js';
 import { parseContentDraft, recoverContentDraft, contentInputRequests, salvageContentDraft, describeDraftProblem } from './content-readiness.js';
 import * as R from './review.js';
@@ -524,6 +524,8 @@ export class Machine {
     /** เคยเปิดห้องแชตใหม่ไปแล้วหรือยัง — ขั้นถัดจากห้องใหม่ที่ยังไม่หายคือโหลดแท็บใหม่ */
     let triedNewThread = !!opts.newThread;
     let pausedRoomLeft = false;
+    /** ตัดต้นฉบับที่แนบไปแล้วกี่รอบ เพราะ ChatGPT บอกว่าข้อความยาวเกิน */
+    let shrinks = 0;
     for (let i = 0; i <= MAX_RETRIES; i++) {
       let res;
       try {
@@ -583,6 +585,30 @@ ${P.NO_CITATION_RULE}
       if (res.meta?.error === 'outcome_unknown')
         throw new Halt(res.meta.detail || 'ยังยืนยันผลเทิร์นไม่ได้ หยุดเพื่อป้องกันการส่งซ้ำ', 'outcome_unknown');
       last = res;
+
+      /**
+       * ChatGPT ไม่รับข้อความเพราะยาวเกิน — ส่งตัวเดิมซ้ำกี่รอบก็ได้ผลเดิม
+       * ตัดต้นฉบับที่แนบมาให้สั้นลงครึ่งหนึ่งแล้วส่งใหม่ (ไม่เสียโควตา เพราะ ChatGPT ไม่ได้ตอบ)
+       * ไม่มีต้นฉบับให้ตัด หรือตัดจนสุดแล้ว = หยุดพร้อมบอกว่าต้องปรับอะไร ไม่วนรอจนหมดเวลา
+       */
+      if (res.meta?.error === 'message_too_long') {
+        const shorter = shrinkSourceInPrompt(prompt);
+        if (shorter && shrinks < 3) {
+          shrinks++;
+          i--;
+          noteTrouble({ step: this.job.step, symptom: 'message_too_long', move: 'shrink_source', by: 'เครื่องผลิต' });
+          this.log('warn', `ChatGPT ไม่รับข้อความยาว ${prompt.length.toLocaleString()} ตัวอักษร — ตัดต้นฉบับที่แนบให้สั้นลงเหลือ ${shorter.length.toLocaleString()} แล้วส่งใหม่`);
+          prompt = shorter;
+          await sleep(2000);
+          continue;
+        }
+        throw new Halt(
+          `ChatGPT ไม่รับข้อความเพราะยาวเกิน (${prompt.length.toLocaleString()} ตัวอักษร) — ` +
+            (shorter === null && !prompt.includes('<<<ต้นฉบับผู้ใช้>>>')
+              ? 'ลองตั้ง "วิธีเขียน: ทีละตอน" หรือ "ความยาวตอน" ให้สั้นลง แล้วกดทำต่อ'
+              : 'ตัดต้นฉบับที่แนบจนสั้นที่สุดแล้วยังไม่พอ ลองตั้ง "วิธีเขียน: ทีละตอน" หรือ "ความยาวตอน" ให้สั้นลง แล้วกดทำต่อ'),
+        );
+      }
 
       /**
        * แถบ "แชตหยุดชั่วคราว" (ลิมิตของห้องแชต — ผู้ใช้เจอจริง บัญชี Free): ข้อความยังไม่ได้ส่ง
