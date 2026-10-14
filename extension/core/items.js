@@ -12,6 +12,7 @@
 
 import { authorVoiceBlock } from './prompts.js';
 import { referenceContext } from './references.js';
+import { sourceBlock, sourceOnlyRule, sourceQuery } from './source-material.js';
 
 export const ITEM_KINDS = {
   quote: {
@@ -125,7 +126,7 @@ export function themePrompt(book, plan) {
 ${book.trendSeed?.trend ? `หัวข้อตั้งต้น: ${book.trendSeed.trend}${book.trendSeed.why_now ? `\nทำไมน่าสนใจ: ${book.trendSeed.why_now}` : ''}\n` : ''}${book.outlineDirection?.chapters?.length ? `โครงหมวดที่ผู้ใช้เลือก:\n${book.outlineDirection.chapters.map((c) => `${c.n}. ${c.title}${c.purpose ? ` — ${c.purpose}` : ''}`).join('\n')}\nต้องยึดโครงหมวดนี้เป็นหลัก\n` : ''}ต้องใช้ทั้งหมด ${plan.total} ชิ้น
 
 แบ่งเป็น ${plan.themes} หมวด หมวดละประมาณ ${plan.perTheme} ชิ้น
-แต่ละหมวดต้องมีมุมที่ต่างกันจริง ไม่ใช่ชื่อต่างกันแต่เนื้อเดียวกัน
+แต่ละหมวดต้องมีมุมที่ต่างกันจริง ไม่ใช่ชื่อต่างกันแต่เนื้อเดียวกัน${sourceBlock(book, { stage: 'outline' })}${sourceOnlyRule(book, 'items')}
 
 ตอบเป็น JSON ในบล็อกโค้ดเดียว
 \`\`\`json
@@ -209,7 +210,7 @@ ${poem ? `\n${KLON_RULES}\n` : ''}${
           .join('\n\n')}\n`
       : ''
   }
-${avoid?.length ? `ใจความที่ใช้ไปแล้ว ห้ามซ้ำ\n${avoid.map((a) => `- ${a}`).join('\n')}\n` : ''}
+${avoid?.length ? `ใจความที่ใช้ไปแล้ว ห้ามซ้ำ\n${avoid.map((a) => `- ${a}`).join('\n')}\n` : ''}${sourceBlock(book, { stage: 'write', query: sourceQuery(theme, outline?.title) })}${sourceOnlyRule(book, 'items')}
 รูปแบบคำตอบ — สำคัญมาก ห้ามผิด:
 ตอบเป็นบล็อกโค้ดเดียว ขึ้นต้นด้วยสามแบ็กทิกตามด้วยคำว่า markdown
 ในบล็อกใส่ทีละชิ้นตามรูปนี้ ให้ครบ ${count} ชิ้น เรียงตามรหัสที่ให้มา

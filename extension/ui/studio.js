@@ -83,6 +83,10 @@ import { preflight } from '../core/preflight.js';
 import { compileBook } from '../typeset/compiler.js';
 import { pickRandomOpener } from '../typeset/template.js';
 import * as X from '../core/export.js';
+import { cleanSource, SOURCE_LIMIT } from '../core/source-material.js';
+import { keepFigureMarkers } from '../core/figure-markers.js';
+import { docxPlainText } from '../core/docx.js';
+import { pdfPlainText } from '../core/pdf-text.js';
 import * as W from '../core/workspace.js';
 import { listLibrary, removeFromLibrary } from '../core/cast-library.js';
 import { testKey as testImageApiKey, DEFAULT_IMAGE_MODEL } from '../core/imageApi.js';
@@ -1469,6 +1473,7 @@ async function nameFromTopic({ box = $('trendIdeas'), fresh = false } = {}) {
         trendSeed,
         today: new Date().toISOString().slice(0, 10),
         avoidTitles: await previousTitles(),
+        source: formSource(),
       }),
       { label: 'ตั้งชื่อหนังสือ' },
       { onRetry: (n, max, r) => retryNotice(box, n, max, 'ตั้งชื่อหนังสือ', r), parse: parseTitleAnswer },
@@ -1692,6 +1697,7 @@ async function generateOutlineDirections() {
         targetPages: Math.max(5, Number($('pages').value) || 120),
         genreBrief: contentMode === 'fiction' ? FICTION_GENRE_LABEL[fictionGenre] : GENRE_LABEL[genre],
         trendSeed,
+        source: formSource(),
       }),
       { label: 'เสนอสารบัญหลายทาง' },
       {
@@ -1858,6 +1864,7 @@ async function polishUserOutline() {
         targetPages: Math.max(5, Number($('pages').value) || 120),
         genreBrief: contentMode === 'fiction' ? FICTION_GENRE_LABEL[fictionGenre] : GENRE_LABEL[genre],
         round: inspirePolishRound,
+        source: formSource(),
       }),
       { label: 'ตกแต่งสารบัญของผู้ใช้' },
       {
@@ -1938,6 +1945,7 @@ async function generateTitleIdeas() {
         trendSeed,
         today: new Date().toISOString().slice(0, 10),
         avoidTitles: await previousTitles(),
+        source: formSource(),
       }),
       { label: 'คิดชื่อหนังสือ' },
       {
@@ -2052,6 +2060,7 @@ async function saveCreatorDefaults() {
     db.setting('defaultAuthor', $('author').value.trim()),
     // สารบัญที่ผู้ใช้พิมพ์เองคืองานที่ลงแรงจริง ห้ามหายเพราะปิดแท็บหรือรีโหลด
     db.setting('draftUserOutline', $('inspireOutline')?.value || ''),
+    saveSourceDraft(),
     db.setting('soundOn', !!$('soundOn')?.checked),
     db.setting('ceoMode', !!$('ceoMode')?.checked),
   ]);
@@ -2109,6 +2118,7 @@ async function loadCreatorDefaults() {
   syncApiSources();
   if (!$('audience').value.trim() && audience) $('audience').value = audience;
   if (!$('author').value.trim() && author) $('author').value = author;
+  await loadSourceDraft();
   if (draftOutline && $('inspireOutline') && !$('inspireOutline').value.trim()) {
     $('inspireOutline').value = draftOutline;
     $('inspireBox')?.setAttribute('open', '');
@@ -2218,6 +2228,8 @@ function readForm() {
     themeCount: Number(val('themeCount')) || 5,
     // ประวัติผู้เขียนมาจากผู้ใช้เท่านั้น ระบบไม่แต่งเอง
     aboutAuthor: $('aboutAuthor').value.trim(),
+    // ต้นฉบับของผู้ใช้ + ตัวเลือก "เขียนจากเนื้อหาที่ให้เท่านั้น" (core/source-material.js) — ไม่ใส่ต้นฉบับ = เล่มเขียนแบบเดิมทุกอย่าง
+    ...(formSource() || {}),
     // บรรณานุกรมก็เหมือนกัน — บรรทัดละรายการ ส่วนแหล่งจากโหมดกระแสถูกต่อท้ายตอนเรียงพิมพ์
     references: $('references').value.split('\n').map((s) => s.trim()).filter(Boolean),
     ...readReferenceSettings(),
@@ -3263,6 +3275,7 @@ async function startNewBook() {
    * นี่คือที่มาของอาการ "ทำเล่มใหม่ก็เงียบ"
    */
   resetOutlineDirection();
+  clearSourceForm(); // ต้นฉบับของเล่มก่อนห้ามติดไปเล่มใหม่ — ยิ่งถ้าติ๊กโหมดเข้มไว้ เล่มใหม่จะถูกบังคับเขียนจากเรื่องอื่น
   inspirePolishRound = 0; // เล่มใหม่ = เริ่มนับรอบตกแต่งสารบัญใหม่ ไม่ใช่นับต่อจากเล่มก่อน
   if ($('outlineDirections')) $('outlineDirections').innerHTML = '';
   trendSeed = null;
@@ -4346,8 +4359,9 @@ async function writeSectionWithAi(id, report = () => {}) {
       ...(rec.history || []),
       { md: rec.md || '', chars: rec.chars || 0, at: Date.now(), reason: 'ก่อนให้ AI เขียนใหม่' },
     ].slice(-20);
-    rec.md = ex.body;
-    rec.chars = countUnits(ex.body, book.language);
+    // เขียนตอนใหม่ทั้งตอนหลังวางแผนภาพไปแล้ว — จุดวางภาพของตอนนี้ต้องยังอยู่ ไม่งั้นภาพที่สร้างไว้ไม่มีที่ลง
+    rec.md = keepFigureMarkers(rec.md, ex.body).md;
+    rec.chars = countUnits(rec.md, book.language);
     rec.status = 'generated';
     rec.reason = '';
     await db.saveSection(book.id, rec);
@@ -7299,6 +7313,134 @@ $('docxFile').onchange = async (e) => {
 
 $('refreshProjects').onclick = loadProjectHistory;
 $('inspirePolish').onclick = polishUserOutline;
+
+/**
+ * ต้นฉบับของผู้ใช้ในหน้าตั้งค่า
+ *
+ * ชื่อไฟล์เก็บไว้บนตัวช่องเอง (dataset) ไม่ใช่ตัวแปรแยก — พอผู้ใช้แก้ข้อความในช่อง ชื่อก็ยังตามไปถูกเล่ม
+ * ข้อความถูกจำข้ามการรีโหลดเหมือนสารบัญที่พิมพ์เอง เพราะเป็นของที่ผู้ใช้ลงแรงหามาใส่
+ */
+function formSource() {
+  const text = cleanSource($('sourceMaterial')?.value).slice(0, SOURCE_LIMIT);
+  if (!text) return null;
+  return { sourceMaterial: text, sourceOnly: on('sourceOnly'), sourceName: $('sourceMaterial').dataset.name || '' };
+}
+
+function renderSourceState(note = '') {
+  const raw = cleanSource($('sourceMaterial').value);
+  const name = $('sourceMaterial').dataset.name;
+  $('sourceState').textContent = note || (!raw.length
+    ? 'ยังไม่ได้ใส่ต้นฉบับ'
+    : `${name ? name + ' · ' : ''}${Math.min(raw.length, SOURCE_LIMIT).toLocaleString()} อักษร${raw.length > SOURCE_LIMIT ? ` (ยาวเกิน ใช้ ${SOURCE_LIMIT.toLocaleString()} อักษรแรก)` : ''}${on('sourceOnly') ? ' · เขียนจากเนื้อหานี้เท่านั้น' : ' · ใช้เป็นแกน AI เสริมได้'}`);
+  $('sourceOnly').disabled = !raw.length;
+}
+
+function clearSourceForm() {
+  $('sourceMaterial').value = '';
+  delete $('sourceMaterial').dataset.name;
+  $('sourceOnly').checked = false;
+  renderSourceState();
+  showSourceResult([]);
+  saveSourceDraft();
+}
+
+function saveSourceDraft() {
+  return db.setting('draftSource', { text: $('sourceMaterial').value.slice(0, SOURCE_LIMIT), name: $('sourceMaterial').dataset.name || '', only: on('sourceOnly') });
+}
+
+async function loadSourceDraft() {
+  const draft = await db.setting('draftSource');
+  if (draft?.text && !$('sourceMaterial').value.trim()) {
+    $('sourceMaterial').value = draft.text;
+    if (draft.name) $('sourceMaterial').dataset.name = draft.name;
+    $('sourceOnly').checked = !!draft.only;
+    $('sourceBox').setAttribute('open', ''); // ต้นฉบับที่ค้างอยู่ต้องเห็นได้ ไม่ใช่ซ่อนอยู่ในกล่องปิดแล้วมีผลกับเล่มถัดไปเงียบ ๆ
+  }
+  renderSourceState();
+}
+
+$('sourcePick').onclick = () => $('sourceFile').click();
+$('sourceClear').onclick = () => {
+  if (!$('sourceMaterial').value.trim() || ask('ล้างเนื้อหาต้นฉบับที่ใส่ไว้ทั้งหมดหรือไม่?')) clearSourceForm();
+};
+$('sourceOnly').onchange = () => { renderSourceState(); saveSourceDraft(); };
+$('sourceMaterial').addEventListener('input', () => renderSourceState());
+$('sourceMaterial').addEventListener('change', saveSourceDraft);
+$('sourceFile').onchange = (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  addSourceFiles(files);
+};
+// ลากไฟล์มาวางบนกล่องได้ด้วย — ทางเดียวกับปุ่มเลือกไฟล์
+$('sourceBox').addEventListener('dragover', (e) => { if (e.dataTransfer?.types?.includes('Files')) e.preventDefault(); });
+$('sourceBox').addEventListener('drop', (e) => {
+  const files = [...(e.dataTransfer?.files || [])];
+  if (!files.length) return;
+  e.preventDefault();
+  addSourceFiles(files);
+});
+
+/** แสดงผลการอ่านไฟล์ทีละไฟล์ในกล่องของมันเอง — ok | warn | fail */
+function showSourceResult(rows) {
+  const box = $('sourceResult');
+  box.replaceChildren(...rows.map(([kind, text]) => {
+    const line = document.createElement('div');
+    line.className = `sourceLine ${kind}`;
+    line.textContent = `${{ ok: '✓', warn: '⚠', fail: '✕', wait: '…' }[kind]} ${text}`;
+    return line;
+  }));
+  box.classList.toggle('hidden', !rows.length);
+  box.classList.toggle('over', rows.some(([kind]) => kind !== 'ok' && kind !== 'wait'));
+}
+
+async function addSourceFiles(files) {
+  if (!files.length) return;
+  const rows = [];
+  const parts = [];
+  const names = [];
+  const progress = (text) => showSourceResult([...rows, ['wait', text]]);
+  for (const file of files) {
+    progress(`กำลังอ่าน ${file.name}...`);
+    try {
+      const isDocx = /\.docx$/i.test(file.name);
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+      if (!isDocx && !isPdf && /\.(doc|epub|pages|odt|rtf)$/i.test(file.name)) throw new Error('ยังอ่านไฟล์ชนิดนี้ไม่ได้ — บันทึกเป็น .docx .pdf หรือ .txt ก่อน หรือคัดลอกข้อความมาวาง');
+      let text;
+      let pdf = null;
+      if (isPdf) {
+        pdf = await pdfPlainText(file, { onProgress: (n, all) => progress(`กำลังอ่าน ${file.name} หน้า ${n}/${all}...`) });
+        text = pdf.text;
+      } else text = isDocx ? await docxPlainText(file) : await file.text();
+      // หน้าเว็บที่บันทึกมา: เอาเฉพาะข้อความที่คนอ่าน ไม่เอาแท็กกับสคริปต์
+      if (/\.html?$/i.test(file.name)) {
+        const page = new DOMParser().parseFromString(text, 'text/html');
+        page.querySelectorAll('script,style,noscript').forEach((el) => el.remove());
+        text = page.body?.innerText || page.body?.textContent || '';
+      }
+      text = cleanSource(text);
+      if (!text) throw new Error('ไม่พบข้อความในไฟล์');
+      parts.push(files.length > 1 ? `# ${file.name.replace(/\.[^.]+$/, '')}\n\n${text}` : text);
+      names.push(file.name);
+      rows.push(['ok', `${file.name}: ได้ข้อความ ${text.length.toLocaleString()} อักษร${pdf ? ` จาก ${pdf.pages} หน้า` : ''} — ใส่ลงช่องเนื้อหาต้นฉบับแล้ว`]);
+      // อ่านได้แต่ไม่สมบูรณ์ ต้องบอก — ต้นฉบับที่เพี้ยนหรือขาดหน้าจะไหลลงเล่มโดยไม่มีใครรู้
+      if (pdf?.emptyPages) rows.push(['warn', `${file.name}: ${pdf.emptyPages} จาก ${pdf.pages} หน้าไม่มีตัวหนังสือ (น่าจะเป็นรูปหรือหน้าสแกน) ข้ามหน้าพวกนั้นไป`]);
+      if (pdf?.suspect) rows.push(['warn', `${file.name}: ข้อความไทยที่ดึงได้ดูเพี้ยน (สระ/วรรณยุกต์หายหรือมีช่องว่างแทรก) อ่านตรวจในช่องข้างบนก่อนใช้`]);
+    } catch (err) {
+      rows.push(['fail', `${file.name}: ${err?.message || err}`]);
+    }
+  }
+  if (parts.length) {
+    const had = $('sourceMaterial').value.trim();
+    // มีของเดิมอยู่แล้ว = ต่อท้าย ไม่ทับ — ผู้ใช้อาจเลือกไฟล์ทีละไฟล์หลายรอบ
+    $('sourceMaterial').value = (had ? had + '\n\n' : '') + parts.join('\n\n');
+    $('sourceMaterial').dataset.name = [had && $('sourceMaterial').dataset.name, ...names].filter(Boolean).join(', ').slice(0, 160);
+    // บันทึกร่างไม่สำเร็จไม่ควรทำให้ผลการอ่านหายไปจากจอ
+    await saveSourceDraft().catch((err) => rows.push(['warn', `จำต้นฉบับข้ามการรีโหลดไม่สำเร็จ (${err?.message || err}) — ข้อความยังอยู่ในช่อง ใช้สร้างเล่มได้`]));
+  }
+  renderSourceState();
+  showSourceResult(rows);
+  status(parts.length ? `ใส่ต้นฉบับแล้ว ${names.length} ไฟล์` : 'อ่านไฟล์ต้นฉบับไม่ได้ — ดูเหตุผลในกล่องต้นฉบับ');
+}
 $('start')?.addEventListener('input', renderStepGuide);
 $('start')?.addEventListener('change', renderStepGuide);
 renderStepGuide();

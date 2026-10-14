@@ -12,6 +12,7 @@
 import { stripZwsp } from './thai.js';
 import { backMatterSections } from './references.js';
 import { stripEchoedHeading } from './extract.js';
+import { FIG_RE, withFigureMarkers } from './figure-markers.js';
 import { itemTypeSize } from './items.js';
 
 const MM_TO_TWIP = 56.6929;
@@ -69,7 +70,8 @@ export async function buildDocx({ book, outline, sections }) {
       // ใส่เลขตอนไว้หน้าชื่อ เพื่อให้จับคู่กลับได้ตอนนำเข้า และตัดออกก่อนทำ PDF
       body.push(para(`${s.id} ${esc(s.title)}`, { style: 'Heading2', font: head, size: size * 1.25, bold: true }));
       // หัวข้อของตอนถูกพิมพ์ไปแล้วบรรทัดบน เนื้อหาไม่ต้องทวนชื่อตัวเองอีก
-      const md = stripZwsp(stripEchoedHeading(byId.get(s.id)?.md || '', s));
+      // เครื่องหมายภาพที่หายหรือเสียรูปซ่อมจากแผนภาพก่อน — ชุดเดียวกับ PDF ภาพจึงไม่หายเฉพาะไฟล์ Word
+      const md = withFigureMarkers(book, s.id, stripZwsp(stripEchoedHeading(byId.get(s.id)?.md || '', s)));
       if (!md.trim()) {
         body.push(para('(ยังไม่มีเนื้อหา)', { font, size, color: '999999' }));
         continue;
@@ -190,7 +192,8 @@ function mdBlocks(md, figureByName = new Map(), showPrompts = false) {
       out.push({ kind: 'box', title, items });
       continue;
     }
-    const fig = block.match(/^!\[([^\]]*)\]\(fig:([A-Za-z0-9._-]+)(?:\s+(\d{1,3})%)?(?:\s+(\d+(?:\.\d+)?)mm)?\)$/);
+    // แบบเดียวกับ PDF และหน้าอ่าน (core/figure-markers.js) — เคยคัดลอกแบบเก่ามาไว้ที่นี่ ภาพที่คำบรรยายมี [ ] จึงหายจากไฟล์ Word
+    const fig = block.trim().match(FIG_RE);
     if (fig) {
       const data = figureByName.get(fig[2]);
       out.push({
@@ -354,6 +357,27 @@ export async function readDocx(file, outline) {
   return found
     .filter((f) => f.id)
     .map((f) => ({ id: f.id, title: f.title, md: joinLines(f.lines) }));
+}
+
+/**
+ * อ่าน .docx อะไรก็ได้เป็นข้อความล้วน ย่อหน้าละบรรทัด — ใช้กับไฟล์ต้นฉบับที่ผู้ใช้ให้มาเป็นแหล่งเขียน
+ * ต่างจาก readDocx ที่อ่านได้เฉพาะไฟล์ที่ระบบนี้ส่งออกเอง (จับคู่ตอนจากหัวข้อระดับ 2)
+ */
+export async function docxPlainText(file) {
+  const entries = await unzip(await file.arrayBuffer());
+  const xml = entries.get('word/document.xml');
+  if (!xml) throw new Error('ไม่ใช่ไฟล์ .docx ที่อ่านได้ — หา word/document.xml ไม่เจอ');
+  const doc = new DOMParser().parseFromString(new TextDecoder().decode(xml), 'application/xml');
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  return [...doc.getElementsByTagNameNS(W, 'p')]
+    .map((p) => {
+      const style = p.getElementsByTagNameNS(W, 'pStyle')[0];
+      const level = /^Heading(\d)$/.exec(style?.getAttributeNS(W, 'val') || style?.getAttribute('w:val') || '')?.[1];
+      const text = [...p.getElementsByTagNameNS(W, 't')].map((t) => t.textContent).join('').trim();
+      return text && level ? `${'#'.repeat(Math.min(3, Number(level)))} ${text}` : text;
+    })
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /** อ่านรันในย่อหน้าแล้วแปลงตัวหนา/ตัวเอียงกลับเป็น markdown */

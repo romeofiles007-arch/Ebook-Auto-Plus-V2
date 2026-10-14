@@ -6,6 +6,7 @@ import * as P from '../core/prompts.js';
 import * as B from '../core/bible.js';
 import { extractSection } from '../core/extract.js';
 import { countUnits } from '../core/thai.js';
+import { keepFigureMarkers } from '../core/figure-markers.js';
 import { parseContentDraft, recoverContentDraft, contentInputRequests } from '../core/content-readiness.js';
 
 const source = await readFile(new URL('./studio.js', import.meta.url), 'utf8');
@@ -24,7 +25,7 @@ function fixture(replies, contentMode = 'prose') {
     bible: B.emptyBible(), outline: { title: 'วิธีทำงาน', thesis: 'เลือกทางได้', chapters: [chapter] } };
   const rec = { id: '1.1', md: 'ต้นฉบับเดิม', chars: 13, status: 'generated' };
   const calls = []; const saved = [];
-  const scope = { book, sections: [rec], B, extractSection, countUnits,
+  const scope = { book, sections: [rec], B, extractSection, countUnits, keepFigureMarkers,
     parseContentDraft, recoverContentDraft, contentInputRequests,
     sectionPrompt: P.sectionPrompt, contentDraftPrompt: P.contentDraftPrompt,
     contentDraftKey: P.contentDraftKey, composeBatchPrompt: P.composeBatchPrompt,

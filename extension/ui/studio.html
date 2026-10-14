@@ -252,6 +252,29 @@
     </div>
   </details>
 
+  <!--
+    เนื้อหาต้นฉบับของผู้ใช้ — ใส่แล้วทั้งสารบัญและเนื้อหาจะเขียนจากของนี้
+    ช่องติ๊กข้างล่างคือระดับเข้ม: ห้ามมีอะไรในเล่มที่ต้นฉบับไม่ได้ให้ไว้ (core/source-material.js)
+  -->
+  <details class="more sourceBox" id="sourceBox" data-step="topic">
+    <summary><svg class="i" aria-hidden="true"><use href="#i-file"/></svg>ใช้เนื้อหาของฉันเป็นต้นฉบับ — มีข้อมูล โน้ต หรือต้นฉบับอยู่แล้ว</summary>
+    <div class="muted inspireHint">วางข้อความหรือเลือกไฟล์ ระบบจะวางสารบัญและเขียนทุกตอนจากเนื้อหานี้ ต้นฉบับยาวได้ถึงราว 600,000 อักษร — แต่ละตอนระบบคัดเฉพาะส่วนที่เกี่ยวข้องส่งไปให้เอง · PDF แปลงเป็นข้อความในเครื่องนี้ (ไทย/อังกฤษ) ไม่ส่งไฟล์ไปที่ไหน — PDF ที่เป็นภาพสแกนต้องทำ OCR ก่อน</div>
+    <div class="field">
+      <label class="settingLabel" for="sourceMaterial"><svg class="i" aria-hidden="true"><use href="#i-pages"/></svg>เนื้อหาต้นฉบับ</label>
+      <textarea id="sourceMaterial" rows="9" placeholder="วางเนื้อหาของคุณที่นี่ เช่น บทความ โน้ตบรรยาย ถอดเทป เอกสารอบรม หรือร่างต้นฉบับ"></textarea>
+    </div>
+    <div class="trendActions">
+      <button type="button" id="sourcePick" class="inline"><svg class="i" aria-hidden="true"><use href="#i-upload"/></svg>เลือกไฟล์ (.pdf .docx .txt .md)</button>
+      <button type="button" id="sourceClear" class="inline"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>ล้างต้นฉบับ</button>
+      <span id="sourceState" class="muted">ยังไม่ได้ใส่ต้นฉบับ</span>
+      <input type="file" id="sourceFile" accept=".pdf,.txt,.md,.markdown,.docx,.csv,.json,.html,.htm,text/plain,application/pdf" multiple hidden>
+    </div>
+    <!-- ผลของการเลือกไฟล์ต้องเห็นชัด: อ่านได้กี่อักษร อ่านไม่ได้เพราะอะไร — เดิมเป็นตัวจางบรรทัดเดียวข้างปุ่ม ผู้ใช้เลือกไฟล์แล้ว "ไม่เห็นเกิดอะไรขึ้น" -->
+    <div id="sourceResult" class="estimate sourceResult hidden" role="status" aria-live="polite"></div>
+    <label class="sourceOnlyToggle" for="sourceOnly"><input type="checkbox" id="sourceOnly"><span><b>เขียนจากเนื้อหาที่ให้เท่านั้น</b> — ห้ามเติมข้อมูล ตัวอย่าง หรือหัวข้อที่ต้นฉบับไม่มี เล่มอาจสั้นกว่าจำนวนหน้าที่ตั้งไว้</span></label>
+    <div class="muted">ไม่ติ๊ก = ใช้ต้นฉบับเป็นแกนหลัก แล้วให้ AI เสริมคำอธิบายและตัวอย่างได้ · ติ๊ก = เรียบเรียงจากของคุณล้วน ๆ</div>
+  </details>
+
   <div class="grid" data-step="book">
     <div class="field">
       <label class="settingLabel" for="audience"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>เขียนให้ใครอ่าน</label>

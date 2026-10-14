@@ -11,6 +11,8 @@ import * as W from './workspace.js';
 import * as P from './prompts.js';
 import * as X from './extract.js';
 import * as B from './bible.js';
+import { sourceOnly } from './source-material.js';
+import { keepFigureMarkers, healFigureMarkers, markerFor } from './figure-markers.js';
 import { parseContentDraft, recoverContentDraft, contentInputRequests, salvageContentDraft, describeDraftProblem } from './content-readiness.js';
 import * as R from './review.js';
 import { countUnits } from './thai.js';
@@ -1626,7 +1628,8 @@ ${P.NO_CITATION_RULE}
         figures.push({ id: `${f.section}-${n}`, section: f.section, kind: 'box', caption: f.caption, placement: f.placement || 'middle' });
       } else {
         const name = `fig-${f.section}-${n}.png`;
-        let widthPct = Math.min(100, Math.max(40, Number(f.width) || 80));
+        // ปัดเป็นจำนวนเต็ม — โมเดลตอบ 66.7 มาได้ และเครื่องหมายที่เขียน "66.7%" เคยไม่ถูกอ่านเป็นภาพ
+        let widthPct = Math.round(Math.min(100, Math.max(40, Number(f.width) || 80)));
         let widthMm = Math.round(((textWidthMm * widthPct) / 100) * 10) / 10;
         const aspect = normalizeFigureAspect(f.aspect, this.book);
         // ล็อกความสูงตั้งแต่ Phase 1 เพื่อให้ placeholder กับภาพจริงกินพื้นที่เท่ากัน
@@ -1640,7 +1643,8 @@ ${P.NO_CITATION_RULE}
           widthMm = Math.round(heightMm * aspect.ratio * 10) / 10;
           widthPct = Math.max(40, Math.round((widthMm / textWidthMm) * 100));
         }
-        const marker = `![${f.caption || ''}](fig:${name} ${widthPct}% ${heightMm}mm)`;
+        // สร้างผ่าน markerFor เสมอ — คำบรรยายที่ขึ้นบรรทัดใหม่ถูกยุบเป็นบรรทัดเดียว ไม่งั้นบรรทัดเครื่องหมายขาดกลาง
+        const marker = markerFor({ caption: f.caption, name, widthPct, heightMm });
         // ภาพรายหน้า: วางท้ายช่วงหน้าของตัวเอง · ภาพก่อนหน้าในตอนเดียวกันเลื่อนตำแหน่งไป n-1 ย่อหน้า
         rec.md = Number.isInteger(f.paraAt)
           ? insertFigureAfter(rec.md, marker, f.paraAt + (n - 1))
@@ -2524,6 +2528,9 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       }
 
       const before = rec.chars || 0;
+      const kept = keepFigureMarkers(rec.md, ex.body);
+      if (kept.restored.length) this.log('info', `ตอน ${sid}: ฉบับแก้ทำจุดวางภาพหาย ${kept.restored.join(', ')} — วางคืนตำแหน่งเดิมแล้ว`);
+      ex.body = kept.md;
       rec.md = ex.body;
       rec.chars = countUnits(ex.body, this.book.language);
       rec.status = 'repaired';
@@ -2770,6 +2777,11 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     const outline = this.book.outline;
     const chapters = outline?.chapters || [];
     if (!chapters.length) return 0;
+    // เขียนจากต้นฉบับผู้ใช้เท่านั้น: เล่มยาวเท่าที่ต้นฉบับมี ตอนใหม่ที่ขอเพิ่มเพื่อให้ครบหน้าคือเนื้อหาที่ต้นฉบับไม่ได้ให้
+    if (sourceOnly(this.book)) {
+      this.log('info', 'เล่มสั้นกว่าเป้า แต่เลือกเขียนจากเนื้อหาที่ให้เท่านั้น — ไม่ขอตอนเพิ่ม เล่มยาวเท่าที่ต้นฉบับมี');
+      return 0;
+    }
 
     const cpp = this.book.calibration?.charsPerPage || 750;
     const needChars = Math.max(0, (target - pages) * cpp);
@@ -3271,6 +3283,9 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       this.log('warn', `ตอน ${rec.id} ฉบับแก้พูดเรื่องเดิมซ้ำ ${newRepeats} จุด (เดิม ${oldRepeats}) — ไม่เก็บ ใช้ของเดิม`);
       return false;
     }
+    const kept = keepFigureMarkers(rec.md, ex.body);
+    if (kept.restored.length) this.log('info', `ตอน ${rec.id}: ฉบับแก้ทำจุดวางภาพหาย ${kept.restored.join(', ')} — วางคืนตำแหน่งเดิมแล้ว`);
+    ex.body = kept.md;
     const chars = countUnits(ex.body, this.book.language);
     await db.saveSection(this.book.id, {
       ...rec,
@@ -4567,7 +4582,32 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
     return false;
   }
 
+  /**
+   * ทุกภาพในแผนต้องมีจุดวางอยู่ในเนื้อหาของตอนตัวเอง ก่อนเริ่มสร้างภาพ
+   * ตัวเรียงพิมพ์วางคืนให้ได้เฉพาะใน PDF รอบนั้น — บันทึกลงเนื้อหาจริงที่นี่ DOCX · EPUB และหน้าแก้ไขจึงเห็นตรงกัน
+   * และเล่มที่ค้างด้วย "ภาพที่สร้างแล้วไม่ถูกวางใน PDF" กดทำต่อแล้วไปต่อได้
+   */
+  async restoreFigureMarkers() {
+    if (this.book.contentMode === 'items') return;
+    const bySection = new Map();
+    for (const f of this.book.figures || []) {
+      if (f.kind !== 'image' || !f.name || f.itemFigure) continue;
+      bySection.set(String(f.section), [...(bySection.get(String(f.section)) || []), f]);
+    }
+    for (const [id, figs] of bySection) {
+      const rec = await db.loadSection(this.book.id, id);
+      if (!rec?.md) continue;
+      const healed = healFigureMarkers(rec.md, figs);
+      if (!healed.restored.length) continue;
+      rec.md = healed.md;
+      rec.chars = countUnits(rec.md, this.book.language);
+      await db.saveSection(this.book.id, rec);
+      this.log('warn', `ตอน ${id}: จุดวางภาพหายจากเนื้อหา ${healed.restored.join(', ')} — วางคืนแล้ว ตรวจตำแหน่งได้ในโหมดแก้ไข`);
+    }
+  }
+
   async images() {
+    await this.restoreFigureMarkers();
     // เล่มรายชิ้นที่เขียนก่อนแก้ขั้น figures (ข้ามการวางแผนภาพไป) — วางแผนตรงนี้ เล่มเดิมจึงได้ภาพด้วยโดยไม่ต้องเขียนใหม่
     if (this.book.contentMode === 'items' && ['light', 'rich'].includes(this.book.itemIllus) && !(this.book.figures || []).some((f) => f.itemFigure)) {
       await this.itemFigures();
@@ -5890,7 +5930,7 @@ function describeFigurePlacement(book, f) {
  * การกวาดออกทั้งหมดจึงปลอดภัย ไม่ไปโดนอะไรที่คนเขียนตั้งใจใส่เอง
  */
 export async function clearFigurePlan(book) {
-  const FIG_LINE = /^!\[[^\]]*\]\(fig:[A-Za-z0-9._-]+(?:\s+\d{1,3}%)?(?:\s+\d+(?:\.\d+)?mm)?\)[ 	]*$/gm;
+  const FIG_LINE = /^!\[.*\]\(fig:[A-Za-z0-9._-]+[^)\n]*\)[ 	]*$/gm;
   const BOX_BLOCK = /^:::box[^\n]*\n(?:[^\n]*\n)*?:::[ \t]*$/gm;
 
   const removed = { images: 0, boxes: 0, sections: 0, assets: 0 };

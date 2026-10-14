@@ -10,6 +10,10 @@ import { TRIM_PRESETS } from './budget.js';
 import { referenceContext } from './references.js';
 import { OUTLINE_RULES, proseRules, proseBatch, proseContentDraft, proseCompose, narrationRules, safeVoicePrompt, safeVoiceBlock, proseReview, proseRepair, editContext } from './editorial.js';
 import { flowGenreFor } from './flow-genres.js';
+import { sourceBlock as userSource, sourceOnlyRule, sourceReviewNote, sourceFingerprint, sourceQuery } from './source-material.js';
+
+// ขั้นคิดชื่อ/เสนอสารบัญยังไม่มีเล่ม — หน้าตั้งค่าส่ง { sourceMaterial, sourceOnly, sourceName } มาแทน
+const ideaSource = (source) => userSource(source, { stage: 'ideas' }) + sourceOnlyRule(source, 'outline');
 
 const unitName = (lang) => (lang === 'th' ? 'อักษร' : 'คำ');
 
@@ -59,10 +63,10 @@ const FICTION_ROMANCE = {
   main: 'ความสัมพันธ์โรแมนติกเป็นเส้นเรื่องหลัก ต้องมีแรงดึงดูด อุปสรรค การตัดสินใจ และผลลัพธ์ที่พัฒนาตลอดเล่ม',
 };
 
-export function titleIdeasPrompt({ topic, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', trendSeed = null, today = '', avoidTitles = [] }) {
-  const trend = trendSeed?.trend
+export function titleIdeasPrompt({ topic, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', trendSeed = null, today = '', avoidTitles = [], source = null }) {
+  const trend = (trendSeed?.trend
     ? `\nหัวข้อที่ผู้ใช้เลือกจากโหมดดูกระแส: ${trendSeed.trend}${trendSeed.why_now ? `\nทำไมน่าสนใจ: ${trendSeed.why_now}` : ''}\nชื่อที่เสนอทั้งหมดต้องเกาะหัวข้อนี้ แต่ห้ามพาดหัวเกินจริง\n`
-    : '';
+    : '') + ideaSource(source);
   if (contentMode === 'fiction') {
     return `คุณคือบรรณาธิการนิยายมืออาชีพ
 
@@ -133,10 +137,10 @@ ${seed ? `ผู้ใช้สนใจแนวนี้เป็นพิเ�
 }
 
 /** เสนอ "ทางเดินของสารบัญ" หลายแบบ ก่อนสร้าง outline รายละเอียดจริง */
-export function outlineDirectionsPrompt({ title, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', targetPages = 120, genreBrief = '', trendSeed = null }) {
-  const sourceBlock = trendSeed?.trend
+export function outlineDirectionsPrompt({ title, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', targetPages = 120, genreBrief = '', trendSeed = null, source = null }) {
+  const sourceBlock = (trendSeed?.trend
     ? `\nหัวข้อตั้งต้นที่ต้องยึดเป็นบริบท:\n- ${trendSeed.trend}${trendSeed.why_now ? `\n- ทำไมน่าสนใจ: ${trendSeed.why_now}` : ''}\nหัวข้อนี้ยังไม่ได้ผ่านการตรวจแหล่งข้อมูล ถ้าสารบัญต้องพึ่งตัวเลขหรือเหตุการณ์ปัจจุบัน ให้ระบุว่าเป็น "สิ่งที่จะต้องค้นเพิ่ม"\n`
-    : '';
+    : '') + ideaSource(source);
 
   if (contentMode === 'fiction') {
     return `คุณคือ story editor ช่วยเสนอทิศทางโครงเรื่อง 3 ทางที่ต่างกันจริงสำหรับนิยายชื่อ "${title}"
@@ -192,6 +196,7 @@ export function outlinePolishPrompt({
   targetPages = 120,
   genreBrief = '',
   round = 1,
+  source = null,
 }) {
   const list = userOutline
     .map((c) => `${c.n}. ${c.title}${c.purpose ? ` — ${c.purpose}` : ''}`)
@@ -217,7 +222,7 @@ ${kindNote}
 ${list}
 ${userNote ? `
 สิ่งที่ผู้ใช้อยากได้เพิ่ม: ${userNote}
-` : ''}
+` : ''}${ideaSource(source)}
 กติกาที่ห้ามผิด
 - ห้ามเปลี่ยนแกนหรือลำดับความคิดของผู้ใช้ ห้ามตัดหัวข้อที่ผู้ใช้ตั้งใจใส่มาทิ้งเงียบ ๆ
 - ถ้าคิดว่าควรรวม/แยก/สลับบทไหน ให้ทำในทางเลือกที่ 2 หรือ 3 เท่านั้น และต้องเขียนบอกใน field "changes" ว่าทำอะไรกับบทไหนเพราะอะไร
@@ -369,7 +374,7 @@ export function outlinePrompt(book, retryErrors = null) {
 ขนาดเล่มโดยประมาณ: ${book.targetPages} หน้า
 ${book.genreBrief ? `แนวหนังสือ: ${book.genreBrief}` : ''}
 ${book.depthBrief ? `ระดับความลึก: ${book.depthBrief}` : ''}
-${book.illustrationLevel && book.illustrationLevel !== 'none' ? `เล่มนี้จะมีภาพประกอบ ให้ระบุในแต่ละตอนว่าควรมีภาพอะไร` : ''}${planningSeed(book)}
+${book.illustrationLevel && book.illustrationLevel !== 'none' ? `เล่มนี้จะมีภาพประกอบ ให้ระบุในแต่ละตอนว่าควรมีภาพอะไร` : ''}${planningSeed(book)}${userSource(book, { stage: 'outline' })}
 
 ${OUTLINE_RULES}
 
@@ -413,7 +418,7 @@ ${OUTLINE_RULES}
    แนวธุรกิจและการตลาด — ให้ "เทียบสองทาง" กับ "คู่มือลงมือ" เป็นหลัก
    register เป็นแนวทางของบท ไม่ใช่แม่แบบบังคับทุกตอน
 10. ความหลากหลายมาจากโจทย์และเนื้อหา เลือกวิธีอธิบายตามหน้าที่ของแต่ละตอน ใช้รูปแบบเดิมต่อกันได้เมื่อช่วยให้เรียนรู้ต่อเนื่อง
-${retryErrors ? `\nคำตอบก่อนหน้าไม่ผ่านการตรวจ แก้ให้ครบทุกข้อนี้:\n- ${retryErrors.join('\n- ')}\n` : ''}
+${retryErrors ? `\nคำตอบก่อนหน้าไม่ผ่านการตรวจ แก้ให้ครบทุกข้อนี้:\n- ${retryErrors.join('\n- ')}\n` : ''}${sourceOnlyRule(book, 'outline')}
 ตอบเป็น JSON ในบล็อกโค้ดเดียว ตามรูปนี้เป๊ะ ๆ ห้ามมีข้อความนอกบล็อก
 \`\`\`json
 {
@@ -506,7 +511,7 @@ function fictionOutlinePrompt(book, retryErrors = null) {
 ความยาวประมาณ: ${book.targetPages} หน้า
 มุมมอง: ${pov}
 ตอนจบ: ${ending}
-เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}
+เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}${userSource(book, { stage: 'outline' })}${sourceOnlyRule(book, 'fiction')}
 
 หลักการวางเรื่อง
 1. สร้าง dramatic premise และ theme ชัด แต่ห้ามให้ตัวละครพูดธีมตรง ๆ
@@ -804,18 +809,22 @@ export function batchPrompt(args) {
   if (args.book.contentMode === 'fiction') return fictionBatchPrompt(args);
   const { book, outline, bible, chapter, sections, withContext } = args;
   return proseBatch({ ...args,
-    context: bookContext(book, outline, bible || {}, chapter, !withContext),
+    context: bookContext(book, outline, bible || {}, chapter, !withContext) + sectionSource(book, chapter, sections),
     output: batchOutputRules(sections.map((s) => s.id)),
     voice: authorVoiceBlock(book),
-  }) + sectionEndingNote(outline, sections);
+  }) + sectionEndingNote(outline, sections) + sourceOnlyRule(book, 'write');
 }
+
+// ต้นฉบับของผู้ใช้เฉพาะส่วนที่เกี่ยวกับตอนที่สั่งรอบนี้ (ว่างเมื่อเล่มไม่มีต้นฉบับ)
+const sectionSource = (book, chapter, sections, stage = 'write') =>
+  userSource(book, { stage, query: sourceQuery(chapter, sections) });
 
 export function contentDraftPrompt(args) {
   const { book, outline, bible, chapter, sections, withContext } = args;
   return proseContentDraft({ ...args,
-    context: bookContext(book, outline, bible || {}, chapter, !withContext) + contentInputContext(book, sections),
+    context: bookContext(book, outline, bible || {}, chapter, !withContext) + contentInputContext(book, sections) + sectionSource(book, chapter, sections),
     output: batchOutputRules(sections.map((s) => s.id)),
-  }) + noDataScopeOverride(book, sections) + sectionEndingNote(outline, sections);
+  }) + noDataScopeOverride(book, sections) + sectionEndingNote(outline, sections) + sourceOnlyRule(book, 'draft');
 }
 
 function noDataScopeOverride(book, sections, drafts = []) {
@@ -858,7 +867,9 @@ export function contentDraftKey(book, chapter, section) {
     trend: book.trendSeed?.trend, title: book.outline?.title, subtitle: book.outline?.subtitle,
     thesis: book.outline?.thesis, promises: book.outline?.reader_promises,
     chapter: { n: chapter.n, title: chapter.title, objective: chapter.objective, adds: chapter.adds },
-    section, sources: referenceContext(book), contentInput: book.contentInputs?.[section.id] || book.contentAuthoring });
+    section, sources: referenceContext(book), contentInput: book.contentInputs?.[section.id] || book.contentAuthoring,
+    // undefined หายไปตอน stringify — เล่มที่ไม่มีต้นฉบับได้กุญแจเดิมเป๊ะ สาระดิบที่เก็บไว้ยังใช้ได้
+    userSource: sourceFingerprint(book) || undefined });
 }
 
 export function composeBatchPrompt(args) {
@@ -868,7 +879,8 @@ export function composeBatchPrompt(args) {
     context: bookContext(book, outline, bible || {}, chapter, !withContext) + contentInputContext(book, sections),
     output: batchOutputRules(sections.map((s) => s.id)),
     voice: authorVoiceBlock(book),
-  }) + noDataScopeOverride(book, sections, args.drafts) + sectionEndingNote(outline, sections);
+  // รอบเรียบเรียงไม่แนบต้นฉบับซ้ำ — สาระดิบถูกดึงจากต้นฉบับมาแล้ว และเป็นขอบเขตของรอบนี้อยู่แล้ว
+  }) + noDataScopeOverride(book, sections, args.drafts) + sectionEndingNote(outline, sections) + sourceOnlyRule(book, 'compose');
 }
 
 function fictionBatchPrompt({ book, outline, bible, chapter, sections, prevSummaries, prevTail, nextSection, withContext }) {
@@ -891,7 +903,7 @@ function fictionBatchPrompt({ book, outline, bible, chapter, sections, prevSumma
     : '';
   const endingChoice = FICTION_ENDING[book.fictionEnding] || FICTION_ENDING.auto;
 
-  return `${fictionBookContext(book, outline, bible, chapter)}\n\nเขียนฉากนิยาย ${sections.length} ฉากต่อไปนี้ให้ครบในคำตอบเดียว รวมราว ${total.toLocaleString()} ${u}
+  return `${fictionBookContext(book, outline, bible, chapter)}${sectionSource(book, chapter, sections)}\n\nเขียนฉากนิยาย ${sections.length} ฉากต่อไปนี้ให้ครบในคำตอบเดียว รวมราว ${total.toLocaleString()} ${u}
 
 ${blocks}
 ${prevSummaries?.length ? `\nฉากก่อนหน้าเกิดอะไรขึ้น\n${prevSummaries.map((s) => `- ${s}`).join('\n')}\n` : ''}${tail}${nextSection ? `\nฉากถัดไปคือ "${nextSection.title}" — จบให้มีแรงส่งถึงฉากนั้น แต่ห้ามเขียนเหตุการณ์ของฉากถัดไปแทน\n` : sections.length > 1
@@ -911,7 +923,7 @@ ${prevSummaries?.length ? `\nฉากก่อนหน้าเกิดอะ
 - ห้ามใช้หัวข้อ markdown ภายในเนื้อเรื่อง เว้นแต่มีข้อความในโลกเรื่องที่จำเป็นจริง
 - เขียน markdown ล้วน ย่อหน้าตามธรรมชาติของนิยาย
 
-${fictionBatchOutputRules(ids)}`;
+${fictionBatchOutputRules(ids)}${sourceOnlyRule(book, 'fiction')}`;
 }
 
 function fictionBatchOutputRules(ids) {
@@ -1010,8 +1022,12 @@ ${currentText}
 
 ${voiceRules(book)}
 
-${outputRules(section.id)}`;
+${outputRules(section.id)}${editSource(book, section)}`;
 }
+
+// ขั้นแก้/ยืด/หด: แนบต้นฉบับเฉพาะโหมดเข้ม — ตอนนั้นการยืดต้องมีของจริงให้หยิบ ไม่ใช่ยืดจากที่โมเดลรู้
+const editSource = (book, section, stage = 'write') =>
+  sourceOnlyRule(book, stage) && userSource(book, { stage: 'edit', query: sourceQuery(section) }) + sourceOnlyRule(book, stage);
 
 function fictionRewritePrompt({ book, section, currentText, targetChars, instruction }) {
   const u = unitName(book.language);
@@ -1035,7 +1051,7 @@ ${grow ? `ขยายด้วยการเพิ่มรายละเอ�
 ${currentText}
 ---
 
-${fictionBatchOutputRules([section.id])}`;
+${fictionBatchOutputRules([section.id])}${editSource(book, section, 'fiction')}`;
 }
 
 // ---------- 6. ตรวจความสอดคล้องรายบท ----------
@@ -1050,8 +1066,8 @@ ${fictionBatchOutputRules([section.id])}`;
  * นี่คือขั้นที่เอาผลตรวจที่จ่ายเงินไปแล้วมาใช้จริง
  */
 export function repairPrompt(args) {
-  if (args.book.contentMode === 'fiction') return fictionRepairPrompt(args);
-  return proseRepair({ ...args, voice: authorVoiceBlock(args.book), output: outputRules(args.section.id, true) });
+  if (args.book.contentMode === 'fiction') return fictionRepairPrompt(args) + editSource(args.book, args.section, 'fiction');
+  return proseRepair({ ...args, voice: authorVoiceBlock(args.book), output: outputRules(args.section.id, true) }) + editSource(args.book, args.section);
 }
 
 /**
@@ -1088,8 +1104,8 @@ ${fictionBatchOutputRules([section.id])}`;
 }
 
 export function consistencyPrompt(chapter, sections, bible, book = {}, partLabel = '') {
-  if (book.contentMode === 'fiction') return fictionConsistencyPrompt(chapter, sections, bible, book);
-  return proseReview({ chapter, sections, bible, book, partLabel });
+  if (book.contentMode === 'fiction') return fictionConsistencyPrompt(chapter, sections, bible, book) + sourceReviewNote(book);
+  return proseReview({ chapter, sections, bible, book, partLabel }) + sourceReviewNote(book);
 }
 
 function fictionConsistencyPrompt(chapter, sections, bible, book) {

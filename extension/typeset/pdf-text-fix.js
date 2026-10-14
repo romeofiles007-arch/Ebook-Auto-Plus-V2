@@ -17,7 +17,7 @@
  */
 
 const enc = (s) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 0xff);
-const dec = (u8) => {
+export const dec = (u8) => {
   let s = '';
   for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
   return s;
@@ -37,7 +37,7 @@ const MARK = /[ัำ-ฺ็-๎​⁠]/;
 const hasBase = (s) => [...s].some((ch) => !MARK.test(ch));
 
 /** แยกไฟล์เป็นอ็อบเจกต์ (เลข · หัว dict · stream ดิบ) ตามลำดับในไฟล์ */
-function parseObjects(s) {
+export function parseObjects(s) {
   const objs = [];
   const re = /(\d+) 0 obj\n/g;
   let m;
@@ -65,13 +65,13 @@ function parseObjects(s) {
 
 const ref = (dict, key) => Number(new RegExp(`/${key} (\\d+) 0 R`).exec(dict)?.[1]);
 
-async function streamText(o) {
+export async function streamText(o) {
   const raw = enc(o.data);
   return /\/FlateDecode/.test(o.dict) ? dec(await inflate(raw)) : o.data;
 }
 
 /** ความกว้างของ glyph จาก /W และ /DW ของ CIDFont */
-function zeroWidthCids(dict) {
+export function zeroWidthCids(dict) {
   const dw = Number(/\/DW (\d+)/.exec(dict)?.[1] ?? 1000);
   const W = new Map();
   const w = /\/W \[([\s\S]*?)\]\s*(?:\n|$)/.exec(dict);
@@ -93,7 +93,7 @@ function zeroWidthCids(dict) {
   return (cid) => (W.has(cid) ? W.get(cid) : dw) === 0;
 }
 
-function parseToUnicode(text) {
+export function parseToUnicode(text) {
   const map = new Map();
   for (const m of text.matchAll(/<([0-9A-Fa-f]{4})>\s*<([0-9A-Fa-f]*)>/g)) {
     const hex = m[2];
@@ -105,7 +105,7 @@ function parseToUnicode(text) {
 }
 
 /** literal string ของ PDF → รหัส glyph 2 ไบต์ */
-function cidsOf(lit) {
+export function cidsOf(lit) {
   const bytes = [];
   for (let i = 0; i < lit.length; i++) {
     const c = lit[i];

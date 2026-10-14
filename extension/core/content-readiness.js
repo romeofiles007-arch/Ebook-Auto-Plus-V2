@@ -1,5 +1,6 @@
 import { extractSection } from './extract.js';
 import { contentRecoveryPrompt } from './prompts.js';
+import { sourceOnly } from './source-material.js';
 
 export function parseContentDraft(raw, id) {
   const ex = extractSection(raw, id, { minChars: 1 });
@@ -51,15 +52,21 @@ export function describeDraftProblem(raw, id) {
 // resuming an uncertain turn cannot silently spend another request.
 export async function recoverContentDraft({ book, chapter, section, draft, request, persist }) {
   const explicitOmission = !!book.contentInputs?.[section.id]?.omitUnsupportedClaims;
+  // เขียนจากต้นฉบับผู้ใช้เท่านั้น: รอบเติมสาระสั่งให้ใช้ความรู้ทั่วไปและค้นแหล่ง ซึ่งคือสิ่งที่โหมดนี้ห้าม
+  // จึงไม่ยิงรอบนั้น และเก็บสาระที่ดึงจากต้นฉบับได้ไว้ตามเดิม ไม่แทนด้วยโน้ต "ยังสรุปไม่ได้"
+  const fromSourceOnly = sourceOnly(book);
   const omit = async (current) => {
     const omitted = [...current.meta.missing_information];
     const narrowed = { ...current,
-      md: `หัวข้อของตอน: ${section.title}\nข้อมูลที่ไม่มีหลักฐานและต้องละเว้น: ${omitted.join('; ')}\n` +
+      md: fromSourceOnly && !explicitOmission ? current.md
+        : `หัวข้อของตอน: ${section.title}\nข้อมูลที่ไม่มีหลักฐานและต้องละเว้น: ${omitted.join('; ')}\n` +
         'ขอบเขตที่ปรับแล้ว: อธิบายอย่างตรงไปตรงมาว่าประเด็นเหล่านี้ยังสรุปไม่ได้จากข้อมูลที่มี ' +
         'แยกสิ่งที่ตรวจสอบได้ออกจากสิ่งที่ยังไม่ทราบ และบอกว่าต้องตรวจสอบข้อมูลชนิดใดก่อนสรุป ' +
         'ห้ามระบุสรรพคุณ ผลลัพธ์ ตัวเลข วิธีรักษา วิธีใช้ หรือแหล่งอ้างอิงเฉพาะที่ไม่มีหลักฐานจริง',
       meta: { ...current.meta, missing_information: [], omitted_information: omitted,
-        short_reason: explicitOmission
+        short_reason: fromSourceOnly && !explicitOmission
+          ? 'ต้นฉบับของผู้ใช้ไม่มีเนื้อหาส่วนนี้ และผู้ใช้เลือกเขียนจากเนื้อหาที่ให้เท่านั้น จึงเขียนเฉพาะที่ต้นฉบับมี'
+          : explicitOmission
           ? 'ผู้ใช้เลือกตัดข้ออ้างที่ไม่มีข้อมูลจริงออกจากขอบเขตตอนนี้'
           : 'ระบบลองเติมข้อมูลแล้ว แต่ยังไม่มีหลักฐาน จึงละเว้นข้ออ้างนั้นจากขอบเขตตอนนี้' },
       omissionAppliedAt: Date.now() };
@@ -69,7 +76,7 @@ export async function recoverContentDraft({ book, chapter, section, draft, reque
   if (!draft.meta.missing_information.length) return draft;
   // หากมีการเลือกละเว้นชัดเจน หรือรอบก่อนเคยลองเติมแล้ว ให้เดินต่อจาก
   // ข้อมูลที่มีทันที ไม่วนกลับไปถามคนหรือเผาอีกเทิร์นเพราะรีโหลดหน้า
-  if (explicitOmission || draft.recoveryAttempted) return omit(draft);
+  if (explicitOmission || draft.recoveryAttempted || fromSourceOnly) return omit(draft);
   const attempted = { ...draft, recoveryAttempted: true };
   await persist(attempted);
   const response = await request(contentRecoveryPrompt({ book, outline: book.outline,
