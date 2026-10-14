@@ -7,7 +7,7 @@
 
 - extension/fonts/     ฟอนต์ Sarabun และ IBM Plex Sans Thai — SIL Open Font License 1.1
                        ดูรายละเอียดที่ extension/fonts/NOTICE.md
-- extension/vendor/    typst.ts และ Typst compiler (WASM) — Apache License 2.0
+- extension/vendor/    typst.ts และ Typst compiler (WASM), PDF.js — Apache License 2.0
                        ดูรายละเอียดที่ extension/vendor/NOTICE.md
 
 ไฟล์ทั้งหมดถูกแจกมาในคลังโดยตรงเพื่อให้ส่วนขยายทำงานได้ทันทีหลัง Load unpacked
