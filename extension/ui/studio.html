@@ -77,9 +77,25 @@
     <div id="mode" class="mode hidden"></div>
     <div id="status" class="status">พร้อม</div>
     <label class="soundToggle" title="เสียงสั้น ๆ เมื่องานเสร็จ หรือเมื่อระบบต้องการให้คุณมาจัดการ"><input type="checkbox" id="soundOn" checked><svg class="i" aria-hidden="true"><use href="#i-bell"/></svg>เสียงแจ้งเตือน</label>
+    <button id="checkUpdate" type="button" class="inline" title="ตรวจว่ามีเวอร์ชันใหม่บน GitHub หรือยัง"><svg class="i" aria-hidden="true"><use href="#i-download"/></svg>ตรวจหาอัปเดต</button>
     <button id="newBook" type="button" class="inline"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg>เล่มใหม่</button>
   </div>
 </header>
+
+<!-- แจ้งเวอร์ชันใหม่ (core/update-check.js) — ตรวจแล้วแจ้งเท่านั้น ส่วนขยายเขียนทับไฟล์ของตัวเองไม่ได้ -->
+<div id="updateBanner" class="updateBanner hidden" role="status" aria-live="polite">
+  <div id="updateText" class="updateText"></div>
+  <div class="updateActions">
+    <a id="updateDownload" class="updateLink" target="_blank" rel="noopener">ดาวน์โหลดเวอร์ชันใหม่ (ZIP)</a>
+    <a id="updateChanges" class="updateLink subtle" target="_blank" rel="noopener">ดูว่ามีอะไรเปลี่ยน</a>
+    <button id="updateDismiss" type="button" class="inline">ปิด</button>
+  </div>
+  <ol id="updateSteps" class="updateSteps hidden">
+    <li>แตกไฟล์ ZIP ที่ดาวน์โหลด แล้วคัดลอกทุกอย่างในโฟลเดอร์ <b>extension</b> ไปวางทับโฟลเดอร์ส่วนขยายเดิม (โฟลเดอร์ที่เลือกตอน Load unpacked)</li>
+    <li>เปิด <b>chrome://extensions</b> แล้วกดปุ่มรีโหลด (ลูกศรวน) ที่ Ebook Plus</li>
+    <li>ปิดแท็บ Studio นี้แล้วเปิดใหม่ — เล่มที่ทำค้างไว้ยังอยู่ครบ</li>
+  </ol>
+</div>
 
 <nav id="macroSteps" class="macroSteps" aria-label="ขั้นตอนทั้งหมด"></nav>
 

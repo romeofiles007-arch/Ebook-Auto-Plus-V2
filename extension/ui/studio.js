@@ -85,6 +85,7 @@ import { pickRandomOpener } from '../typeset/template.js';
 import * as X from '../core/export.js';
 import { cleanSource, SOURCE_LIMIT } from '../core/source-material.js';
 import { keepFigureMarkers } from '../core/figure-markers.js';
+import { checkForUpdate, DOWNLOAD_ZIP as UPDATE_DOWNLOAD_ZIP, CHANGES_URL as UPDATE_CHANGES_URL } from '../core/update-check.js';
 import { docxPlainText } from '../core/docx.js';
 import { pdfPlainText } from '../core/pdf-text.js';
 import * as W from '../core/workspace.js';
@@ -6116,6 +6117,57 @@ $('unstickChat').onclick = async (ev) => {
   }
 };
 $('newBook').onclick = startNewBook;
+
+/**
+ * แจ้งเวอร์ชันใหม่จาก GitHub (core/update-check.js)
+ * เปิด Studio = ตรวจเงียบ ๆ ไม่เกินครึ่งวันครั้ง เจอของใหม่จึงขึ้นแถบ · กดปุ่มเอง = บอกผลเสมอ แม้ใช้ตัวล่าสุดอยู่แล้ว
+ * ปิดแถบแล้ว เวอร์ชันนั้นไม่ขึ้นซ้ำตอนตรวจอัตโนมัติ — ขึ้นอีกครั้งเมื่อมีเวอร์ชันที่ใหม่กว่านั้น
+ */
+const UPDATE_CHECK_EVERY_MS = 12 * 3600 * 1000;
+const localGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const localSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ไม่มีที่เก็บก็แค่ตรวจบ่อยขึ้น */ } };
+
+function showUpdateBanner(text, { newer = false, steps = false } = {}) {
+  $('updateText').textContent = text;
+  $('updateDownload').href = UPDATE_DOWNLOAD_ZIP;
+  $('updateChanges').href = UPDATE_CHANGES_URL;
+  $('updateDownload').classList.toggle('hidden', !newer);
+  $('updateChanges').classList.toggle('hidden', !newer);
+  $('updateSteps').classList.toggle('hidden', !steps);
+  $('updateBanner').classList.toggle('newer', newer);
+  $('updateBanner').classList.remove('hidden');
+}
+
+async function runUpdateCheck({ manual = false } = {}) {
+  const current = chrome.runtime.getManifest?.().version || '0';
+  if (!manual && Date.now() - Number(localGet('updateCheckedAt') || 0) < UPDATE_CHECK_EVERY_MS) return;
+  if (manual) {
+    $('checkUpdate').disabled = true;
+    showUpdateBanner('กำลังตรวจเวอร์ชันบน GitHub...');
+  }
+  try {
+    const r = await checkForUpdate(current);
+    localSet('updateCheckedAt', String(Date.now()));
+    if (r.newer && (manual || localGet('updateDismissed') !== r.latest)) {
+      showUpdateBanner(`มีเวอร์ชันใหม่ ${r.latest} แล้ว — เครื่องนี้ยังเป็น ${current}`, { newer: true, steps: true });
+      $('updateBanner').dataset.latest = r.latest;
+    } else if (manual) {
+      showUpdateBanner(r.newer ? `มีเวอร์ชันใหม่ ${r.latest}` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, { newer: r.newer, steps: r.newer });
+    }
+  } catch (e) {
+    if (manual) showUpdateBanner(e.message);
+  } finally {
+    $('checkUpdate').disabled = false;
+  }
+}
+
+$('checkUpdate').onclick = () => runUpdateCheck({ manual: true });
+$('updateDismiss').onclick = () => {
+  if ($('updateBanner').dataset.latest) localSet('updateDismissed', $('updateBanner').dataset.latest);
+  $('updateBanner').classList.add('hidden');
+};
+// รอให้หน้าตั้งตัวเสร็จก่อน — การตรวจเวอร์ชันไม่ควรแย่งจังหวะกับการโหลดเล่มที่ค้าง
+setTimeout(() => runUpdateCheck().catch(() => {}), 4000);
 $('secSave').onclick = saveSection;
 $('secRegen').onclick = regenerateSection;
 $('fillEmptySections').onclick = fillEmptySections;
