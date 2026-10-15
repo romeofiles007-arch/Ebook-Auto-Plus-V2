@@ -28,6 +28,8 @@ export const SYMPTOMS = {
   parse_failed: 'แกะคำตอบไม่ได้',
   image_not_grabbed: 'วาดเสร็จแล้วแต่คว้าภาพไม่ได้',
   image_duplicate: 'คว้าได้ภาพเดียวกับรูปก่อนหน้า',
+  flow_failed: 'Google Flow สร้างภาพไม่สำเร็จ',
+  tab_busy: 'Chrome กำลังย้ายแท็บ Flow',
   quiet_stall: 'งานนิ่งโดยไม่มีอะไรเดินอยู่',
   rate_limited: 'ชนลิมิตข้อความของ ChatGPT',
 };

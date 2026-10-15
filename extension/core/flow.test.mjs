@@ -53,7 +53,7 @@ const manifest = JSON.parse(await readFile(new URL('../manifest.json', import.me
 
 /** ปุ่ม "เริ่มสร้าง" ของ Flow ไม่รับคลิกของสคริปต์ (เจอกับหน้าจริง) ต้องใช้คลิกผ่าน debugger */
 test('ปุ่มสร้างถูกกดด้วยคลิกที่เบราว์เซอร์เชื่อว่าเป็นคนกด', () => {
-  assert.match(adapter, /await trustedClick\(btn\)/);
+  assert.match(adapter, /await trustedClick\(SEL\.send\)/);
   assert.match(adapter, /attempt < 3 && !taken/);
   assert.match(adapter, /type: 'sw\.trustedClick'/);
   assert.match(sw, /case 'sw\.trustedClick'/);
@@ -124,8 +124,8 @@ test('tile ใหม่ต้องไม่ใช่ไฟล์ที่อั
 });
 
 test('ไม่สั่งวาดซ้ำ: รอบลองใหม่ใช้ภาพที่ตั้งชื่อไว้แล้ว และนับว่ารับงานเมื่อมี tile ใหม่โผล่', () => {
-  assert.match(adapter, /if \(done && args\.reuse !== false\)/);
-  assert.match(machine, /reuse: attempt > 1/);
+  assert.match(adapter, /if \(done && !args\.onlyExisting && args\.reuse !== false\)/);
+  assert.match(machine, /reuse: !rejected && attempt > 1/);
   assert.match(adapter, /SEL\.tiles\(\)\.some\(\(t\) => !beforeEls\.has\(t\)\)/);
 });
 
@@ -136,7 +136,7 @@ test('ไฟล์ 2K ต้องเป็นภาพเดียวกับ 
 
 test('โมเดล: Nano Banana 2 ก่อน แล้วรุ่นไหนก็ได้ที่ 0 เครดิต', async () => {
   const { FLOW_MODELS } = await import('./flow.js');
-  assert.equal(FLOW_MODELS[0], 'Nano Banana 2');
+  assert.equal(FLOW_MODELS[0], 'Nano Banana 2 Lite');
   assert.match(adapter, /last\.credits === 0/);
 });
 
@@ -184,6 +184,8 @@ test('ตามตัว tile ของตัวเองจาก prompt แล
 
 test('ไม่ส่งงานใหม่ขณะที่ยังมีภาพกำลังวาดอยู่ในหน้า', () => {
   assert.match(adapter, /await waitFor\(\(\) => !SEL\.tiles\(\)\.some\(isPending\)/);
+  assert.doesNotMatch(adapter, /label: 'ภาพที่กำลังวาดอยู่ก่อนหน้า' \}\)\.catch/);
+  assert.match(adapter, /!beforeEls\.has\(tile\)/);
 });
 
 test('ดึงภาพบน tile แบบไม่แนบ cookie ก่อน แล้วค่อยให้ service worker ดึงแทน', () => {
@@ -371,8 +373,8 @@ test('นิยายสำหรับผู้สูงอายุ: มีใ
 test('Flow ปัดตกภาพ: รอบสุดท้ายเปลี่ยนคำขอ และย้อนกลับมาลองอีกรอบเมื่อคิวจบ', () => {
   // รอบสุดท้ายไม่แนบภาพต้นแบบตัวละคร (ไม่ส่งคำขอเดิมซ้ำ)
   assert.match(machine, /const plain = !!flowError && attempt === MAX_FLOW_ATTEMPTS && plainRefs\.length < refs\.length;/);
-  assert.match(machine, /prompt: sendPrompt,\n\s+ratio: ratio\.label,\n\s+refs: sendRefs,/);
-  assert.match(machine, /reuse: attempt > 1 && !plain,/);
+  assert.match(machine, /prompt: sendPrompt,\n\s+ratio: ratio\.label,\n\s+refs: fromAgent \? \[\] : sendRefs,/);
+  assert.match(machine, /reuse: !rejected && attempt > 1 && !plain,/);
   // จบคิวแล้วย้อนไปลองภาพที่ตกอีกหนึ่งรอบ (รอบเดียว ไม่วนไม่รู้จบ)
   assert.match(machine, /if \(!retryPass && failed\.length && !this\.stopRequested\) \{/);
   assert.match(machine, /return this\.imagesViaFlow\(failed, genErrors, \{ retryPass: true \}\);/);
@@ -552,17 +554,25 @@ test('โหมด 1 หน้า 1 ภาพ: ภาพในเล่มเป
 test('Flow Agent: ภาพ 1 หน้า 1 ภาพ วาดเป็นชุด แล้วหยิบตามชื่อ ไม่สร้างทีละรูป', async () => {
   const flowAdapter = await readFile(new URL('../adapter/flow.js', import.meta.url), 'utf8');
   const P = await import('./prompts.js');
-  // brief: STYLE BIBLE (doodle) · CHARACTER LOCK · RULES (ตั้งชื่อตามไฟล์ ห้ามตัวหนังสือ) · บรรทัดช็อตขึ้นต้นด้วยชื่อไฟล์
+  // brief: STYLE BIBLE (doodle) · CHARACTER LOCK · RULES · บรรทัดช็อตใช้รหัสชั่วคราว ไม่ส่งชื่อไฟล์ให้ Agent วาด
   const shots = [{ name: 'fig-1.1-1.png', subject: 'Emmy opens the door', people: ['เอมมี่'], passage: 'เอมมี่เปิดประตู' }];
   const brief = P.flowAgentBrief({ book: { contentMode: 'fiction' }, shots, cast: [{ name: 'เอมมี่', attached: 1 }], ratio: '4:3' });
   assert.match(brief, /\[STYLE BIBLE\]\nhand-drawn 2D doodle cartoon/);
   assert.match(brief, /- เอมมี่ = attached image 1/);
-  assert.match(brief, /Name each image EXACTLY as the filename/);
-  assert.match(brief, /Absolutely NO text in any image/);
-  assert.match(brief, /\nfig-1\.1-1\.png SHOT 01 \| Chars: เอมมี่ \| Scene: Emmy opens the door \| Story: เอมมี่เปิดประตู$/);
-  assert.equal(P.flowAgentShotLine(shots[0], 0), 'fig-1.1-1.png SHOT 01 | Chars: เอมมี่ | Scene: Emmy opens the door | Story: เอมมี่เปิดประตู');
+  assert.match(brief, /Title each generated image in the Flow project with its temporary shot code/);
+  assert.match(brief, /No text outside the depicted scene/);
+  assert.match(brief, /Translate any necessary explanatory UI text into Thai/);
+  assert.match(brief, /for a Thai book, write Thai script instead of the English words/);
+  assert.match(brief, /\nSHOT-01 \| Chars: เอมมี่ \| Scene: Emmy opens the door \| Story: เอมมี่เปิดประตู\n/);
+  const finalCheck = brief.slice(brief.indexOf('[FINAL ARTWORK CHECK]'));
+  assert.match(finalCheck, /ห้ามคัดลอกหัวข้อคำสั่ง.*รหัสสี HEX/);
+  assert.match(finalCheck, /ข้อความที่จำเป็นในฉากต้องเป็นภาษาไทย/);
+  assert.match(finalCheck, /อย่าเปลี่ยนไปใช้ภาษาอังกฤษ/);
+  assert.doesNotMatch(brief, /fig-1\.1-1\.png/);
+  assert.match(P.flowAgentBrief({ book: { language: 'en' }, shots }), /Translate any necessary explanatory UI text into English/);
+  assert.equal(P.flowAgentShotLine(shots[0], 0), 'SHOT-01 | Chars: เอมมี่ | Scene: Emmy opens the door | Story: เอมมี่เปิดประตู');
   // adapter: ตรวจ 0 เครดิตก่อน · ตั้ง Agent ไม่ต้องยืนยัน · เว้น 2 นาทีระหว่างข้อความ · หยุดเมื่อกิจกรรมผิดปกติ · หยิบตามชื่อไม่สร้างใหม่
-  assert.match(flowAdapter, /const OPS = \{ prepare: opPrepare, generate: opGenerate, agentBatch: opAgentBatch \};/);
+  assert.match(flowAdapter, /const OPS = \{ prepare: opPrepare, generate: opGenerate, agentBatch: opAgentBatch, lookupNamed: opLookupNamed \};/);
   assert.match(flowAdapter, /const cfg = await configure\(\{ ratio: args\.ratio, models: args\.models \}\);/);
   assert.match(flowAdapter, /const AGENT_GAP_MS = 2 \* 60000;/);
   assert.match(flowAdapter, /e\.code = 'unusual_activity';/);
@@ -570,10 +580,23 @@ test('Flow Agent: ภาพ 1 หน้า 1 ภาพ วาดเป็นช�
   assert.match(flowAdapter, /e\.code = 'not_found';/);
   // เครื่อง: ชุดละไม่เกิน 10 · ภาพในเล่มหยิบอย่างเดียว ไม่เว้นจังหวะ ไม่ลองสร้างซ้ำ
   assert.match(machine, /const AGENT_BATCH = 10;/);
-  assert.match(machine, /if \(pageAgent && \(await this\.flowAgentBatches\(jobs, castRefs, genErrors, authorFig\)\)\) return true;/);
+  assert.match(machine, /if \(await this\.flowAgentBatches\(jobs, castRefs, genErrors, authorFig\)\) return true;/);
+  assert.match(machine, /const fromAgent = j\.kind === 'interior';/);
+  assert.match(machine, /const agentStyle = fiction \? P\.novelStyleKey\(interiorStyle\)/);
   assert.match(machine, /onlyExisting: fromAgent,/);
-  assert.match(machine, /if \(fromAgent && res\.code === 'not_found'\) break;/);
+  assert.match(machine, /if \(fromAgent && res\.code === 'not_found'\) \{/);
   assert.match(machine, /if \(!fromAgent\) await this\.flowPace\(/);
+  assert.match(flowAdapter, /mediaIds: Object\.fromEntries\(picks\)/);
+  assert.match(machine, /mediaId: fromAgent \? this\.book\.imagePhase\?\.agentMediaIds/);
+  assert.match(flowAdapter, /findAgentShots\(shots, made\)/);
+});
+
+test('Flow ทำปกก่อนเริ่มชุดภาพประกอบ Agent', () => {
+  const flowStart = machine.indexOf('async imagesViaFlow(jobs, genErrors');
+  const loop = machine.indexOf('for (let index = 0; index < jobs.length; index++)', flowStart);
+  const batch = machine.indexOf('await this.flowAgentBatches(jobs, castRefs, genErrors, authorFig)', flowStart);
+  assert.ok(flowStart >= 0 && loop > flowStart && batch > loop);
+  assert.match(machine.slice(loop, batch), /if \(j\.kind === 'interior' && !agentPrepared\)/);
 });
 
 /** ผู้ใช้สั่ง: ปกสร้าง prompt แบบ Ebook Auto to GPT Free (GPT Art Director) แต่ส่งไปวาดใน Google Flow */
@@ -586,8 +609,9 @@ test('ปกโหมด Flow: ใช้ prompt ของ GPT Art Director ต�
   assert.ok(machine.includes('CHARACTER REFERENCES: '));
   assert.ok(machine.includes("unwrapped.replace(castNote, '')"));
   assert.equal(P.FLOW_COVER_V, 6);
-  assert.ok(machine.includes('const needCoverV = P.FLOW_COVER_V;'));
-  assert.ok(machine.includes("coverPromptV: j.kind === 'cover' ? P.FLOW_COVER_V : null"));
+  assert.equal(P.FLOW_BACK_COVER_V, 7);
+  assert.ok(machine.includes("const needCoverV = j.name === 'cover-back.png' ? P.FLOW_BACK_COVER_V : P.FLOW_COVER_V;"));
+  assert.ok(machine.includes("coverPromptV: j.kind === 'cover' ? needCoverV : null"));
 });
 
 /** ผู้ใช้: "ภาพแบบ doodle ก็จริง แต่ถ้าเลือกให้เป็นหน้าเรา ก็ต้องเป็นหน้าเราด้วยนะ ทั้งหมดเลย" */
@@ -666,7 +690,7 @@ test('ชุดตามฉาก: ภาพต้นแบบล็อกแค
   // Flow Agent: ไม่ล็อกชุด · บรรทัดช็อตบอกชุดของช็อตนั้น
   const brief = P.flowAgentBrief({ book: { contentMode: 'fiction' }, shots: [{ name: 'a.png', subject: 's', people: ['มีรา'], wardrobe: fig.wardrobe }], cast: [{ name: 'มีรา', attached: 1 }] });
   assert.doesNotMatch(brief, /glasses, outfit and colours/);
-  assert.match(brief, /a\.png SHOT 01 \| Chars: มีรา \| Wear: มีรา: faded cotton pyjamas/);
+  assert.match(brief, /SHOT-01 \| Chars: มีรา \| Wear: มีรา: faded cotton pyjamas/);
   // ภาพต้นแบบ: ชุดเป็นแค่ค่าตั้งต้น
   assert.match(P.characterSheetPrompt({}, { name: 'มีรา' }), /only a neutral everyday default/);
   // ผู้เขียนในภาพประกอบ / ปกหลัง / รูปแนบ
@@ -718,7 +742,7 @@ test('ภาพประกอบไม่มีชื่อไฟล์/คำ�
   const P = await import('./prompts.js');
   const { flowPrompt } = await import('./flow.js');
   const brief = P.flowAgentBrief({ book: {}, shots: [{ name: 'fig-4.3-3.png', subject: 's', people: ['THE AUTHOR'] }], cast: [{ name: 'THE AUTHOR', attached: 1, author: true }] });
-  assert.match(brief, /NEVER DRAW THE FILENAME OR ANY LABEL INTO THE PICTURE/);
+  assert.match(brief, /NEVER DRAW A SHOT CODE OR IMAGE TITLE INTO THE PICTURE/);
   assert.match(brief, /Names after "Chars:" only tell you who is in the shot — never write any name in the image/);
   assert.match(machine, /authorFig \? \[\{ \.\.\.authorFig, name: 'THE AUTHOR' \}\] : \[\]/);
   assert.match(flowPrompt({ kind: 'interior', prompt: 'x' }, { label: '4:3' }), /NO LABELS IN THE PICTURE/);
@@ -761,6 +785,8 @@ test('ปกโปสเตอร์หนัง: คำสั่งของต
   assert.ok(front.length < 3500, `คำสั่งปกต้องสั้น (${front.length})`);
   const back = P.flowPosterCoverPrompt({ book, outline, style, back: true, authorInBack: true });
   assert.match(back, /BACK COVER of the same/);
+  assert.doesNotMatch(back, /"ธรรมะทีละขั้น"/);
+  assert.match(back, /no book title, no large title treatment/);
   assert.match(back, /- HEADLINE \(large, bold\): "ใจวุ่นได้ แต่ไม่ต้องจมอยู่ตรงนั้น"/);
   assert.match(back, /- BULLET: "x"/);
   assert.match(back, /The author \(face from the attached photo\) appears as a person inside this scene/);

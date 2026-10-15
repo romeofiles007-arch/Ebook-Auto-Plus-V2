@@ -5,6 +5,7 @@
  */
 
 import * as db from '../core/db.js';
+import { planFlowImageRepair } from '../core/image-repair.js';
 import { mountRunStatus } from './run-status.js';
 import { mountRunTimer, nextClock } from './run-timer.js';
 
@@ -3209,6 +3210,10 @@ async function resumeGo() {
   if (fullAutoRunning) unattended = true;
   if (book.job.step === 'done') return finish();
   if (['gate_images', 'images'].includes(book?.job?.step)) {
+    if (book.imageSource === 'flow' && book.imagePhase?.blockedCode) {
+      await openImagePhaseGate();
+      return;
+    }
     if (fullAutoRunning && !hasManualImages(book)) return startPhase2();
     if (book.job.step === 'images') {
       book.job.step = 'gate_images';
@@ -4547,6 +4552,7 @@ function sinceText(ts) {
 const AUTO_PHASE2_ROUNDS = 2;
 
 let phase2Running = false;
+let phase2RetryTimer = null;
 let phase2Stage = null; // { name, text } ของรูปที่กำลังทำอยู่
 let phase2Rendering = false;
 let phase2PreviewUrls = [];
@@ -5266,6 +5272,21 @@ async function openImagePhaseGate() {
 
   await renderPhase2();
   await renderCoverPreview();
+  if (book.imageSource === 'flow' && book.imagePhase?.flowUnusualAt) {
+    stopAutoPilot();
+    unattended = false;
+    status(book.imagePhase.failedReason || 'Flow แจ้งกิจกรรมผิดปกติ — หยุดส่งงานอัตโนมัติ');
+    runState('stopped', book.imagePhase.failedReason || 'Flow แจ้งกิจกรรมผิดปกติ', 'imagePhase', 'ดูรายการภาพ');
+    return;
+  }
+  if (book.imageSource === 'flow' && book.imagePhase?.blockedCode) {
+    stopAutoPilot();
+    unattended = false;
+    ceoStopped = true;
+    status(book.imagePhase.failedReason || 'Chrome กำลังจัดแท็บ Flow อยู่ — ปล่อยแท็บแล้วกดเริ่มสร้างภาพต่อ');
+    runState('stopped', book.imagePhase.failedReason || 'Chrome กำลังจัดแท็บ Flow อยู่', 'imagePhase', 'เปิดรายการภาพแล้วกดเริ่มสร้างภาพต่อ');
+    return;
+  }
   /**
    * อัตโนมัติผ่านประตูอื่นได้หมด แต่ประตูนี้ผ่านไม่ได้เมื่อภาพต้องรอคนไปสร้างเอง
    *
@@ -5305,7 +5326,7 @@ async function openImagePhaseGate() {
      */
     stopAutoPilot();
     unattended = false;
-  } else if (autoPilot() || (unattended && book.job?.status !== 'rate_limited')) {
+  } else if ((autoPilot() || unattended) && book.job?.status !== 'rate_limited' && !book.imagePhase?.flowUnusualAt) {
     /**
      * ประตูภาพต้องเริ่มเองด้วยเมื่อผู้ใช้สั่งโหมดไร้คนเฝ้าไว้ ไม่ใช่ดูแค่ธงรอบอัตโนมัติ
      *
@@ -5343,14 +5364,22 @@ async function openImagePhaseGate() {
     const leftBefore = Number(book.imagePhase?.autoRoundsLeft ?? Infinity);
     const rounds = left < leftBefore ? 0 : Number(book.imagePhase?.autoRounds) || 0;
     if (stuck && rounds >= AUTO_PHASE2_ROUNDS) {
-      stopAutoPilot();
-      status('ภาพยังไม่ผ่านตรวจหรือสร้างไม่สำเร็จ — บันทึกงานแล้ว กรุณาตรวจเหตุผลในรายการภาพ');
-      runState(
-        'stopped',
-        `สร้างภาพบางรูปไม่สำเร็จหลังลองอัตโนมัติแล้ว ${rounds} รอบ`,
-        'imagePhase',
-        'ดูเหตุผลและลองภาพที่ขาด',
-      );
+      // ยังมีภาพขาดให้กลับมาทำต่อหลังพัก ไม่ปลดเจตนาอัตโนมัติของผู้ใช้
+      const retryBookId = book.id;
+      book.job.cooldownUntil = Date.now() + 60000;
+      book.imagePhase.autoRounds = 0;
+      await db.saveBook(book);
+      status('ภาพยังไม่ครบ — พัก 60 วินาที แล้วกลับมาทำเฉพาะภาพที่เหลือ');
+      runState('waiting', 'บันทึกงานแล้ว รอลองภาพที่เหลือหลังพัก', 'imagePhase', 'ดูรายการภาพ');
+      addEvent('system', 'วนกลับไปทำภาพที่เหลือ', `${left} รูป · พัก 60 วินาทีก่อนลองต่อ`);
+      clearTimeout(phase2RetryTimer);
+      phase2RetryTimer = setTimeout(async () => {
+        phase2RetryTimer = null;
+        if (book?.id !== retryBookId || !(autoPilot() || unattended) || machineBusy || hasPendingTurn()) return;
+        book = await db.loadBook(retryBookId);
+        if (!book || book.job?.status === 'rate_limited' || book.imagePhase?.blockedCode || book.imagePhase?.flowUnusualAt) return;
+        await openImagePhaseGate();
+      }, 60000);
       return;
     }
     book.imagePhase = { ...(book.imagePhase || {}), autoRounds: stuck ? rounds + 1 : 0, autoRoundsLeft: left };
@@ -5388,6 +5417,11 @@ async function openImagePhaseGate() {
 
 async function startPhase2() {
   book = await db.loadBook(book.id);
+  // การกดเริ่มสร้างภาพใหม่คือคำสั่งจากคน ให้ลองจัดแท็บอีกครั้งหลังปล่อยแท็บที่ลากอยู่
+  if (book.imagePhase?.blockedCode) {
+    book.imagePhase = { ...book.imagePhase, blockedCode: null, failedReason: '', failedName: '', failedWhat: '' };
+    await db.saveBook(book);
+  }
   // อยู่หน้าเดิม แค่สลับเป็นโหมดกำลังทำงาน รายการรูปจะอัปเดตสดตรงนั้นเลย
   phase2Running = true;
   phase2Stage = { name: null, text: 'กำลังเชื่อมต่อหน้าต่าง ChatGPT ที่เลือกไว้...' };
@@ -5586,6 +5620,11 @@ async function regenerateImageAsset(name) {
   await db.deleteAsset(book.id, name).catch(() => {});
   book.imagePhase = {
     ...(book.imagePhase || {}),
+    // ไฟล์ในโฟลเดอร์และ tile ชื่อเดิมยังอยู่ อย่านำภาพที่ผู้ใช้ปฏิเสธกลับมาอีก
+    rejectedImageNames: [...new Set([...(book.imagePhase?.rejectedImageNames || []), name])],
+    regenerateImageName: book.imageSource === 'flow' ? name : null,
+    agentMediaIds: Object.fromEntries(Object.entries(book.imagePhase?.agentMediaIds || {}).filter(([n]) => n !== name)),
+    agentRegeneratedMediaIds: Object.fromEntries(Object.entries(book.imagePhase?.agentRegeneratedMediaIds || {}).filter(([n]) => n !== name)),
     status: 'ready',
     remaining: [name],
     failedName: null,
@@ -5657,6 +5696,7 @@ async function hydrateImagesFromFolder() {
   const byName = new Map(files.map((f) => [f.name, f]));
   let taken = 0;
   for (const j of plannedImageJobs(book)) {
+    if (book.imagePhase?.rejectedImageNames?.includes(j.name)) continue;
     const f = byName.get(j.name);
     if (!f || assetNames.includes(j.name)) continue;
     try {
@@ -5791,13 +5831,13 @@ async function finish() {
   const imageCheck = pf.checks.find((c) => c.id === 'images');
   const imagesReady = !wantsAutoImages || !imageCheck || imageCheck.level === 'ok';
   $('imagesNotReadyBanner').classList.toggle('hidden', imagesReady);
-  $('exportBookBtn').textContent = imagesReady ? 'PDF Ebook รวมปก + ภาพ' : 'PDF Ebook (ยังไม่มีภาพจริง)';
+  $('exportBookBtn').textContent = imagesReady ? 'PDF Ebook รวมปก + ภาพ' : 'PDF Ebook — รอภาพครบก่อนส่งออก';
   if (!imagesReady) {
     const missing = (book.imagePhase?.remaining || []).length;
     $('imagesNotReadyDesc').textContent =
       book.imagePhase?.status === 'skipped'
-        ? 'เล่มนี้ข้าม Image Phase 2 ไว้ — ตำแหน่งปก/ภาพประกอบยังเป็นช่องว่างหรือ Prompt เท่านั้น PDF ที่ส่งออกตอนนี้จะไม่มีภาพจริง'
-        : `ยังสร้างภาพไม่ครบ (เหลือ ${missing || 'บางส่วน'} รูป) — PDF ที่ส่งออกตอนนี้อาจไม่มีปก/ภาพประกอบจริงครบทุกตำแหน่ง`;
+        ? 'เล่มนี้ข้าม Image Phase 2 ไว้ — ต้องกลับไปใส่ภาพตามแผนให้ครบก่อนส่งออก PDF'
+        : `ยังสร้างภาพไม่ครบ (เหลือ ${missing || 'บางส่วน'} รูป) — ระบบจะหยุดการส่งออก PDF จนกว่าภาพจะครบและวางในเล่มแล้ว`;
   }
 
   setMacroStage('done');
@@ -6082,6 +6122,8 @@ $('folder').onclick = chooseFolder;
 $('create').onclick = create;
 $('chat').onclick = () => chrome.runtime.sendMessage({ type: 'sw.focusChat', site: chatSiteOf(book) });
 function stopRun(from = 'ผู้ใช้สั่งหยุดงาน') {
+  clearTimeout(phase2RetryTimer);
+  phase2RetryTimer = null;
   machine?.stop();
   status(machineBusy || hasPendingTurn() ? 'รับคำสั่งหยุดแล้ว — รอบปัจจุบันจะบันทึกก่อนหยุด' : 'หยุดแล้ว');
   runState(machineBusy || hasPendingTurn() ? 'waiting' : 'stopped', from + (machineBusy || hasPendingTurn() ? ' · รอบปัจจุบันยังไม่จบ ห้ามเริ่มซ้อน' : ''), machineBusy || hasPendingTurn() ? '' : 'resume', 'ทำต่อ');
@@ -7721,6 +7763,7 @@ async function newestUnfinishedBook() {
  */
 startControlLink({
   snapshot: () => ({
+    bookId: book?.id || '',
     step: book?.job?.step || '',
     stepName: STEP_NAMES[book?.job?.step] || '',
     status: book?.job?.status || '',
@@ -7769,10 +7812,19 @@ startControlLink({
       resumeGo().catch(fail);
       return `สั่งทำต่อจากขั้น ${STEP_NAMES[book?.job?.step] || book?.job?.step || '-'}`;
     },
-    images: async () => {
+    images: async ({ unattended: runUnattended = false } = {}) => {
       if (machineBusy || hasPendingTurn() || phase2Running) throw new Error('มีงานกำลังทำอยู่ — ไม่สั่งซ้อน');
       const step = book?.job?.step;
       if (!['images', 'gate_images'].includes(step)) throw new Error(`ตอนนี้อยู่ขั้น ${STEP_NAMES[step] || step || '-'} ไม่ใช่ขั้นสร้างภาพ${book?.job ? '' : ' (ยังไม่ได้หยิบเล่มกลับมา — สั่ง open ก่อน)'}`);
+      if (runUnattended === true) {
+        if (book.job?.status === 'rate_limited' || book.imagePhase?.flowUnusualAt || book.imagePhase?.blockedCode)
+          throw new Error('Flow ยังมีข้อจำกัดหรืองานค้าง — ไม่เริ่มซ้ำอัตโนมัติ');
+        unattended = true;
+        fullAutoRunning = true;
+        ceoStopped = false;
+        autoContinues = 0;
+        autoContinueTotal = 0;
+      }
       startPhase2().catch(fail);
       return 'สั่งทำต่อขั้นสร้างภาพ';
     },
@@ -7814,6 +7866,44 @@ startControlLink({
       if (!book?.id) throw new Error('ยังไม่มีเล่มอยู่ในมือ — สั่ง open ก่อน');
       await runExport(kind);
       return `สั่งส่งออก ${kind} · ${$('exportLog')?.textContent || ''}`;
+    },
+    /** แก้เฉพาะภาพที่ตรวจพบปัญหา; ภาพที่ขอดึงไฟล์ใหม่ใช้ media id เดิมโดยไม่สั่งวาด */
+    repairImages: async (request = {}) => {
+      if (machineBusy || hasPendingTurn() || phase2Running) throw new Error('มีงานกำลังทำอยู่ — ไม่สั่งซ้อน');
+      if (!book?.id) throw new Error('ยังไม่มีเล่มอยู่ในมือ');
+      book = await db.loadBook(book.id);
+      const jobs = plannedImageJobs(book);
+      const plan = planFlowImageRepair(book, jobs, request);
+      // เก็บต้นฉบับและภาพเดิมครบชุดก่อนแทนที่ แม้รอบซ่อมจะสะดุดก็ย้อนกลับได้
+      await X.exportProjectJson(book.id, `${book.outline?.title || book.topic} - ก่อนแก้ภาพ-${Date.now()}`);
+      for (const name of plan.all) await db.deleteAsset(book.id, name);
+      const redraw = new Set(plan.regenerate);
+      const phase = book.imagePhase || {};
+      const next = {
+        ...phase, status: 'ready', verified: false, regenerateImageName: null,
+        rejectedImageNames: [...new Set([...(phase.rejectedImageNames || []), ...plan.regenerate])],
+        agentMediaIds: Object.fromEntries(Object.entries(phase.agentMediaIds || {}).filter(([name]) => !redraw.has(name))),
+        agentRegeneratedMediaIds: {
+          ...Object.fromEntries(Object.entries(phase.agentRegeneratedMediaIds || {}).filter(([name]) => !redraw.has(name))),
+          // recapture เลือกใช้รหัสภาพที่ยืนยันแล้วอย่างชัดเจน จึงต้องไม่ถูกส่งไปวาดใหม่อีก
+          ...Object.fromEntries(plan.recapture.map((name) => [name, phase.agentMediaIds[name]])),
+        },
+        failures: (phase.failures || []).filter((f) => !plan.all.includes(f.name)),
+        failedName: '', failedWhat: '', failedReason: '', blockedCode: null,
+      };
+      delete next.autoBookExportedAt;
+      delete next.autoInteriorExportedAt;
+      delete book.autoBookExportedAt;
+      book.imagePhase = next;
+      book.job = { ...(book.job || {}), step: 'gate_images', status: 'paused', error: null, imageThreadStarted: false };
+      assetNames = (await db.loadAssets(book.id)).map((a) => a.name);
+      next.remaining = jobs.filter((j) => !assetNames.includes(j.name)).map((j) => j.name);
+      next.completed = jobs.length - next.remaining.length;
+      await db.saveBook(book);
+      await syncSharedProject(book.id);
+      addEvent('system', 'ตรวจและแก้ภาพเฉพาะรายการ', `สำรองโครงการแล้ว · สร้างใหม่ ${plan.regenerate.length} รูป · ดึงไฟล์จากภาพเดิม ${plan.recapture.length} รูป`);
+      startPhase2().catch(fail);
+      return `เริ่มแก้ภาพ ${plan.all.length} รายการในเล่ม ${book.id}`;
     },
     focus: async () => {
       await focusChat();

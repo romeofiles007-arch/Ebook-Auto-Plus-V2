@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
-const source = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+import { serviceWorkerSource } from '../tools/test-worker-source.mjs';
+const source = await serviceWorkerSource();
 function worker(session = {}) {
   let listener;
   const event = { addListener() {} };

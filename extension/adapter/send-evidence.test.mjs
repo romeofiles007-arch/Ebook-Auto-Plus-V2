@@ -57,6 +57,8 @@ test('ช่องพิมพ์ที่จัดรูป Prompt ใหม่
   const src = adapter.slice(start, adapter.indexOf('};', adapter.indexOf('const composerMatches')) + 2);
   const ctx = { box: { innerText: '' }, S: {} };
   ctx.$ = () => ctx.box;
+  // ช่องพิมพ์มีสองแบบ (ProseMirror / textarea) — ตัวอ่านข้อความในช่องอยู่ใน chatgpt.js (boxText)
+  ctx.boxText = (box) => String(box?.tagName === 'TEXTAREA' ? box.value : (box?.innerText || box?.textContent || ''));
   vm.runInNewContext(`${src}\nthis.composerMatches = composerMatches;`, ctx);
   const prompt = 'วางโครงนิยาย\n\n```json\n{\n  "title": "คืนวันศุกร์",\n  "chapters": [1, 2, 3],\n  "elastic": true\n}\n```\nตอบเป็น JSON เท่านั้น ' + 'ก'.repeat(300);
   ctx.box.innerText = prompt.replace(/```json\n/, '').replace(/\n```/, '').replace(/\n+/g, '\n');

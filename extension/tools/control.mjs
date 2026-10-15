@@ -17,15 +17,17 @@
  *   node extension/tools/control.mjs focus            เปิดแท็บ ChatGPT ให้พร้อม
  *   node extension/tools/control.mjs refresh          โหลดหน้า Studio ใหม่ (รับโค้ดใหม่ฝั่ง Studio · ท่อต่อกลับเอง)
  *   node extension/tools/control.mjs reload           รีโหลดทั้งส่วนขยาย (ต้องใช้เมื่อแก้ sw.js หรือสคริปต์ในหน้า ChatGPT)
+ *   node extension/tools/control.mjs repairImages request.json  ซ่อมรายการ regenerate/recapture ที่ระบุพร้อม bookId (สำรองก่อนแก้)
  *
  * ตั้งพอร์ตอื่นได้ด้วย EBOOK_CONTROL_PORT (ต้องตั้งให้ตรงกับฝั่ง Studio ด้วย)
  */
 
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 
 const PORT = Number(process.env.EBOOK_CONTROL_PORT || 8787);
 const HOST = '127.0.0.1';
-const COMMANDS = ['open', 'continue', 'images', 'fullauto', 'focus', 'stop', 'export', 'refresh', 'reload'];
+const COMMANDS = ['open', 'continue', 'images', 'fullauto', 'focus', 'stop', 'export', 'refresh', 'reload', 'repairImages'];
 
 function serve() {
   /** คิวคำสั่ง — ตั้งใจให้ตื้น เพราะคำสั่งพวกนี้กินเวลาเป็นนาที การกองไว้เป็นสิบไม่มีความหมาย */
@@ -121,7 +123,8 @@ if (arg === 'serve') {
   const r = await ask('/state');
   console.log(JSON.stringify(r, null, 2));
 } else if (COMMANDS.includes(arg)) {
-  const args = arg === 'export' ? { kind: process.argv[3] || 'cover' } : {};
+  const args = arg === 'export' ? { kind: process.argv[3] || 'cover' }
+    : arg === 'repairImages' ? JSON.parse(await readFile(process.argv[3], 'utf8')) : {};
   const r = await ask('/cmd', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cmd: arg, args }) });
   console.log(JSON.stringify(r, null, 2));
 } else {

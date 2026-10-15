@@ -74,7 +74,7 @@ test('เล่มรายชิ้น: ผ่านขั้นวางแผ
   assert.match(studio, /\$\('proseOpts'\)\.hidden = false;/);
   const html = await readFile(new URL('../ui/studio.html', import.meta.url), 'utf8');
   for (const id of ['genre', 'depth', 'writeMode', 'secLen', 'sizePt', 'illus']) {
-    const at = html.indexOf(`<label for="${id}"`);
+    const at = html.indexOf(`for="${id}"`);
     assert.match(html.slice(html.lastIndexOf('<div class="field', at), at), /proseOnly/, id);
   }
   const ref = html.indexOf('id="authorRefFigures"');

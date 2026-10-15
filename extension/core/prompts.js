@@ -255,6 +255,15 @@ const NEW_TERMS_RULE =
   'เพราะข้อความนี้จะถูกพิมพ์ลงหน้าอภิธานศัพท์ท้ายเล่มตรง ๆ และใช้บังคับให้บทต่อ ๆ ไปใช้นิยามเดิม ' +
   'ถ้าตอนนี้ไม่มีศัพท์สำคัญที่ต้องเพิ่ม ให้ส่ง [] มา ห้ามยัดคำทั่วไปที่ผู้อ่านรู้อยู่แล้วให้ครบจำนวน';
 
+/**
+ * เล่ม "ช่างอลูมิเนียม": สูตรออกมาเป็น \[ d=\sqrt{1200^2+1500^2} \] และแผนผังเป็น <text>…</text> กับเส้น | — |
+ * ตัวจัดหน้าพิมพ์ทุกอย่างตามตัวอักษร ผู้อ่านจึงเห็นโค้ดดิบในหนังสือ (ตัวกวาดซ้ำอยู่ที่ core/plain-math.js)
+ */
+const PLAIN_FORMAT_RULE =
+  'สูตรและการคำนวณให้เขียนเป็นข้อความธรรมดาที่อ่านได้ทันที ใช้สัญลักษณ์ √ ² ³ × ÷ ≈ ≤ ≥ ° เช่น d = √(1,200² + 1,500²) ≈ 1,920.9 มม. ' +
+  'ห้ามใช้ LaTeX (\\[ \\] \\( \\) $ \\sqrt \\frac \\text) ห้ามใช้แท็ก HTML/XML เช่น <text> <br> ' +
+  'ห้ามวาดแผนผังด้วยตัวอักษร | - + / — ถ้าต้องอธิบายโครงสร้างให้เขียนเป็นรายการลำดับชิ้นส่วนแทน';
+
 function outputRules(id, withMeta = true) {
   return `
 รูปแบบคำตอบ — สำคัญมาก ห้ามผิด:
@@ -270,6 +279,7 @@ function outputRules(id, withMeta = true) {
 ${NEW_TERMS_RULE}`
       : ''
   }
+${PLAIN_FORMAT_RULE}
 ห้ามเขียนอะไรนอกบล็อกโค้ด ห้ามทักทาย ห้ามสรุปท้าย ห้ามถามกลับ ห้ามอธิบายสิ่งที่ทำ`.trim();
 }
 
@@ -1070,6 +1080,31 @@ export function repairPrompt(args) {
   return proseRepair({ ...args, voice: authorVoiceBlock(args.book), output: outputRules(args.section.id, true) }) + editSource(args.book, args.section);
 }
 
+/** แก้ตอนสารคดีสั้นหลายตอนในข้อความเดียว โดยยังคืน SEC/META แยกรายตอน */
+export function repairBatchPrompt(book, targets) {
+  if (book.contentMode === 'fiction' || targets.length < 2) throw new Error('repairBatchPrompt requires at least two prose sections');
+  const voice = authorVoiceBlock(book);
+  return `แก้ต้นฉบับตามผลตรวจทุกตอนต่อไปนี้ให้ครบ แก้เฉพาะจุดที่ระบุและรักษาเนื้อหาที่ถูกต้องไว้
+ตัดย่อหน้าซ้ำได้โดยไม่ต้องเติมแทน รักษาหลักฐาน เงื่อนไข ข้อจำกัด และเครื่องหมายภาพ ![...](fig:...) เดิม
+เมื่อแก้ภาษาอ่านสะดุด ให้เขียนใจความใหม่ทั้งประโยค ระบุการกระทำ สิ่งที่กระทำ เงื่อนไข และเหตุผล ห้ามเพียงสลับคำกว้างเป็นคำกว้างอีกคำ
+ถ้าคำสัญญาของเล่มยังไม่ถูกจ่าย ต้องเพิ่มเนื้อหาจริงที่สัญญาไว้ ห้ามใช้แบบฟอร์มว่างแทนผลลัพธ์
+ห้ามทำให้ข้ออ้างแรงขึ้นโดยตัดเงื่อนไข ห้ามเพิ่มข้อมูลหรือประสบการณ์ที่ไม่มีต้นทาง
+${proseRules(book, voice)}
+${narrationRules(book)}
+
+${targets.map(({ section, currentText, issues }) => `ตอน ${section.id} ${section.title}
+${editContext(book, section)}
+ประเด็นที่ต้องแก้:
+${issues.map((it, i) => `${i + 1}. [${it.label}] ${it.text}${it.fix ? ' — ' + it.fix : ''}`).join('\n')}
+ต้นฉบับตอน ${section.id}:
+---
+${currentText}
+---
+${editSource(book, section)}`).join('\n\n')}
+
+${batchOutputRules(targets.map(({ section }) => section.id))}`;
+}
+
 /**
  * แก้ฉากนิยายตามผลตรวจ
  *
@@ -1534,6 +1569,7 @@ export const NOVEL_ART_STYLE =
 export const NOVEL_STYLE_V = 3; // 3 = สไตล์ตามประเภทหนังสือ (flow-genres.js)
 // 2 = ปกโหมด Flow ใช้ prompt ของ GPT Art Director ตรง ๆ แบบ Ebook Auto to GPT Free (ปกที่วาดด้วยสูตรเก่าจะถูกวาดใหม่)
 export const FLOW_COVER_V = 6; // 6 = ปกทั้งใบใช้คำสั่งโปสเตอร์หนังของตัวเอง (flowPosterCoverPrompt) ไม่ใช่คำสั่ง Art Director + ส่วนเสริม // 3 = + แนวโปสเตอร์หนัง (FLOW_POSTER_FRONT/BACK) · 4 = ปกหลังไม่แปะรูปถ่าย Flow วาดผู้เขียนในภาพแทน
+export const FLOW_BACK_COVER_V = 7; // วาดปกหลังใหม่หลังแก้การจับ tile และแยกคำสั่งปกหลังจากปกหน้าให้ชัด
 export const PHOTO_COVER_STYLE = 'premium photorealistic editorial photograph for a published book cover: real people and objects in a real location, natural anatomy and material texture, convincing camera perspective and depth of field, cinematic but believable directional light, professional colour grading; flat full-bleed cover artwork, never a photograph of a physical book, never a doodle, cartoon, painting, vector graphic or 3D render';
 
 /** สไตล์ภาพของนิยาย: ค่าตั้งต้นเดิม (กล่อง/สเก็ตช์) = สไตล์นิยายสีเต็ม · สไตล์อื่นที่ผู้ใช้เลือกเองใช้ตามนั้น */
@@ -2271,7 +2307,7 @@ export function flowPosterCoverPrompt({ book = {}, outline = {}, style = {}, peo
   }
   const c = book.backCoverCopy || {};
   return [
-    `MOVIE POSTER — BACK COVER of the same ${lang} ${kind} "${title}": the back of the same film poster — same world, same cinematic light and colour grade as the front.`,
+    `MOVIE POSTER — BACK COVER of the same ${lang} ${kind}: the back of the same film poster — same world, same cinematic light and colour grade as the front. This is the back cover, not another front cover: no book title, no large title treatment and no front-cover composition.`,
     ...about,
     `SCENE: a full-bleed cinematic image from the same world (a wide atmospheric shot or a dramatic detail of: ${clip(style.background_element || style.visual_metaphor || outline.thesis, 250)}), darker and softer where the text sits, with a smooth dark gradient behind the words.`,
     authorInBack
@@ -2316,7 +2352,7 @@ export function flowGenreCoverDirection(book, { back = false } = {}) {
 /**
  * brief สำหรับ Flow Agent — วาดภาพ "1 หน้า 1 ภาพ" ทั้งชุดในคำสั่งเดียว (ผู้ใช้เลือก)
  * รูปแบบเดียวกับ AGENT BRIEF ของโปรเจกต์ Youtube Free animation Auto: STYLE BIBLE · CHARACTER LOCK · RULES · shot list
- * แต่ละบรรทัดขึ้นต้นด้วยชื่อไฟล์ ให้ agent ตั้งชื่อภาพตามนั้น ระบบจึงหยิบภาพไปใส่หน้าได้ถูก
+ * ใช้รหัสช็อตชั่วคราวในคำสั่งวาด; ชื่อไฟล์จริงอยู่ฝั่ง adapter และค่อยตั้งชื่อ tile หลังวาด
  * @param shots [{ name, subject, people:[ชื่อ], passage }]
  * @param cast  [{ name, appearance, attached: เลขภาพแนบ หรือ 0 }]
  */
@@ -2331,7 +2367,7 @@ export function flowAgentBrief({ book, shots = [], cast = [], ratio = '4:3', sty
     ? cast.map((c) => `- ${c.name}${c.attached ? ` = attached image ${c.attached}` : ''}${c.appearance ? ` · ${clip(c.appearance, 160)}` : ''}`).join('\n')
     : '- (no recurring characters — any people are ordinary background figures)';
   return `═══════════════════════════════════════════════
-AGENT BRIEF — illustrations for a ${lang} ${book?.contentMode === 'fiction' ? 'novel' : 'book'}${book?.title ? ` "${clip(book.title, 80)}"` : ''}
+AGENT BRIEF — illustrations for a ${lang} ${book?.contentMode === 'fiction' ? 'novel' : 'book'}
 ═══════════════════════════════════════════════
 
 [STYLE BIBLE]
@@ -2348,26 +2384,35 @@ ${WARDROBE_RULE} Each shot line's "Wear:" says what to dress them in for that sh
 
 [RULES]
 - Create ONE image per shot below, all of them, one after another — do not ask for confirmation and do not summarise a plan
-- Name each image EXACTLY as the filename at the start of its line (e.g. "${shots[0]?.name || 'fig-1.1-1.png'}") — the filename is ONLY the image's name in this project
-- NEVER DRAW THE FILENAME OR ANY LABEL INTO THE PICTURE: no "fig-…png", no "Fig 1:", no caption line or white strip with text under or over the picture, no title, no person's name, no SHOT number (seen in real books: "fig-4.3-3.png" and "Fig-3.1-1: … applies …" were painted under the drawing — that ruins the page)
+- Title each generated image in the Flow project with its temporary shot code (for example "${flowAgentShotKey(0)}"). The code is project metadata only, never part of the artwork. The publishing system assigns final filenames after generation.
+- NEVER DRAW A SHOT CODE OR IMAGE TITLE INTO THE PICTURE: no footer, caption line, white strip, title, person's name, or shot number around the artwork
 - Names after "Chars:" only tell you who is in the shot — never write any name in the image
-- Absolutely NO text in any image: no filenames, no SHOT numbers, no letters, no captions, no speech bubbles, no signs with words — the picture fills the whole frame edge to edge with artwork only
+- The "Scene" and "Wear" fields are drawing instructions, NOT text to copy into the image. Translate any necessary explanatory UI text into ${lang}; for a Thai book, write Thai script instead of the English words in those fields. Keep literal source-code tokens, commands and actual software file names only when the book passage requires those exact tokens; otherwise use pictograms or blank/abstract marks if legible ${lang} text cannot be rendered.
+- No text outside the depicted scene: no image title, shot code, caption, footer, watermark or speech bubble. Artwork fills the whole frame edge to edge.
 - Aspect ratio ${ratio} for ALL images · apply the STYLE BIBLE to every single image
 - Each image shows the moment described on its line — the character(s), action, place and mood from the story text
 - Follow each line's "Layout:" (step panels with numbers and arrows, left/right comparison, arrow flow, thought bubbles, close-up, or one scene)
 - VARIETY: consecutive images must differ in place, layout and camera distance — never the same room, desk or bookshelf over and over; take the setting from each line's text
 
-${shots.map((s, i) => flowAgentShotLine(s, i)).join('\n\n')}`;
+${shots.map((s, i) => flowAgentShotLine(s, i)).join('\n\n')}
+
+[FINAL ARTWORK CHECK]
+${lang === 'Thai'
+    ? 'ก่อนสร้างทุกภาพ: คำสั่งข้างบนใช้กำกับการวาดเท่านั้น ห้ามคัดลอกหัวข้อคำสั่ง ชื่อตัวละคร THE AUTHOR รายชื่อคน ชื่อสี รหัสสี HEX ตัวอย่างฟอนต์ หรือคำอธิบายสไตล์ลงในภาพ ห้ามมีแถบเครดิต/คำอธิบายใต้ภาพ ข้อความที่จำเป็นในฉากต้องเป็นภาษาไทย ยกเว้นโค้ด คำสั่ง หรือชื่อไฟล์ซอฟต์แวร์จริงที่เนื้อหาเล่มกำลังสอน ถ้าเขียนภาษาไทยไม่ได้ชัดเจนให้ใช้สัญลักษณ์หรือช่องว่างแทน อย่าเปลี่ยนไปใช้ภาษาอังกฤษ แสดงเหตุการณ์ด้วยภาพและท่าทางเป็นหลัก'
+    : 'Before creating each image: render the scene, never the instructions. Do not print character identifiers such as THE AUTHOR, character lists, colour names, HEX codes, font samples, style notes, credits or a footer. Necessary in-scene text must be English, except exact code, commands or software filenames required by the book passage. Use pictograms or blank marks when lettering cannot be rendered clearly. Explain the scene mainly through actions and visual composition.'}`;
 }
 
-/** หนึ่งบรรทัดของ shot list — ใช้ทั้งใน brief และในคำสั่งตั้งชื่อ/สั่งช็อตที่ขาดของ adapter (ต้องเหมือนกันทุกที่) */
+/** รหัสชั่วคราวที่ใช้จับคู่ภาพ Agent ในชุดนี้ โดยไม่เปิดเผยชื่อไฟล์จริงในคำสั่งวาด */
+export const flowAgentShotKey = (i) => `SHOT-${String(i + 1).padStart(2, '0')}`;
+
+/** หนึ่งบรรทัดของ shot list — ใช้ทั้งใน brief และในคำสั่งสั่งช็อตที่ขาดของ adapter */
 export function flowAgentShotLine(s, i) {
   const clip = (v, n) => {
     const t = String(v || '').replace(/\s+/g, ' ').trim();
     return t.length > n ? `${t.slice(0, n)}…` : t;
   };
   const wear = s.wardrobe && typeof s.wardrobe === 'object' ? Object.entries(s.wardrobe).filter(([, v]) => String(v || '').trim()).map(([n, v]) => `${n}: ${clip(v, 90)}`).join('; ') : '';
-  return `${s.name} SHOT ${String(i + 1).padStart(2, '0')} | Chars: ${s.people?.length ? s.people.join(', ') : '-'}${wear ? ` | Wear: ${wear}` : ''}${FIGURE_LAYOUTS[s.layout] ? ` | Layout: ${s.layout}` : ''} | Scene: ${clip(s.subject, 260)}${s.passage ? ` | Story: ${clip(s.passage, 220)}` : ''}`;
+  return `${flowAgentShotKey(i)} | Chars: ${s.people?.length ? s.people.join(', ') : '-'}${wear ? ` | Wear: ${wear}` : ''}${FIGURE_LAYOUTS[s.layout] ? ` | Layout: ${s.layout}` : ''} | Scene: ${clip(s.subject, 260)}${s.passage ? ` | Story: ${clip(s.passage, 220)}` : ''}`;
 }
 
 export function flowFictionFigurePrompt({ book, fig, passage = '', people = [], styleKey = '', color = true, palette = [] } = {}) {

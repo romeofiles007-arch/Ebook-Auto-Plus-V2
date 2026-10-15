@@ -170,6 +170,7 @@ function accept(event) {
     paintCeo(null, event.run);
   }
   lastAt = Math.max(lastAt, event.at || 0);
+  paintRunStatus(null, lastAt);
   if (event.crew) showCrew(event.crew);
   else paintCrewMotion(); // เหตุการณ์อื่นก็เป็นหลักฐานว่ายังเดินอยู่
   if (!event.message) return;
@@ -292,6 +293,7 @@ chrome.runtime.sendMessage({ type: 'ui.activitySnapshot' }).then((snapshot) => {
   }
   if (!receivedLive) showCrew(snapshot?.crew);
   lastAt = Math.max(lastAt, snapshot?.at || 0);
+  paintRunStatus(null, lastAt);
 }).catch(() => { $('logUpdated').textContent = 'ยังอ่านประวัติไม่ได้ · รอ Studio ส่งสถานะใหม่'; });
 setInterval(() => {
   paintCrewMotion();

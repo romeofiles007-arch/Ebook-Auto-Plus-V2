@@ -4,6 +4,8 @@
  * ทุกอย่างที่ต้องจำข้ามการตายของ worker เก็บใน chrome.storage.session
  */
 
+import { updateTabWhenReady } from './core/tab-update.js';
+
 const STUDIO_URL = chrome.runtime.getURL('ui/studio.html');
 const CHAT_MATCH = ['https://chatgpt.com/*', 'https://chat.openai.com/*'];
 let activityWrite = Promise.resolve();
@@ -315,11 +317,28 @@ async function ensureFlowTab() {
   return tab;
 }
 
+/** รุ่นของตัวขับในหน้า Flow ที่ service worker นี้คาดหวัง — ต้องตรงกับ ADAPTER_REV ใน adapter/flow.js */
+const FLOW_ADAPTER_REV = 6;
+
 async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
   const until = Date.now() + timeoutMs;
+  let reloaded = false;
   const ping = async () => {
     try {
-      return !!(await chrome.tabs.sendMessage(tabId, { type: 'flow.ping' }))?.ok;
+      const r = await chrome.tabs.sendMessage(tabId, { type: 'flow.ping' });
+      if (!r?.ok) return false;
+      /**
+       * ตอบได้แต่เป็นรุ่นเก่า (แท็บเปิดค้างจากก่อนอัปเดตส่วนขยาย) — ฉีดซ้ำไม่ช่วย เพราะตัวเก่ากันการฉีดซ้ำไว้
+       * โหลดแท็บใหม่ครั้งเดียว ให้ Chrome ใส่ตัวขับรุ่นปัจจุบันตาม manifest
+       */
+      if (r.rev !== FLOW_ADAPTER_REV && !reloaded && !r.busy) {
+        reloaded = true;
+        await chrome.tabs.reload(tabId);
+        await new Promise((res) => setTimeout(res, 1500));
+        await waitForComplete(tabId, Math.max(0, until - Date.now())).catch(() => {});
+        return false;
+      }
+      return true;
     } catch (_) {
       return false;
     }
@@ -408,14 +427,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const here = String(flow.url || '');
           const go = want ? (here.startsWith(want) ? '' : want) : /\/project\//.test(here) ? 'https://flow.google.com/' : '';
           if (go) {
-            await chrome.tabs.update(flow.id, { url: go });
+            const changed = await updateTabWhenReady(flow.id, { url: go });
+            if (!changed.ok) return sendResponse(changed);
             await new Promise((r) => setTimeout(r, 500));
             flow = (await waitForComplete(flow.id).catch(() => null)) || flow;
           }
         }
         // ให้แท็บ Flow เป็นแท็บที่เปิดอยู่ในหน้าต่างของมัน (แท็บเบื้องหลังถูก Chrome ชะลอ timer)
         // แต่ไม่ดึงหน้าต่างขึ้นมาทับงานที่ผู้ใช้ทำอยู่ — ตัวขับรอด้วย MutationObserver ซึ่งไม่ถูกชะลออยู่แล้ว
-        await chrome.tabs.update(flow.id, { active: true });
+        const activated = await updateTabWhenReady(flow.id, { active: true });
+        if (!activated.ok) return sendResponse(activated);
         if (!(await ensureFlowAdapter(flow.id))) return sendResponse({ ok: false, error: 'ติดตั้งตัวขับของ Google Flow ในแท็บไม่สำเร็จ' });
         const accepted = await chrome.tabs
           .sendMessage(flow.id, { type: 'flow.run', jobId: msg.jobId, op: msg.op, args: msg.args || {} })
@@ -454,7 +475,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             );
           });
           attached = true;
+          /**
+           * moveOnly: แค่เลื่อนเมาส์ไปชี้ ให้หน้า Flow ตรวจก่อนว่าจุดนั้นโดนปุ่มที่ตั้งใจจริงไหม (adapter/flow.js trustedClick)
+           * เลื่อนผ่านจุดข้าง ๆ ก่อนหนึ่งพิกเซล — เมาส์ที่อยู่ตำแหน่งเดิมอยู่แล้วจะไม่เกิดเหตุการณ์ mousemove ให้ตรวจ
+           */
+          if (msg.moveOnly) await cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + 1, y });
           await cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+          if (msg.moveOnly) return sendResponse({ ok: true });
           await cmd('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
           await cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
           return sendResponse({ ok: true });
@@ -610,7 +637,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             target,
             args: [text, !!msg.requireDraft || !!msg.enterOnly],
             func: (expected, requireDraft) => {
-              const box = document.querySelector('#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"]');
+              const box = document.querySelector('#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"], form[data-mobile-composer] textarea[name="prompt"], textarea#mobile-composer-prompt');
               if (!box) return false;
               if (requireDraft) {
                 /**
@@ -619,7 +646,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                  */
                 const loose = (v) => String(v || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
                 const same = (a, b) => { const g = loose(a), w = loose(b); if (!g || !w) return false; if (g === w) return true; const n = Math.min(40, w.length); return g.length >= w.length * 0.85 && g.length <= w.length * 1.15 && g.includes(w.slice(0, n)) && g.includes(w.slice(-n)); };
-                if (!same(box.innerText, expected)) return false;
+                if (!same(box.tagName === 'TEXTAREA' ? box.value : box.innerText, expected)) return false;
                 const busy = [...document.querySelectorAll('[data-testid="stop-button"]')].some(b => {
                   // ChatGPT ค้างปุ่มวงกลมชื่อ Stop answering ไว้ได้แม้ภาพเสร็จแล้ว แต่ปุ่มนั้น disabled
                   // ผู้ใช้กด Enter เองส่งต่อได้ตามปกติ จึงนับว่า busy เฉพาะปุ่ม Stop ที่กดได้จริง
@@ -651,7 +678,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             target,
             args: [text, msg.enterOnly ? Number(msg.expectedAttachments || 0) : null],
             func: (expected, expectedAttachments) => {
-              const box = document.querySelector('#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"]');
+              const box = document.querySelector('#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"], form[data-mobile-composer] textarea[name="prompt"], textarea#mobile-composer-prompt');
               const loose = (v) => String(v || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
               const same = (a, b) => { const g = loose(a), w = loose(b); if (!g || !w) return false; if (g === w) return true; const n = Math.min(40, w.length); return g.length >= w.length * 0.85 && g.length <= w.length * 1.15 && g.includes(w.slice(0, n)) && g.includes(w.slice(-n)); };
               if (expectedAttachments !== null) {
@@ -661,7 +688,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 if (thumbs.length !== expectedAttachments || thumbs.some(img => !img.complete || !img.naturalWidth)) return false;
                 if (form.querySelector('[data-testid*="upload" i][aria-busy="true"], [data-testid*="upload" i] [role="progressbar"]')) return false;
               }
-              return !!box && document.activeElement === box && same(box.innerText, expected);
+              return !!box && document.activeElement === box && same(box.tagName === 'TEXTAREA' ? box.value : box.innerText, expected);
             },
           }), 15000, 'verify');
           if (!verified?.result) throw new Error('composer_text_mismatch');

@@ -7,6 +7,26 @@ const para = (n) => `ย่อหน้าที่ ${n} อธิบายข�
 const M1 = '![เลือกคีย์](fig:fig-2.1-1.png 83% 72mm)';
 const M2 = '![เขียนท่อนฮุก](fig:fig-2.1-2.png 83% 72mm)';
 
+test('ชื่อภาพชั่วคราวนอกแผนไม่ทิ้งกรอบว่างใน PDF ที่มีภาพจริงครบแล้ว', () => {
+  const figures = [{ kind: 'image', section: '2.1', name: 'fig-2.1-1.png', caption: 'ภาพจริง', widthPct: 80, heightMm: 69 }];
+  const md = [para(1), '![รออาหารนาน](fig:2-1-exaggeration-waiting)', M1, para(2)].join('\n\n');
+  const healed = healFigureMarkers(md, figures);
+  assert.deepEqual(healed.removed, ['2-1-exaggeration-waiting']);
+  assert.deepEqual(healed.restored, []);
+  assert.ok(healed.md.includes(M1));
+  assert.ok(healed.md.includes(para(1)) && healed.md.includes(para(2)));
+  assert.deepEqual(healFigureMarkers(healed.md, figures), { md: healed.md, restored: [] });
+  // เนื้อหาที่ยังไม่มีแผนภาพต้องไม่เสียเครื่องหมายที่ผู้ใช้ใส่เอง
+  assert.equal(healFigureMarkers(md, []).md, md);
+  const book = { language: 'th', contentMode: 'prose', figures, frontMatter: ['title'], backMatter: [], topic: 'ตลก',
+    trim: { widthMm: 148, heightMm: 210, bleedMm: 3 },
+    typography: { bodyFont: 'Sarabun', headFont: 'IBM Plex Sans Thai', sizePt: 14, lineHeight: 1.55, marginsMm: { inner: 20, outer: 16, top: 18, bottom: 20 } } };
+  const outline = { title: 'ตลก', chapters: [{ n: 2, title: 'ลงมือ', sections: [{ id: '2.1', title: 'พูดเกินจริง' }] }] };
+  const src = buildDocument({ book, outline, sections: [{ id: '2.1', md }], opts: { assetNames: figures.map((f) => f.name) } });
+  assert.doesNotMatch(src, /2-1-exaggeration-waiting|ยังไม่ได้ใส่ภาพ/);
+  assert.equal(src.split('image("/img/fig-2.1-1.png"').length, 2);
+});
+
 test('ฉบับแก้ที่ทำเครื่องหมายภาพหาย ได้เครื่องหมายคืนตำแหน่งสัดส่วนเดิม', () => {
   const old = [para(1), M1, para(2), para(3), M2, para(4)].join('\n\n');
   const rewritten = [para('ก'), para('ข'), para('ค'), para('ง')].join('\n\n');

@@ -77,13 +77,20 @@ export function healFigureMarkers(md, figures = []) {
   const want = new Map(figures.filter((f) => f?.kind === 'image' && f.name).map((f) => [f.name, f]));
   if (!want.size || !String(md || '').trim()) return { md, restored: [] };
   const restored = [];
+  const removed = [];
   const parts = paragraphs(md).map((p) => {
     const line = oneLine(p);
     const name = line.startsWith('![') ? NAMED.exec(line)?.[1] : null;
+    // แผนภาพของตอนนี้เป็นรายการจริง; ชื่อชั่วคราวที่โมเดลเขียนเองไม่ใช่ไฟล์อีกใบ
+    // เก็บข้อความอื่นไว้ และไม่เดาว่าชื่อเก่านั้นควรจับคู่กับภาพใด
+    if (name && !want.has(name) && FIG_RE.test(line)) {
+      removed.push(name);
+      return null;
+    }
     if (!name || !want.has(name) || (p.trim() === line && FIG_RE.test(line))) return p;
     restored.push(name);
     return markerFor(want.get(name));
-  });
+  }).filter((p) => p !== null);
   const have = figureNamesIn(parts.join('\n\n'));
   const lost = [...want.values()].filter((f) => !have.has(f.name));
   const size = parts.length;
@@ -92,6 +99,7 @@ export function healFigureMarkers(md, figures = []) {
     parts.splice(at, 0, markerFor(f));
   });
   restored.push(...lost.map((f) => f.name));
+  if (removed.length) return { md: parts.join('\n\n'), restored, removed };
   return restored.length ? { md: parts.join('\n\n'), restored } : { md, restored: [] };
 }
 

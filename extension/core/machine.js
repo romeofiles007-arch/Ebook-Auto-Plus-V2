@@ -84,6 +84,9 @@ const SHORT_GIVEUP = 2;
 const MAX_REPEAT_FIXES = 8;
 /** ต้นฉบับที่แนบไปในคำสั่ง "แก้ตอน" ยาวได้ไม่เกินนี้ — ยาวกว่านี้หน้า ChatGPT ค้าง "หน้าไม่ตอบสนอง" (เจอจริง: ฉาก 34,452 ตัว) */
 const MAX_REWRITE_UNITS = 14000;
+// รวมเฉพาะตอนสั้น: คำสั่งและคำตอบที่ยาวเกินทำให้หน้า ChatGPT ช้าหรือค้าง
+const REPAIR_BATCH_PROMPT_CHARS = 12000;
+const REPAIR_BATCH_SOURCE_CHARS = 6000;
 
 /**
  * ความล้มเหลวที่เกิด "ก่อน" ข้อความจะถึง ChatGPT — ยังไม่ได้ใช้โควตาแม้แต่ข้อความเดียว
@@ -2253,7 +2256,13 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
             this.log('ok', `บทที่ ${ch.n}: ตรวจซ้ำหลังแก้ ${repaired.length} ตอน เพื่อยืนยันว่าปัญหาหายจริง`);
             const updated = [];
             for (const s of ch.sections) updated.push((await db.loadSection(this.book.id, s.id)) || s);
-            const verified = await this.reviewChapterFully(ch, updated);
+            let verified;
+            try {
+              verified = await this.reviewChapterFully(ch, updated);
+            } catch (e) {
+              if (e instanceof RateLimited || this.stopRequested || e?.code === 'outcome_unknown') throw e;
+              verified = { skipped: true, reason: String(e?.message || e) };
+            }
             if (verified?.skipped) {
               finalReview = {
                 ...r,
@@ -2486,7 +2495,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
    * แก้เฉพาะประเด็นที่ "นับเป็นปัญหา" และผูกกับตอนได้จริง — ข้อเสนอให้สลับลำดับไม่แตะ
    * เพราะเป็นความเห็นเรื่องการเรียบเรียง ไม่ใช่ข้อผิดพลาด และการสลับตอนกระทบสารบัญทั้งบท
    *
-   * จำกัดจำนวนตอนต่อบทไว้ เพราะทุกตอนที่แก้คือหนึ่งข้อความที่เผาโควตา
+   * ตอนสั้นส่งแก้พร้อมกันเพื่อลดจำนวนเทิร์น แต่ยังแก้ทุกตอนที่พบปัญหา
    * ตอนที่ผู้ใช้ล็อกหรืออนุมัติแล้วห้ามแตะเด็ดขาด งานแก้ด้วยมือต้องไม่หายไปกับการแก้อัตโนมัติ
    */
   async repairChapter(chapter, review) {
@@ -2501,18 +2510,12 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     }
     if (!bySection.size) return repaired;
 
-    /**
-     * เพดานเดิม 3 ตอนต่อบท ทำให้การตรวจครบไม่มีความหมาย
-     *
-     * ถ้าบรรณาธิการอ่านครบทุกตัวอักษรแล้วชี้มา 6 ตอน แต่แก้ได้แค่ 3
-     * ผลคือรายการปัญหายาวขึ้นโดยที่เล่มไม่ได้ดีขึ้น — จ่ายค่าตรวจเต็มแต่ได้ผลครึ่งเดียว
-     * ค่าเริ่มต้นจึงเป็น "แก้ทุกตอนที่ถูกชี้" ส่วนคนที่อยากคุมโควตายังตั้ง
-     * maxRepairsPerChapter เองได้เหมือนเดิม
-     */
+    // ค่าเริ่มต้นแก้ครบทุกตอนที่พบปัญหา; เพดานจะมีผลเฉพาะเล่มที่ตั้งไว้เอง
     const cap = this.book.maxRepairsPerChapter ?? bySection.size;
     const targets = [...bySection.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, cap);
     const skipped = bySection.size - targets.length;
 
+    const prepared = [];
     for (const [sid, issues] of targets) {
       if (this.stopRequested) return repaired;
       const rec = await db.loadSection(this.book.id, sid);
@@ -2527,49 +2530,73 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         this.log('warn', `ตอน ${sid} มี ${issues.length} ประเด็น แต่ยาว ${units.toLocaleString()} หน่วย — ยาวเกินกว่าจะส่งทั้งตอนให้ ChatGPT แก้ (หน้าเว็บค้าง) ข้ามไว้ แก้เองได้ในหน้าแก้ไข`);
         continue;
       }
+      prepared.push({ sid, issues, rec });
+    }
 
-      /**
-       * คำตอบที่ไม่มีเครื่องหมายกำกับ ต้องขอใหม่ ไม่ใช่ยอมแพ้ตั้งแต่ครั้งแรก
-       *
-       * turnWithRetry ลองซ้ำเฉพาะตอน "เทิร์นพัง" (หมดเวลา ว่าง ตอบไม่กลับ) แต่เทิร์นที่
-       * ChatGPT ตอบกลับมาสั้น ๆ โดยไม่มี <<<SEC id BEGIN>>> ถือว่าเทิร์นสำเร็จ มันจึงไม่ลองซ้ำ
-       * ผลคือคำตอบเสียหนึ่งครั้ง = ประเด็นของตอนนั้นค้างถาวร ทั้งที่ขอใหม่อีกครั้งมักได้
-       * เห็นในหน้าจอจริงเป็น "ตอน 4.4 แก้ไม่สำเร็จ (refused)" โดยไม่มีความพยายามที่สอง
-       */
-      const askRepair = () =>
-        this.turnWithRetry(P.repairPrompt({ book: this.book, section: rec, currentText: rec.md, issues }), {
-          label: `แก้ตอน ${sid} ตามผลตรวจ`,
-        });
+    const groups = [];
+    for (const target of prepared) {
+      const last = groups.at(-1);
+      const pair = this.book.contentMode !== 'fiction' && last?.length === 1 ? [last[0], target] : null;
+      const sourceChars = pair?.reduce((n, item) => n + item.rec.md.length, 0) || 0;
+      const prompt = pair && sourceChars <= REPAIR_BATCH_SOURCE_CHARS
+        ? P.repairBatchPrompt(this.book, pair.map(({ rec, issues }) => ({ section: rec, currentText: rec.md, issues })))
+        : '';
+      if (prompt && prompt.length <= REPAIR_BATCH_PROMPT_CHARS) last.push(target);
+      else groups.push([target]);
+    }
 
-      let res = await askRepair();
-      let ex = X.extractSection(res.text || '', sid);
-      if (ex.status !== 'ok' && !this.stopRequested) {
-        this.log('warn', `ตอน ${sid}: คำตอบไม่อยู่ในรูปแบบที่ใช้ได้ (${ex.status}) — ขอใหม่อีกครั้งก่อนยอมแพ้`);
-        res = await askRepair();
-        ex = X.extractSection(res.text || '', sid);
-      }
-      if (ex.status !== 'ok') {
-        this.log('warn', `ตอน ${sid} แก้ไม่สำเร็จหลังลองสองครั้ง (${ex.status}) เก็บของเดิมไว้ ประเด็นยังค้างให้ดูในผลตรวจ`);
-        continue;
+    for (const group of groups) {
+      if (this.stopRequested) return repaired;
+      let batchText = '';
+      if (group.length > 1) {
+        const prompt = P.repairBatchPrompt(this.book, group.map(({ rec, issues }) => ({ section: rec, currentText: rec.md, issues })));
+        this.log('ok', `บทที่ ${chapter.n}: แก้ตอน ${group.map((x) => x.sid).join(', ')} พร้อมกันในหนึ่งข้อความ`);
+        batchText = (await this.turnWithRetry(prompt, { label: `แก้ตอน ${group.map((x) => x.sid).join(', ')} ตามผลตรวจ` })).text || '';
       }
 
-      const before = rec.chars || 0;
-      const kept = keepFigureMarkers(rec.md, ex.body);
-      if (kept.restored.length) this.log('info', `ตอน ${sid}: ฉบับแก้ทำจุดวางภาพหาย ${kept.restored.join(', ')} — วางคืนตำแหน่งเดิมแล้ว`);
-      ex.body = kept.md;
-      rec.md = ex.body;
-      rec.chars = countUnits(ex.body, this.book.language);
-      rec.status = 'repaired';
-      rec.repairedAt = Date.now();
-      rec.repairedFor = issues.map((it) => it.label);
-      B.absorb(this.book.bible, sid, ex.meta);
-      await db.saveSection(this.book.id, rec);
-      repaired.push(sid);
-      this.log(
-        'ok',
-        `ตอน ${sid} แก้แล้ว ${issues.length} ประเด็น (${issues.map((it) => it.label).join(', ')}) · ` +
-          `${before.toLocaleString()} → ${rec.chars.toLocaleString()} หน่วย`,
-      );
+      for (const { sid, issues, rec } of group) {
+        if (this.stopRequested) return repaired;
+
+        // คำตอบชุดที่ขาดตอนใดจะขอใหม่เฉพาะตอนนั้น ส่วนตอนเดี่ยวคงโอกาสลองสองครั้ง
+        const askRepair = () =>
+          this.turnWithRetry(P.repairPrompt({ book: this.book, section: rec, currentText: rec.md, issues }), {
+            label: `แก้ตอน ${sid} ตามผลตรวจ`,
+          });
+
+        let ex = group.length > 1 ? X.extractSection(batchText, sid) : { status: 'not_requested' };
+        if (ex.status !== 'ok') {
+          if (group.length > 1) this.log('warn', `ตอน ${sid}: คำตอบชุดใช้ไม่ได้ (${ex.status}) — ขอเฉพาะตอนนี้ใหม่`);
+          const res = await askRepair();
+          ex = X.extractSection(res.text || '', sid);
+        }
+        if (ex.status !== 'ok' && group.length === 1 && !this.stopRequested) {
+          this.log('warn', `ตอน ${sid}: คำตอบไม่อยู่ในรูปแบบที่ใช้ได้ (${ex.status}) — ขอใหม่อีกครั้งก่อนยอมแพ้`);
+          const res = await askRepair();
+          ex = X.extractSection(res.text || '', sid);
+        }
+        if (ex.status !== 'ok') {
+          this.log('warn', `ตอน ${sid} แก้ไม่สำเร็จหลังลองสองครั้ง (${ex.status}) เก็บของเดิมไว้ ประเด็นยังค้างให้ดูในผลตรวจ`);
+          continue;
+        }
+
+        const before = rec.chars || 0;
+        const kept = keepFigureMarkers(rec.md, ex.body);
+        if (kept.restored.length) this.log('info', `ตอน ${sid}: ฉบับแก้ทำจุดวางภาพหาย ${kept.restored.join(', ')} — วางคืนตำแหน่งเดิมแล้ว`);
+        ex.body = kept.md;
+        rec.md = ex.body;
+        rec.chars = countUnits(ex.body, this.book.language);
+        rec.status = 'repaired';
+        rec.repairedAt = Date.now();
+        rec.repairedFor = issues.map((it) => it.label);
+        B.absorb(this.book.bible, sid, ex.meta);
+        await db.saveSection(this.book.id, rec);
+        repaired.push(sid);
+        this.log(
+          'ok',
+          `ตอน ${sid} แก้แล้ว ${issues.length} ประเด็น (${issues.map((it) => it.label).join(', ')}) · ` +
+            `${before.toLocaleString()} → ${rec.chars.toLocaleString()} หน่วย`,
+        );
+      }
     }
 
     if (skipped)
@@ -3815,6 +3842,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     if (!files.length) return 0;
     const byName = new Map(files.map((f) => [f.name, f]));
     for (const j of jobs) {
+      if (this.book.imagePhase?.rejectedImageNames?.includes(j.name)) continue;
       const f = byName.get(j.name);
       if (!f) continue;
       const existing = await db.loadAsset(this.book.id, j.name).catch(() => null);
@@ -4042,6 +4070,32 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     return true;
   }
 
+  /** แท็บ Chrome ขยับไม่ได้ = ยังไม่ได้ส่งงานให้ Flow หยุดรอ ไม่เผารอบลองสร้างภาพ */
+  async stopFlowTabBusy(j, reason, jobs, index, genErrors, blockedCode = 'tab_busy') {
+    const why = reason || (blockedCode === 'flow_pending'
+      ? 'Flow ยังวาดภาพก่อนหน้าไม่เสร็จ — รอให้เสร็จแล้วกดเริ่มสร้างภาพต่อ'
+      : 'Chrome ยังไม่อนุญาตให้จัดแท็บ Flow — ปล่อยแท็บแล้วกดเริ่มสร้างภาพต่อ');
+    if (j?.name) genErrors?.set(j.name, why);
+    noteTrouble({ step: 'images', symptom: blockedCode, move: 'stop', detail: why, by: blockedCode === 'flow_pending' ? 'Google Flow' : 'Chrome' });
+    this.log('warn', `${j?.what ? `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ` : ''}${why} · หยุดคิวภาพไว้ก่อน`);
+    this.book.imagePhase = {
+      ...(this.book.imagePhase || {}),
+      status: 'partial',
+      blockedCode,
+      failedName: j?.name || '',
+      failedWhat: j?.what || '',
+      failedReason: why,
+      stoppedAt: Date.now(),
+      remaining: jobs.slice(index).map((x) => x.name),
+    };
+    this.job.step = 'gate_images';
+    this.job.status = 'waiting_human';
+    this.job.error = why;
+    await this.save();
+    if (j) this.emit({ type: 'image.progress', stage: 'failed', current: index + 1, total: jobs.length, name: j.name, what: j.what, reason: why });
+    return true;
+  }
+
   /**
    * จังหวะการสั่ง Google Flow — ไม่รัวคำขอต่อกัน (ผู้ใช้ตกลงแล้ว หลังโดน "พบกิจกรรมที่ผิดปกติ")
    * เดิมได้ภาพแล้วสั่งภาพถัดไปทันที ภาพล้มลองซ้ำห่างกัน 3 วินาที — ถี่กว่าการใช้งานปกติมาก
@@ -4085,29 +4139,99 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
   }
 
   /**
-   * ภาพ "1 หน้า 1 ภาพ" ทั้งเล่ม วาดเป็นชุดผ่าน Flow Agent (ผู้ใช้เลือก — สั่งทีละรูปหลายสิบรูปดูผิดปกติในสายตา Google)
+   * ภาพประกอบในเล่มทุกระดับ วาดเป็นชุดผ่าน Flow Agent; ปกและลายพื้นหลังใช้ Flow แบบปกติ
    * แยกชุดตามสัดส่วนภาพ (agent ตั้งสัดส่วนได้ค่าเดียวต่อชุด) ชุดละไม่เกิน AGENT_BATCH ช็อต
    * แนบภาพต้นแบบของตัวละครที่อยู่ในชุดนั้น (ไม่เกิน 4) · ภาพที่มีอยู่แล้วไม่สั่งซ้ำ
    * คืน true = หยุดงานแล้ว (กิจกรรมผิดปกติ / ไม่ใช่ 0 เครดิต)
    */
   async flowAgentBatches(jobs, castRefs, genErrors, authorFig = null) {
-    this.agentFallback ||= new Set();
-    const todo = [];
+    let todo = [];
     for (const j of jobs) {
       if (j.kind !== 'interior') continue;
+      const rejected = !!this.book.imagePhase?.rejectedImageNames?.includes(j.name);
       const existing = await db.loadAsset(this.book.id, j.name).catch(() => null);
-      if (existing && !this.missingAuthorFace(existing, authorFig) && (await validatePhase2Asset(existing, j)).ok) continue;
+      if (!rejected && existing && !this.missingAuthorFace(existing, authorFig) && (await validatePhase2Asset(existing, j)).ok) continue;
+      const mediaId = this.book.imagePhase?.agentMediaIds?.[j.name];
+      if (mediaId && (!rejected || this.book.imagePhase?.agentRegeneratedMediaIds?.[j.name] === mediaId)) continue;
       todo.push(j);
     }
     if (!todo.length) return false;
+    // Flow ยังมีภาพที่ Agent วาดและตั้งชื่อแล้ว แม้รหัสที่เคยบันทึกจะหายหลังโหลด project ใหม่
+    // ภาพที่สั่งสร้างใหม่ยังมีชื่อเดิมบน Flow: ห้ามกู้ tile ที่ผู้ใช้ปฏิเสธกลับมาแทนการวาดใหม่
+    const recoverable = todo.filter((j) => !this.book.imagePhase?.rejectedImageNames?.includes(j.name));
+    const recovered = recoverable.length
+      ? await flowCall('lookupNamed', { names: recoverable.map((j) => j.name) }, { timeoutMs: 3 * 60000 })
+      : { ok: true, mediaIds: {} };
+    if (!recovered.ok) {
+      return this.stopFlowTabBusy(todo[0], `ค้นภาพเดิมใน Flow ไม่สำเร็จ: ${recovered.error}`, jobs, jobs.indexOf(todo[0]), genErrors, recovered.code || 'lookup_failed');
+    }
+    if (Object.keys(recovered.mediaIds || {}).length) {
+      this.book.imagePhase = {
+        ...(this.book.imagePhase || {}),
+        agentMediaIds: { ...(this.book.imagePhase?.agentMediaIds || {}), ...recovered.mediaIds },
+      };
+      await this.save();
+      this.log('ok', `พบภาพที่ Agent วาดไว้แล้ว ${Object.keys(recovered.mediaIds).length} รูป — กู้รหัสภาพและดึงต่อโดยไม่สั่งวาดซ้ำ`);
+      todo = todo.filter((j) => !recovered.mediaIds[j.name]);
+      if (!todo.length) return false;
+    }
     const fiction = this.book.contentMode === 'fiction';
+    const interiorStyle = this.book.illustrationLevel === 'page' ? 'doodle' : this.book.figureStyle || 'box';
+    const agentStyle = fiction ? P.novelStyleKey(interiorStyle) : interiorStyle === 'box' ? 'doodle' : interiorStyle;
+    const saveGeneratedMedia = async (mediaIds) => {
+      const phase = this.book.imagePhase || {};
+      this.book.imagePhase = {
+        ...phase,
+        agentMediaIds: { ...(phase.agentMediaIds || {}), ...mediaIds },
+        // ปฏิเสธภาพเก่าต่อจนกว่าจะบันทึก asset ใหม่ แต่รหัสที่เพิ่งสร้างและจับคู่แล้วต้องใช้ทำต่อได้
+        agentRegeneratedMediaIds: { ...(phase.agentRegeneratedMediaIds || {}),
+          ...Object.fromEntries(Object.entries(mediaIds).filter(([name]) => phase.rejectedImageNames?.includes(name))) },
+      };
+      await this.save();
+    };
+    const sendSingle = async (s, j, ratio, people) => {
+      people = [...new Map(people.map((c) => [c.name, c])).values()];
+      const refs = [];
+      const cast = people.map((c) => {
+        let attached = 0;
+        if (c.ref) {
+          refs.push(c.ref.upload ? { name: c.ref.name, dataUrl: c.ref.dataUrl } : { tile: c.ref.name, name: c.ref.name, dataUrl: c.ref.dataUrl });
+          attached = refs.length;
+        }
+        return { name: c.name, appearance: c.photo || c.author ? '' : c.appearance, attached, author: !!c.author };
+      });
+      if (refs.length > 4) {
+        return this.stopFlowTabBusy(j, `ภาพ ${j.name} ต้องแนบต้นแบบ ${refs.length} ภาพ แต่ Flow แนบได้ไม่เกิน 4 ภาพ`, jobs, jobs.indexOf(j), genErrors, 'refs_not_attached');
+      }
+      const single = await flowCall(
+        'agentBatch',
+        {
+          shots: [{ name: s.name, key: P.flowAgentShotKey(0), line: P.flowAgentShotLine(s, 0) }],
+          brief: P.flowAgentBrief({ book: this.book, shots: [s], cast, ratio, styleKey: agentStyle }),
+          ratio,
+          models: FLOW_MODELS,
+          refs,
+          refCollection: FLOW_REF_COLLECTION,
+          requireRefs: refs.length > 0,
+        },
+        { timeoutMs: 25 * 60000 },
+      );
+      if (single.code === 'unusual_activity') return this.stopFlowUnusual(j, single.error, jobs, jobs.indexOf(j), genErrors);
+      if (!single.ok || !single.mediaIds?.[s.name]) {
+        const reason = single.error || `Flow Agent วาดภาพ ${s.name} ไม่ได้ หรือมีหลายภาพใหม่จนจับคู่ให้ปลอดภัยไม่ได้`;
+        return this.stopFlowTabBusy(j, reason, jobs, jobs.indexOf(j), genErrors, single.code || 'agent_missing');
+      }
+      await saveGeneratedMedia({ [s.name]: single.mediaIds[s.name] });
+      this.log('ok', `Flow Agent ระบุภาพ ${s.name} ได้แล้ว (รหัส ${single.mediaIds[s.name]})`);
+      return false;
+    };
     const groups = new Map();
     for (const j of todo) {
       const r = flowRatioFor(j).label;
       if (!groups.has(r)) groups.set(r, []);
       groups.get(r).push(j);
     }
-    this.log('ok', `ภาพตามความเหมาะสม ${todo.length} รูป — ส่งเป็นชุดผ่าน Flow Agent ชุดละไม่เกิน ${AGENT_BATCH} รูป ไม่สั่งทีละรูป (${[...groups].map(([r, a]) => `${r} ${a.length} รูป`).join(' · ')})`);
+    this.log('ok', `ภาพประกอบในเล่ม ${todo.length} รูป — ส่งเป็นชุดผ่าน Flow Agent ชุดละไม่เกิน ${AGENT_BATCH} รูป (${[...groups].map(([r, a]) => `${r} ${a.length} รูป`).join(' · ')})`);
     let done = 0;
     for (const [ratio, list] of groups) {
       for (let b = 0; b < list.length; b += AGENT_BATCH) {
@@ -4141,18 +4265,24 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         });
         /**
          * แนบภาพต้นแบบได้ชุดละไม่เกิน 4 คน — ภาพที่มีคนที่มีภาพต้นแบบแต่ไม่ได้แนบ (คนที่ 5 ขึ้นไป) ห้ามให้ Agent วาดเดาหน้าเอง
-         * ย้ายไปสร้างทีละรูป ซึ่งแนบภาพต้นแบบของคนในฉากนั้นครบทุกคน
+         * แยกไปขอ Agent ทีละช็อต เพื่อแนบภาพต้นแบบของคนในฉากนั้นครบทุกคน
          */
         const onAgent = new Set(cast.filter((c) => c.attached).map((c) => c.name));
         const lacking = shots.filter((s) => s.people.some((n) => used.get(n)?.ref && !onAgent.has(n)));
+        const deferred = lacking.map((s) => ({ s, j: batch.find((j) => j.name === s.name) }));
         if (lacking.length) {
-          for (const s of lacking) this.agentFallback.add(s.name);
-          this.log('warn', `${lacking.length} รูปในชุดนี้มีตัวละครเกิน 4 คนที่แนบได้ — สร้างทีละรูปแทน พร้อมแนบภาพต้นแบบครบทุกคน`);
+          this.log('warn', `${lacking.length} รูปในชุดนี้มีตัวละครเกิน 4 คนที่แนบได้ — ขอ Agent แยกทีละช็อตพร้อมแนบภาพต้นแบบครบทุกคน`);
           for (const s of lacking) {
             shots.splice(shots.indexOf(s), 1);
             batch.splice(batch.findIndex((j) => j.name === s.name), 1);
           }
-          if (!shots.length) continue;
+          if (!shots.length) {
+            for (const { s, j } of deferred) {
+              if (await sendSingle(s, j, ratio, s.people.map((n) => used.get(n)).filter(Boolean))) return true;
+              done++;
+            }
+            continue;
+          }
         }
         const label = `ชุด ${b / AGENT_BATCH + 1} (${ratio}) · ${batch.length} รูป`;
         this.log('ok', `Flow Agent ${label}: ${batch[0].name} … ${batch.at(-1).name}${refs.length ? ` · แนบภาพต้นแบบ ${cast.filter((c) => c.attached).map((c) => c.name).join(', ')}` : ''}`);
@@ -4165,14 +4295,14 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
           res = await flowCall(
             'agentBatch',
             {
-              shots: shots.map((s, i) => ({ name: s.name, line: P.flowAgentShotLine(s, i) })),
-              brief: P.flowAgentBrief({ book: this.book, shots, cast, ratio, styleKey: 'doodle' }),
+              shots: shots.map((s, i) => ({ name: s.name, key: P.flowAgentShotKey(i), line: P.flowAgentShotLine(s, i) })),
+              brief: P.flowAgentBrief({ book: this.book, shots, cast, ratio, styleKey: agentStyle }),
               ratio,
               models: FLOW_MODELS,
               refs,
               refCollection: FLOW_REF_COLLECTION,
               // นิยายที่มีภาพต้นแบบ: แนบไม่ครบ = ห้ามให้ Agent วาด (ตัวละครต้องถูกคน)
-              // หน้าที่กำหนดไว้ (ภาพต้นแบบตัวละคร / หน้าผู้เขียน) ต้องไปครบ — แนบไม่ครบ = ห้ามให้ Agent วาด สร้างทีละรูปพร้อมแนบแทน
+              // ภาพต้นแบบตัวละคร / หน้าผู้เขียนต้องแนบครบ มิฉะนั้นหยุดก่อนวาด
               // ผู้ใช้: "ภาพตามความเหมาะสม ok แต่ต้องแนบหน้าภาพผู้เขียนที่กำหนด ตัวละครด้วย"
               requireRefs: refs.length > 0,
             },
@@ -4183,14 +4313,14 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         }
         done += batch.length;
         if (!res.ok) {
+          if (['tab_busy', 'flow_pending', 'agent_timeout', 'wrong_place'].includes(res.code)) {
+            return this.stopFlowTabBusy(batch[0], res.error, jobs, jobs.indexOf(batch[0]), genErrors, res.code);
+          }
           if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(res.error || '')) {
             return await this.stopFlowUnusual(batch[0], res.error, jobs, jobs.indexOf(batch[0]), genErrors);
           }
           if (res.code === 'refs_not_attached') {
-            // สร้างทีละรูปแทน — ทางนั้นแนบภาพต้นแบบเป็นส่วนผสมของแต่ละรูป (ผู้ใช้: "ทำไมภาพนิยายไม่แนบหน้าตัวละครไปด้วยหละ")
-            this.log('warn', `Flow Agent ${label}: ${res.error} — ชุดนี้สร้างทีละรูปแทน พร้อมแนบภาพต้นแบบตัวละครให้ทุกรูป`);
-            for (const j of batch) this.agentFallback.add(j.name);
-            continue;
+            return this.stopFlowTabBusy(batch[0], `Flow Agent ${label}: ${res.error}`, jobs, jobs.indexOf(batch[0]), genErrors, res.code);
           }
           if (res.code === 'not_free') {
             this.log('warn', res.error);
@@ -4200,13 +4330,24 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
             await this.save();
             return true;
           }
-          this.log('warn', `Flow Agent ${label} ไม่สำเร็จ (${res.error}) — ภาพชุดนี้ยังขาด จะลองใหม่ตอนกดทำต่อ`);
-          for (const j of batch) genErrors.set(j.name, res.error || 'Flow Agent ไม่สำเร็จ');
-          continue;
+          return this.stopFlowTabBusy(batch[0], `Flow Agent ${label} ไม่สำเร็จ: ${res.error || 'ไม่ทราบสาเหตุ'}`, jobs, jobs.indexOf(batch[0]), genErrors, res.code || 'agent_failed');
         }
         if (res.attachError) this.log('warn', `Flow Agent ${label}: แนบภาพต้นแบบไม่สำเร็จ (${res.attachError}) — วาดต่อโดยไม่มีภาพต้นแบบ`);
-        this.log(res.missing?.length ? 'warn' : 'ok', `Flow Agent ${label}: ได้ ${res.named?.length || 0}/${batch.length} รูป${res.missing?.length ? ` · ยังขาด ${res.missing.join(', ')}` : ''}`);
-        for (const n of res.missing || []) genErrors.set(n, 'Flow Agent ยังไม่ได้วาดภาพนี้');
+        if (res.mediaIds && Object.keys(res.mediaIds).length) {
+          await saveGeneratedMedia(res.mediaIds);
+        }
+        this.log(res.missing?.length ? 'warn' : 'ok', `Flow Agent ${label}: จับคู่ได้ ${res.named?.length || 0}/${batch.length} รูป · พบภาพสร้างใหม่ ${res.created || 0} ใบ${res.missing?.length ? ` · ยังขาด ${res.missing.join(', ')}` : ''}`);
+        for (const n of res.missing || []) {
+          const s = shots.find((x) => x.name === n);
+          const j = batch.find((x) => x.name === n);
+          if (!s || !j) continue;
+          this.log('warn', `Flow Agent ยังจับคู่ภาพ ${n} ไม่ได้ — ขอช็อตนี้จาก Agent แยกหนึ่งใบเพื่อระบุตัวภาพให้แน่ชัด`);
+          if (await sendSingle(s, j, ratio, s.people.map((name) => used.get(name)).filter(Boolean))) return true;
+        }
+        for (const { s, j } of deferred) {
+          if (await sendSingle(s, j, ratio, s.people.map((name) => used.get(name)).filter(Boolean))) return true;
+          done++;
+        }
       }
     }
     return false;
@@ -4215,7 +4356,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
   async imagesViaFlow(jobs, genErrors, { retryPass = false } = {}) {
     const MAX_FLOW_ATTEMPTS = 3;
     delete this.job.cooldownUntil; // เริ่มสร้างภาพรอบใหม่แล้ว ช่วงพักของรอบก่อนหมดหน้าที่
-    this.log('ok', `สร้างภาพด้วย Google Flow (โหมดฟรี 0 เครดิต) ทีละรูป ${jobs.length} รูป — ภาพที่ได้จะถูกตั้งชื่อใน Flow ตามชื่อไฟล์ที่วางแผนไว้`);
+    this.log('ok', `สร้างภาพด้วย Google Flow (โหมดฟรี 0 เครดิต) ${jobs.length} รูป — ปก/ลายพื้นหลังสร้างปกติ ภาพประกอบใช้ Flow Agent`);
 
     const prep = await flowCall(
       'prepare',
@@ -4223,6 +4364,7 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       { timeoutMs: 3 * 60000 },
     );
     if (!prep.ok) {
+      if (prep.code === 'tab_busy') return this.stopFlowTabBusy(jobs[0], prep.error, jobs, 0, genErrors);
       const reason = prep.code === 'not_free'
         ? prep.error
         : `เตรียม Google Flow ไม่สำเร็จ: ${prep.error} — ตรวจว่าเปิด flow.google.com และล็อกอินบัญชี Google แล้ว`;
@@ -4234,24 +4376,36 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       return true;
     }
     this.log('ok', `Google Flow พร้อม · ${prep.model} · ${prep.credits} เครดิต · ${prep.projectUrl}`);
+    const projectId = (url) => /flow\.google\.com\/project\/([^/?#]+)/i.exec(String(url || ''))?.[1] || String(url || '');
+    if (this.book.imagePhase?.flowProjectUrl && projectId(this.book.imagePhase.flowProjectUrl) !== projectId(prep.projectUrl)) {
+      this.log('warn', 'Flow เปลี่ยน project — ล้างรหัสภาพ Agent จาก project เดิมก่อนจับคู่ภาพตอน');
+      delete this.book.imagePhase.agentMediaIds;
+    }
     this.book.imagePhase = { ...(this.book.imagePhase || {}), flowProjectUrl: prep.projectUrl };
 
     // นิยาย: วาดภาพต้นแบบตัวละครก่อน ทุกภาพที่ตามมาจะแนบต้นแบบของตัวละครที่อยู่ในฉากนั้น
     const fiction = this.book.contentMode === 'fiction';
     const castRefs = fiction ? await this.ensureFlowCast() : [];
-    // โหมด 1 หน้า 1 ภาพ: ภาพในเล่มวาดเป็นชุดผ่าน Flow Agent ก่อน (ผู้ใช้เลือก) — ลูปข้างล่างแค่หยิบภาพตามชื่อ ไม่สร้างเองทีละรูป
+    // ภาพประกอบทุกระดับวาดผ่าน Flow Agent ก่อน — ลูปข้างล่างแค่หยิบภาพตามรหัส ไม่สร้างเองทีละรูป
     const pageAgent = this.book.illustrationLevel === 'page';
     // สไตล์ภาพในเล่ม: โหมด 1 หน้า 1 ภาพเป็น doodle เสมอ (ใช้ทั้งภาพประกอบและภาพต้นแบบผู้เขียน)
     const interiorStyle = pageAgent ? 'doodle' : this.book.figureStyle || 'box';
-    const authorFig = !fiction && jobs.some((j) => j.kind === 'interior') ? await this.ensureFlowAuthorSheet(interiorStyle === 'box' ? '' : interiorStyle) : null;
-    if (pageAgent && (await this.flowAgentBatches(jobs, castRefs, genErrors, authorFig))) return true;
+    let authorFig = null;
+    let agentPrepared = false;
 
     for (let index = 0; index < jobs.length; index++) {
       if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
       const j = jobs[index];
+      // ปกและลายพื้นหลังอยู่ต้นแผน: ทำให้เสร็จก่อนส่งภาพประกอบหลายสิบใบให้ Agent
+      if (j.kind === 'interior' && !agentPrepared) {
+        authorFig = !fiction ? await this.ensureFlowAuthorSheet(interiorStyle === 'box' ? '' : interiorStyle) : null;
+        if (await this.flowAgentBatches(jobs, castRefs, genErrors, authorFig)) return true;
+        agentPrepared = true;
+      }
       this.emit({ type: 'image.progress', stage: 'check', current: index + 1, total: jobs.length, name: j.name, what: j.what });
 
       const existing = await db.loadAsset(this.book.id, j.name).catch(() => null);
+      const rejected = !!this.book.imagePhase?.rejectedImageNames?.includes(j.name);
       /** ปกนี้ต้องมีตัวหนังสือสร้างมาในภาพไหม (นิยาย = โปสเตอร์หนัง ทั้งหน้าและหลัง) */
       const textIn =
         j.kind === 'cover' &&
@@ -4264,10 +4418,10 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       // ปกที่ Flow วาดด้วยสูตรเก่า (ก่อนใช้ prompt ของ Art Director ตรง ๆ) วาดใหม่ครั้งเดียว
       // รุ่น 4 เปลี่ยนเฉพาะปกหลัง (เลิกแปะรูปถ่ายผู้เขียน) — ปกหน้ารุ่น 3 ใช้ต่อได้ ไม่ต้องสั่ง Flow วาดใหม่
       // รุ่น 5: ปกหน้าแนวโปสเตอร์เข้มขึ้น (ภาพเปรียบเทียบใหญ่ ห้ามฉากออฟฟิศ · ตัวชื่อเรื่องแบบโปสเตอร์ · ชื่อรองยาวไม่ใส่) — วาดใหม่ทั้งคู่
-      const needCoverV = P.FLOW_COVER_V;
+      const needCoverV = j.name === 'cover-back.png' ? P.FLOW_BACK_COVER_V : P.FLOW_COVER_V;
       const staleCoverPrompt = existing && j.kind === 'cover' && existing.meta?.from === 'flow' && (Number(existing.meta?.coverPromptV) || 0) < needCoverV;
       const noAuthorFace = j.kind === 'interior' && this.missingAuthorFace(existing, authorFig);
-      if (existing && !coverNeedsCleanArtwork && !coverNeedsText && !staleNovelStyle && !staleCoverPrompt && !noAuthorFace && (await validatePhase2Asset(existing, j)).ok) {
+      if (existing && !rejected && !coverNeedsCleanArtwork && !coverNeedsText && !staleNovelStyle && !staleCoverPrompt && !noAuthorFace && (await validatePhase2Asset(existing, j)).ok) {
         this.log('ok', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: มีไฟล์ที่ผ่านตรวจแล้ว ข้ามการสร้างซ้ำ (${j.name})`);
         this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
         continue;
@@ -4425,7 +4579,10 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
 
       let saved = false;
       let flowError = '';
-      const fromAgent = pageAgent && j.kind === 'interior' && !this.agentFallback?.has(j.name);
+      const fromAgent = j.kind === 'interior';
+      if (fromAgent && !this.book.imagePhase?.agentMediaIds?.[j.name]) {
+        return this.stopFlowTabBusy(j, `Flow Agent ยังไม่มีรหัสภาพ ${j.name} ที่จับคู่ได้แน่ชัด`, jobs, index, genErrors, 'agent_missing');
+      }
       for (let attempt = 1; attempt <= MAX_FLOW_ATTEMPTS && !saved; attempt++) {
         if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
         // ภาพจาก Agent แค่หยิบตามชื่อ ไม่ใช่คำขอสร้างภาพ — ไม่ต้องเว้นจังหวะ
@@ -4456,12 +4613,12 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
         const plain = !!flowError && attempt === MAX_FLOW_ATTEMPTS && plainRefs.length < refs.length;
         const sendPrompt = plain ? plainPrompt : prompt;
         const sendRefs = plain ? plainRefs : refs;
-        if (plain) this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: Flow ปัดตกคำขอเดิม — รอบนี้ส่งแบบไม่แนบภาพต้นแบบตัวละคร`);
+        if (plain && !fromAgent) this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: Flow ปัดตกคำขอเดิม — รอบนี้ส่งแบบไม่แนบภาพต้นแบบตัวละคร`);
         this.log(
           'ok',
-          `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ส่งให้ Flow วาด ${ratio.label}` +
+          `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${fromAgent ? 'ดึงภาพที่ Agent วาดไว้' : `ส่งให้ Flow วาด ${ratio.label}`}` +
             (ratio.loss >= 0.01 ? ` (ตัดขอบลงช่องราว ${Math.round(ratio.loss * 100)}%)` : ' (ตรงช่องพอดี ไม่ต้องครอป)') +
-            (sendRefs.length ? ` · แนบ${authorRef ? 'รูปผู้เขียน' : 'ปกหน้า'}เป็นตัวอ้างอิง` : '') +
+            (!fromAgent && sendRefs.length ? ` · แนบ${authorRef ? 'รูปผู้เขียน' : 'ปกหน้า'}เป็นตัวอ้างอิง` : '') +
             (attempt > 1 ? ` · ครั้งที่ ${attempt}` : ''),
         );
 
@@ -4471,11 +4628,12 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
             name: j.name,
             prompt: sendPrompt,
             ratio: ratio.label,
-            refs: sendRefs,
+            refs: fromAgent ? [] : sendRefs,
             models: FLOW_MODELS,
             hires: true,
-            reuse: attempt > 1 && !plain,
+            reuse: !rejected && attempt > 1 && !plain,
             onlyExisting: fromAgent,
+            mediaId: fromAgent ? this.book.imagePhase?.agentMediaIds?.[j.name] || '' : '',
             collection: fromAgent ? '' : flowCollectionFor(this.book, j),
             refCollection: FLOW_REF_COLLECTION,
           },
@@ -4484,8 +4642,17 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
         if (!res.ok) {
           flowError = res.error || 'Flow ไม่ส่งภาพกลับมา';
           this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${flowError}`);
+          if (res.code === 'tab_busy') return this.stopFlowTabBusy(j, flowError, jobs, index, genErrors);
+          if (res.code === 'flow_pending') return this.stopFlowTabBusy(j, flowError, jobs, index, genErrors, 'flow_pending');
+          if (res.code === 'wrong_place') return this.stopFlowTabBusy(j, flowError, jobs, index, genErrors, 'wrong_place');
           // ภาพของ Agent หาไม่เจอ = ยังไม่ได้วาด — ลองหยิบซ้ำก็ไม่เจอ และห้ามสร้างเองทีละรูป (ไปรอบ Agent ถัดไปตอนกดทำต่อ)
-          if (fromAgent && res.code === 'not_found') break;
+          if (fromAgent && res.code === 'not_found') {
+            if (this.book.imagePhase?.agentMediaIds?.[j.name]) {
+              delete this.book.imagePhase.agentMediaIds[j.name];
+              await this.save();
+            }
+            break;
+          }
           noteTrouble({ step: 'images', symptom: 'flow_failed', move: 'retry', detail: `${j.what}: ${flowError}`, by: 'Google Flow' });
           // "พบกิจกรรมที่ผิดปกติ" = หยุดทั้งคิวทันที ลองซ้ำคือยิ่งโดน
           if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(flowError)) {
@@ -4500,7 +4667,9 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
         }
         if (res.retried) this.log('ok', `ภาพ ${j.name}: Flow ขึ้นปุ่ม "ลองใหม่อีกครั้ง" — กดให้แล้ว ${res.retried} ครั้ง ได้ภาพ`);
         if (res.attachError) this.log('warn', `ภาพ ${j.name}: แนบรูปอ้างอิงใน Flow ไม่สำเร็จ (${res.attachError}) — วาดต่อโดยไม่มีรูปอ้างอิง`);
-        if (res.hiresError) this.log('warn', `ภาพ ${j.name}: ขอไฟล์ 2K ไม่สำเร็จ (${res.hiresError}) — ใช้ไฟล์ 1K แทน`);
+        const flowFileLabel = res.via === 'thumbnail' ? 'ภาพย่อบนการ์ด' : String(res.via || '').toUpperCase();
+        if (res.hiresError) this.log('warn', `ภาพ ${j.name}: ขอไฟล์ 2K ไม่สำเร็จ (${res.hiresError}) — ใช้ ${flowFileLabel} แทน`);
+        if (res.originalError) this.log('warn', `ภาพ ${j.name}: ขอไฟล์ต้นฉบับ 1K ไม่สำเร็จ (${res.originalError}) — เก็บภาพย่อและรายงานความละเอียดจริง`);
 
         try {
           this.emit({ type: 'image.progress', stage: 'download', current: index + 1, total: jobs.length, name: j.name, what: j.what });
@@ -4525,7 +4694,7 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
               textBaked: textIn,
               generationVersion: 5,
               novelStyle: fiction ? P.NOVEL_STYLE_V : null,
-              coverPromptV: j.kind === 'cover' ? P.FLOW_COVER_V : null,
+              coverPromptV: j.kind === 'cover' ? needCoverV : null,
               authorFace: j.kind === 'interior' && !!authorFig?.ref,
               targetWidthMm: j.widthMm || null,
               targetHeightMm: j.heightMm || null,
@@ -4553,13 +4722,17 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
           const dpi = candidate.meta?.effectiveDpi ? ` · ราว ${candidate.meta.effectiveDpi} dpi` : '';
           this.log(
             'ok',
-            `✓ ภาพ ${index + 1}/${jobs.length} · ${j.what}: ได้จาก Flow ${res.width}×${res.height}px (${res.via.toUpperCase()}) บันทึกเป็น ${j.name}${dpi}` +
+            `✓ ภาพ ${index + 1}/${jobs.length} · ${j.what}: ได้จาก Flow ${res.width}×${res.height}px (${flowFileLabel}) บันทึกเป็น ${j.name}${dpi}` +
               (res.renamed ? ' · ตั้งชื่อใน Flow แล้ว' : ''),
           );
           this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
           genErrors.delete(j.name);
           this.book.imagePhase = {
             ...(this.book.imagePhase || {}),
+            agentMediaIds: fromAgent && res.mediaId
+              ? { ...(this.book.imagePhase?.agentMediaIds || {}), [j.name]: res.mediaId }
+              : this.book.imagePhase?.agentMediaIds,
+            rejectedImageNames: (this.book.imagePhase?.rejectedImageNames || []).filter((n) => n !== j.name),
             failures: (this.book.imagePhase?.failures || []).filter((f) => f.name !== j.name),
             status: 'running',
             completed: index + 1,
@@ -4747,8 +4920,16 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
      */
     const viaFlow = this.book.imageSource === 'flow';
     if (viaFlow) {
-      const halted = await this.imagesViaFlow(jobs, genErrors);
+      const regenerateName = this.book.imagePhase?.regenerateImageName;
+      const flowJobs = regenerateName && jobs.some((j) => j.name === regenerateName)
+        ? jobs.filter((j) => j.name === regenerateName)
+        : jobs;
+      const halted = await this.imagesViaFlow(flowJobs, genErrors);
       if (halted) return;
+      if (regenerateName) {
+        this.book.imagePhase = { ...(this.book.imagePhase || {}), regenerateImageName: null };
+        await this.save();
+      }
     }
 
     // ตัวทดสอบเครื่องมือสร้างภาพ ยิงครั้งเดียวต่อหนึ่งรอบงาน ไม่ใช่ต่อหนึ่งรูป
@@ -5778,6 +5959,14 @@ export async function ingestImageDataUrl(book, name, dataUrl) {
   // ทางมือทุกทาง (กดดึงเอง · อัปโหลดไฟล์ · หยิบจากโฟลเดอร์) ผ่านตรงนี้ที่เดียว
   // จึงเก็บสำเนาที่นี่ที่เดียวพอ และได้ครบทุกทางโดยไม่ต้องไล่แก้ทีละปุ่ม
   const savedPath = await W.saveBookImage(book, name, candidate.blob);
+  if (book.imagePhase?.rejectedImageNames?.includes(name) || book.imagePhase?.regenerateImageName === name) {
+    book.imagePhase = {
+      ...book.imagePhase,
+      rejectedImageNames: (book.imagePhase.rejectedImageNames || []).filter((n) => n !== name),
+      regenerateImageName: book.imagePhase.regenerateImageName === name ? null : book.imagePhase.regenerateImageName,
+    };
+    await db.saveBook(book);
+  }
   return { ...candidate.meta, savedPath };
 }
 

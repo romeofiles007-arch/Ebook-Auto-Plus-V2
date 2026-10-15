@@ -52,7 +52,7 @@ test('ติดธงตอนเครื่องเริ่มเดิน �
   assert.match(run, /fullAutoRunning = true/);
   // ประตูภาพมีเหตุผลของตัวเองที่ต้องรอคนเมื่อชนลิมิต ห้ามให้ตรงนั้นเริ่มเอง
   const gate = source.slice(source.indexOf('function openImagePhaseGate'), source.indexOf('function openImagePhaseGate') + 5000);
-  assert.match(gate, /unattended && book\.job\?\.status !== 'rate_limited'/);
+  assert.match(gate, /\(autoPilot\(\) \|\| unattended\) && book\.job\?\.status !== 'rate_limited' && !book\.imagePhase\?\.flowUnusualAt/);
   // ทางออก "รอคุณอัปโหลดภาพเอง" ต้องปลดธงทั้งสองใบ ไม่งั้นปุ่มอัตโนมัติตายค้างและนาฬิกากดต่อวนเปล่า
   const manual = gate.slice(0, gate.indexOf('} else if'));
   assert.match(manual, /stopAutoPilot\(\);/);
@@ -74,7 +74,7 @@ const gateBlock = source.slice(
   source.indexOf('    return await startPhase2();') + 32,
 );
 
-async function gate(imagePhase) {
+async function gate(imagePhase, { stopped = false, busy = false, pending = false } = {}) {
   const calls = [];
   const book = { id: 'b', imagePhase, job: {} };
   const scope = {
@@ -92,10 +92,19 @@ async function gate(imagePhase) {
     runState: (s, why) => calls.push(`runState:${s}:${why}`),
     addEvent: (kind, title) => calls.push(title),
     startPhase2: async () => calls.push('startPhase2'),
+    phase2RetryTimer: null,
+    clearTimeout: () => calls.push('clearTimer'),
+    setTimeout: (fn, ms) => { scope.retry = fn; calls.push(`retry:${ms}`); return 1; },
+    unattended: !stopped,
+    autoPilot: () => false,
+    machineBusy: busy,
+    hasPendingTurn: () => pending,
+    openImagePhaseGate: async () => calls.push('openImagePhaseGate'),
   };
+  scope.db.loadBook = async () => book;
   vm.createContext(scope);
   await vm.runInContext(`(async () => {\n${gateBlock}\n})()`, scope);
-  return { calls, rounds: book.imagePhase?.autoRounds };
+  return { calls, rounds: book.imagePhase?.autoRounds, scope, book };
 }
 
 test('ภาพเคยพลาด = ลองใหม่ให้ ไม่ใช่เลิกทั้งเล่มตั้งแต่ยังไม่ได้ลอง', async () => {
@@ -106,15 +115,34 @@ test('ภาพเคยพลาด = ลองใหม่ให้ ไม่�
   assert.match(r.calls.join(), /ลองภาพที่ยังไม่ผ่านอีกครั้ง 1\/2/);
 });
 
-test('ลองจนครบเพดานแล้วยังเหมือนเดิม = เรียกคนมาดู', async () => {
+test('ภาพยังขาดหลังลองสองรอบ = พักแล้ววนกลับอัตโนมัติ ไม่เลิกเล่ม', async () => {
   // "เหมือนเดิม" ต้องหมายถึงจำนวนภาพที่ขาดไม่ลดลงด้วย ไม่ใช่แค่ยังมีรอยพลาดค้างอยู่
   const r = await gate({
     failures: [{ name: 'cover' }], status: 'partial', autoRounds: 2,
     remaining: ['cover-front.png', 'cover-back.png'], autoRoundsLeft: 2,
   });
-  assert.ok(r.calls.includes('stop'));
+  assert.equal(r.calls.includes('stop'), false);
   assert.equal(r.calls.includes('startPhase2'), false);
-  assert.match(r.calls.join(), /สร้างภาพบางรูปไม่สำเร็จหลังลองอัตโนมัติแล้ว 2 รอบ/);
+  assert.ok(r.calls.includes('retry:60000'));
+  await r.scope.retry();
+  assert.ok(r.calls.includes('openImagePhaseGate'));
+});
+
+test('ตัววนภาพไม่ปลุกงานที่หยุดเอง งานเดิมยังวิ่ง หรือ Flow แจ้งข้อจำกัด', async () => {
+  const phase = { status: 'partial', failures: [{ name: 'cover' }], autoRounds: 2, remaining: ['cover'], autoRoundsLeft: 1 };
+  for (const opts of [{ stopped: true }, { busy: true }, { pending: true }]) {
+    const r = await gate(structuredClone(phase), opts);
+    await r.scope.retry();
+    assert.equal(r.calls.includes('openImagePhaseGate'), false);
+  }
+  for (const blocked of ['rate_limited', 'flow_pending', 'unusual']) {
+    const r = await gate(structuredClone(phase));
+    if (blocked === 'rate_limited') r.book.job.status = blocked;
+    if (blocked === 'flow_pending') r.book.imagePhase.blockedCode = blocked;
+    if (blocked === 'unusual') r.book.imagePhase.flowUnusualAt = Date.now();
+    await r.scope.retry();
+    assert.equal(r.calls.includes('openImagePhaseGate'), false);
+  }
 });
 
 /**

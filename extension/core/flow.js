@@ -15,7 +15,7 @@ export const FLOW_RATIOS = { '16:9': 16 / 9, '4:3': 4 / 3, '1:1': 1, '3:4': 3 / 
  * ผู้ใช้กำหนด: รุ่นไหนก็ได้ที่ Flow บอกว่า "0 เครดิต" — Nano Banana 2 ก่อน (วาดสวยกว่า Lite ชัดเจน ผู้ใช้ขอเปลี่ยน) แล้วค่อย Lite
  * ตัวขับลองตามลำดับนี้และหยุดที่รุ่นแรกที่เป็น 0 เครดิต — รุ่นที่ต้องใช้เครดิตจะไม่ถูกกดสร้างเด็ดขาด
  */
-export const FLOW_MODELS = ['Nano Banana 2', 'Nano Banana 2 Lite', 'Nano Banana Pro'];
+export const FLOW_MODELS = ['Nano Banana 2 Lite', 'Nano Banana 2.1', 'Nano Banana Pro'];
 
 /** สัดส่วนของ Flow ที่ใกล้ช่องภาพที่สุด (เทียบแบบ log ให้แนวตั้งกับแนวนอนมีน้ำหนักเท่ากัน) */
 export function nearestFlowRatio(ratio) {
@@ -218,7 +218,7 @@ export async function flowCall(op, args = {}, { timeoutMs = 8 * 60000 } = {}) {
       waiting.delete(jobId);
       clearTimeout(w.timer);
     }
-    return { ok: false, code: 'not_accepted', error: accepted?.error || 'ส่งงานให้แท็บ Flow ไม่สำเร็จ' };
+    return { ok: false, code: accepted?.code || 'not_accepted', error: accepted?.error || 'ส่งงานให้แท็บ Flow ไม่สำเร็จ' };
   }
   return result;
 }

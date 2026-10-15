@@ -107,8 +107,8 @@ test('นาฬิกาเคารพธงหยุดของผู้ค�
   const src = await readFile(new URL('./studio.js', import.meta.url), 'utf8');
   assert.match(src, /unattended: !ceoStopped && \(unattended \|\| ceoModeOn\(\)\)/);
   assert.match(src, /if \(autoContinues >= autoContinueMax\(\)\)/);
-  // ล้างธงได้ด้วยการที่คนสั่งเริ่มหรือสั่งทำต่อเองเท่านั้น
-  assert.equal((src.match(/^\s*ceoStopped = false;/gm) || []).length, 2);
+  // ล้างธงได้ด้วยการที่คนสั่งเริ่ม สั่งทำต่อ หรือสั่งเดินขั้นภาพแบบไม่เฝ้าเองเท่านั้น
+  assert.equal((src.match(/^\s*ceoStopped = false;/gm) || []).length, 3);
 });
 
 /**

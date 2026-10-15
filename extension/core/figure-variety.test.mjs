@@ -41,7 +41,7 @@ test('อยู่โลกเดียวกับปกได้ แต่ต�
   const p = make(1);
   assert.match(p, /SAME BOOK AS THE COVER/);
   assert.match(p, /DIFFERENT moment inside that world/);
-  assert.match(p, /do not redraw the cover either/);
+  assert.match(p, /do not redraw the cover/i);
 });
 
 test('ไม่รู้ลำดับรูปก็ยังใช้จำนวนรูปก่อนหน้าแทนได้', () => {

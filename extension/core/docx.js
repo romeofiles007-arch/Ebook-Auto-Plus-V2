@@ -10,6 +10,7 @@
  */
 
 import { stripZwsp } from './thai.js';
+import { plainMath } from './plain-math.js';
 import { backMatterSections } from './references.js';
 import { stripEchoedHeading } from './extract.js';
 import { FIG_RE, withFigureMarkers } from './figure-markers.js';
@@ -171,7 +172,7 @@ const pageBreak = () => '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 /** แตก markdown เป็นบล็อกแบบง่าย ๆ เท่าที่ prompt อนุญาตให้โมเดลใช้ */
 function mdBlocks(md, figureByName = new Map(), showPrompts = false) {
   const out = [];
-  for (const raw of String(md).split(/\n{2,}/)) {
+  for (const raw of plainMath(md).split(/\n{2,}/)) {
     const block = raw.trim();
     if (!block) continue;
 

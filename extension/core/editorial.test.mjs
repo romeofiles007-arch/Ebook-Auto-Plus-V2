@@ -82,6 +82,30 @@ test('review and repair allow cuts while preserving evidence and image markers',
   assert.doesNotMatch(repair, /ไม่ใช่ปล่อยให้ตอนสั้นลง|บวกลบไม่เกิน 10 เปอร์เซ็นต์/);
 });
 
+test('batched repair keeps each section issue and a separately extractable answer', () => {
+  const targets = sections.map((section) => ({
+    section,
+    currentText: `ต้นฉบับของตอน ${section.id} `.repeat(18),
+    issues: [{ label: 'อ่านแล้วสะดุด', text: `ปัญหาเฉพาะตอน ${section.id}`, fix: 'เขียนใจความให้ชัด' }],
+  }));
+  const prompt = P.repairBatchPrompt(book, targets);
+  for (const target of targets) {
+    assert.ok(prompt.includes(target.currentText));
+    assert.ok(prompt.includes(target.issues[0].text));
+    assert.ok(prompt.includes(`<<<SEC ${target.section.id} BEGIN>>>`));
+    assert.ok(prompt.includes(`<<<META ${target.section.id} BEGIN>>>`));
+  }
+  const response = targets.map(({ section }) =>
+    `<<<SEC ${section.id} BEGIN>>>\n${(`ฉบับแก้ของตอน ${section.id} `).repeat(20)}\n<<<SEC ${section.id} END>>>\n<<<META ${section.id} BEGIN>>>\n{"summary":"แก้แล้ว"}\n<<<META ${section.id} END>>>`,
+  ).join('\n');
+  for (const target of targets) {
+    const extracted = X.extractSection(response, target.section.id);
+    assert.equal(extracted.status, 'ok');
+    assert.ok(extracted.body.includes(target.section.id));
+    assert.equal(extracted.meta.summary, 'แก้แล้ว');
+  }
+});
+
 test('page fitting can report a completed section instead of inventing filler', () => {
   const rewrite = P.rewritePrompt({ book, section: { ...sections[0], chars: 1000 }, currentText: 'ต้นฉบับ', targetChars: 2000 });
   assert.match(rewrite, /META.short_reason/);

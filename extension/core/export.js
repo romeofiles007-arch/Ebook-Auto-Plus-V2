@@ -19,6 +19,7 @@ import { stripEchoedHeading } from './extract.js';
 import { mdToHtml } from './md-html.js';
 import { withFigureMarkers } from './figure-markers.js';
 import { frontMatterPages } from './book-parts.js';
+import { assertExportImages, assertPdfImagesPlaced } from './export-images.js';
 
 let exportDirectoryHandle = null;
 
@@ -97,12 +98,14 @@ const interiorAsset = (a) => !!a?.blob && (a.name?.startsWith('fig-') || a.name 
 export async function exportInterior(book, sections, { withBleed = true } = {}) {
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
   const assets = (await db.loadAssets(book.id)).filter(interiorAsset);
+  const requiredImages = assertExportImages(book, assets);
   const src = buildInteriorSource(book, sections, {
     withBleed,
     padPages: book.padPages || 0,
     assetNames: assets.map((a) => a.name),
   });
   const files = await packAssets(assets);
+  assertPdfImagesPlaced(src, requiredImages);
   const blob = await toPdf(src, files);
   await download(blob, outFile(book, 'เนื้อใน สำหรับโรงพิมพ์', 'pdf'));
   return blob.size;
@@ -114,6 +117,7 @@ export async function exportScreen(book, sections) {
   const b = structuredClone(book);
   b.watermark = 'DRAFT';
   const assets = (await db.loadAssets(book.id)).filter(interiorAsset);
+  const requiredImages = assertExportImages(book, assets);
   const src = buildInteriorSource(b, sections, {
     withBleed: false,
     padPages: 0,
@@ -121,6 +125,7 @@ export async function exportScreen(book, sections) {
     assetNames: assets.map((a) => a.name),
   });
   const files = await packAssets(assets);
+  assertPdfImagesPlaced(src, requiredImages);
   const blob = await toPdf(src, files);
   await download(blob, outFile(book, 'ฉบับตรวจงาน', 'pdf'));
   return blob.size;
@@ -144,6 +149,7 @@ export async function exportBookPdf(book, sections) {
         a.name === 'author-photo.png'),
   );
   const names = assets.map((a) => a.name);
+  const requiredImages = assertExportImages(book, assets, { covers: true });
   const haveFrontCover = names.includes('cover-front.png');
   const haveBackCover = names.includes('cover-back.png');
   const src = buildInteriorSource(book, sections, {
@@ -157,6 +163,7 @@ export async function exportBookPdf(book, sections) {
     authorPhotoName: 'author-photo.png',
   });
   const files = await packAssets(assets);
+  assertPdfImagesPlaced(src, requiredImages);
   const blob = await toPdf(src, files);
   await download(blob, outFile(book, '', 'pdf'));
   return {
@@ -230,7 +237,7 @@ export async function exportCover(book, { frontDataUrl, backDataUrl, authorDataU
   return { size: blob.size, geo };
 }
 
-function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
+export function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
   const baked = frontCoverTextInImage(book);
   const bleed = book.trim.bleedMm || 3;
   const t = book.typography;
@@ -282,6 +289,9 @@ function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
   const fullH = geo.heightMm;
   const panelW = book.trim.widthMm;
   const panelH = book.trim.heightMm;
+  // ข้อความสันต้องจัดในกล่องยาวก่อนหมุน ไม่ให้ตัวจัดบรรทัดเห็นความกว้างสันเพียงไม่กี่มิลลิเมตร
+  const spineLabel = JSON.stringify([titleText, book.author].filter(Boolean).join(' · '));
+  const spineFontPt = Math.min(9, t.sizePt, Math.max(5, (geo.spineMm - 2) * 72 / 25.4 * 0.65));
   // ไม่แปะรูปถ่ายผู้เขียนในทุกโหมด — ผู้เขียนถูกวาดเป็นคนในภาพปกหลังแล้ว (ผู้ใช้: "ยกเลิกทุกโหมดเลย")
   const showAuthorPhoto = false;
   const backTextY = bleed + (showAuthorPhoto ? 66 : 30);
@@ -307,17 +317,19 @@ function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
           #text(size: ${t.sizePt}pt, fill: rgb("${inkCol}"))[${JSON.stringify(book.blurb || '')}]
         ]
       ]`}
-      // เขตบาร์โค้ด ต้องว่างและสว่างเสมอ
-      #place(bottom + right, dx: -${bleed + 8}mm, dy: -${bleed + 8}mm)[
+      // จองช่องเฉพาะเมื่อมี ISBN; เล่มที่ไม่มีไม่ควรมีสี่เหลี่ยมว่างบังงานปก
+      ${book.isbn ? `#place(bottom + right, dx: -${bleed + 8}mm, dy: -${bleed + 8}mm)[
         #rect(width: 50mm, height: 30mm, fill: white, stroke: none)
-      ]
+      ]` : ''}
     ],
     // ---- สัน ----
     box(width: ${geo.spineMm}mm, height: ${fullH}mm, fill: rgb("${accent}"))[
       ${
         geo.spineTextAllowed
-          ? `#place(center + horizon)[#rotate(-90deg, reflow: false)[
-          #text(size: ${Math.min(t.sizePt, geo.spineMm * 1.6)}pt, fill: rgb("${paperCol}"))[${title} · ${author}]
+          ? `#align(center + horizon)[#rotate(-90deg, reflow: true)[
+          #box(width: ${panelH - 20}mm, height: ${Math.max(1, geo.spineMm - 2)}mm)[
+            #align(center + horizon)[#text(size: ${spineFontPt}pt, fill: rgb("${paperCol}"), ${spineLabel})]
+          ]
         ]]`
           : ''
       }

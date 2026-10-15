@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
+import { serviceWorkerSource } from '../tools/test-worker-source.mjs';
 
-const workerSource = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+const workerSource = await serviceWorkerSource();
 
 /**
  * ปุ่มหยุด/ทำต่อบนแผงข้างสั่งงานที่เดินอยู่ในหน้า Studio ที่เปิดค้างไว้

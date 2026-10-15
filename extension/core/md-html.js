@@ -9,6 +9,7 @@
  * และแยกจาก reader.js เพราะไฟล์นั้นแตะ DOM ตั้งแต่บรรทัดแรก ทดสอบตรง ๆ ไม่ได้
  */
 
+import { plainMath } from './plain-math.js';
 import { readTable } from './md-table.js';
 import { FIG_RE } from './figure-markers.js';
 
@@ -58,7 +59,7 @@ const readerFigure = ({ name, caption, widthPct, heightMm }) =>
 export function mdToHtml(md, opts = {}) {
   const out = [];
   // ตารางต้องถูกแยกออกก่อนตัดย่อหน้า เพราะแถวของมันคั่นด้วยบรรทัดว่างได้
-  for (const chunk of chunkByTables(String(md))) {
+  for (const chunk of chunkByTables(plainMath(md))) {
     if (chunk.rows) out.push(tableHtml(chunk, opts));
     else out.push(blocksToHtml(chunk.text, opts));
   }

@@ -22,6 +22,35 @@ test('"พบกิจกรรมที่ผิดปกติ" ห้าม�
   assert.match(src, /e\.code = UNUSUAL_TEXT\.test\(why\) \? 'unusual_activity' : 'generation_failed';/);
 });
 
+test('ปุ่ม Flow ถูกบังหรือ Agent ปิดไม่ลง: หยุดทันที ไม่รอ 1 และ 3 นาทีเพื่อลองคลิกซ้ำ', () => {
+  assert.match(src, /async function agentOff\(\) \{\s+await closeAgentChat\(\);\s+.*if \(settingsPane\(\)\) await closePane\(\);/s);
+  assert.match(src, /const hit = document\.elementFromPoint\(x, y\);/);
+  assert.match(src, /error\.code = 'wrong_place';/);
+  assert.match(src, /Flow ไม่ยอมปิด Agent เพื่อสลับไปสร้างปก/);
+  assert.match(machine, /if \(res\.code === 'wrong_place'\) return this\.stopFlowTabBusy/);
+});
+
+test('บันทึก Agent settings ด้วยการกดจริงก่อนรอให้แผงปิด', () => {
+  assert.match(src, /await trustedClick\(await waitFor\(\(\) => \$\$\('button', openPanel\(\) \?\? document\)\.find\(\(b\) => AL\.save\.includes\(text\(b\)\)\)/);
+  assert.match(src, /await waitFor\(\(\) => !openPanel\(\), \{ timeout: 10000, label: 'บันทึก Agent settings' \}\);/);
+});
+
+test('Flow หา media id เก่าไม่พบ: ค้นชื่อภาพใน grid และรับเฉพาะชื่อที่มีหนึ่งภาพ', () => {
+  assert.match(src, /async function recoverTileByName\(name\)/);
+  assert.match(src, /await scanAllTiles\(\);/);
+  assert.match(src, /ids\.length !== 1 \|\| !\(await revealTile\(ids\[0\]\)\)/);
+  assert.match(src, /id = await recoverTileByName\(args\.name\);/);
+  assert.match(src, /findTile\(ids\[0\]\)\?\.getAttribute\('aria-label'\) === name \? ids\[0\] : null/);
+});
+
+test('ทำต่อ: กู้ภาพ Agent ที่มีชื่ออยู่ใน project ก่อนส่งคำสั่งสร้างซ้ำ', () => {
+  assert.match(src, /async function opLookupNamed\(\{ names = \[\] \} = \{\}\)/);
+  assert.match(src, /lookupNamed: opLookupNamed/);
+  assert.match(machine, /flowCall\('lookupNamed', \{ names: recoverable\.map\(\(j\) => j\.name\) \}/);
+  assert.match(machine, /todo = todo\.filter\(\(j\) => !recovered\.mediaIds\[j\.name\]\);/);
+  assert.match(machine, /projectId\(this\.book\.imagePhase\.flowProjectUrl\) !== projectId\(prep\.projectUrl\)/);
+});
+
 /** ผู้ใช้: "เงียบ" — prompt อยู่เต็มช่องแชต แต่ไม่ถูกส่ง ค้างที่ "พิมพ์ Prompt ลงช่อง" */
 test('ช่องพิมพ์ ChatGPT: เทียบข้อความแบบไม่สนเครื่องหมาย markdown · คำสั่งตัดส่วนซ้ำไม่ยก markdown มา', async () => {
   const chat = await readFile(new URL('./chatgpt.js', import.meta.url), 'utf8');
@@ -59,7 +88,7 @@ test('ขั้นพิมพ์ไม่ค้าง: ทุกคำสั่
 });
 
 /** ผู้ใช้: "ทำไมภาพนิยายไม่แนบหน้าตัวละครไปด้วยหละ" */
-test('Flow Agent: นับว่าแนบภาพต้นแบบครบไหม · นิยายแนบไม่ครบ = สร้างทีละรูปพร้อมภาพต้นแบบแทน', async () => {
+test('Flow Agent: ภาพประกอบแนบต้นแบบครบ และไม่สลับไปสร้างแบบปกติเมื่อแนบไม่สำเร็จ', async () => {
   const flow = await readFile(new URL('./flow.js', import.meta.url), 'utf8');
   assert.match(flow, /if \(!attachError && attached < args\.refs\.length\) attachError = `แนบภาพต้นแบบได้ \$\{attached\}\/\$\{args\.refs\.length\} ภาพ`;/);
   assert.match(flow, /if \(attachError && args\.requireRefs\) \{/);
@@ -67,8 +96,28 @@ test('Flow Agent: นับว่าแนบภาพต้นแบบคร�
   const machine = await readFile(new URL('../core/machine.js', import.meta.url), 'utf8');
   // ทุกหน้าที่กำหนดไว้ (ตัวละคร + ผู้เขียน) — ผู้ใช้: "ต้องแนบหน้าภาพผู้เขียนที่กำหนด ตัวละครด้วย"
   assert.match(machine, /requireRefs: refs\.length > 0,/);
-  // ภาพที่มีคนเกิน 4 คนที่แนบได้ในชุด Agent → สร้างทีละรูปพร้อมภาพต้นแบบครบ
+  // ภาพที่มีคนเกิน 4 คนที่แนบได้ในชุด Agent → ขอ Agent แยกช็อตพร้อมภาพต้นแบบครบ
   assert.ok(machine.includes('const lacking = shots.filter((s) => s.people.some((n) => used.get(n)?.ref && !onAgent.has(n)));'));
-  assert.match(machine, /if \(res\.code === 'refs_not_attached'\) \{[\s\S]*?this\.agentFallback\.add\(j\.name\)/);
-  assert.match(machine, /const fromAgent = pageAgent && j\.kind === 'interior' && !this\.agentFallback\?\.has\(j\.name\);/);
+  assert.match(machine, /if \(res\.code === 'refs_not_attached'\) \{\s*return this\.stopFlowTabBusy/);
+  assert.match(machine, /const fromAgent = j\.kind === 'interior';/);
+  assert.doesNotMatch(machine, /agentFallback/);
+});
+
+test('Flow Agent: เลือก Settings ข้างปุ่ม Agent และหยุดก่อนคลิกเมื่อเป้าหมายถูกบัง', () => {
+  assert.match(src, /const agentSettingsTrigger = \(\) => \{/);
+  assert.match(src, /for \(let root = chip\.parentElement; root && root !== document\.body; root = root\.parentElement\)/);
+  assert.match(src, /\['Settings', 'การตั้งค่า'\]\.includes\(button\.getAttribute\('title'\)\)/);
+  assert.match(src, /\['Settings', 'การตั้งค่า'\]\.includes\(text\(button\)\)/);
+  assert.match(src, /button\.matches\('button\.settings-trigger-button'\)/);
+  assert.match(src, /if \(settings\.length === 1\) return settings\[0\];/);
+  assert.match(src, /if \(root\.matches\('flow-prompt-box, flow-base-prompt-box'\) \|\| \(editor && root\.contains\(editor\)\)\) break;/);
+  assert.match(src, /chip\.getAttribute\('aria-checked'\) === 'true'/);
+  assert.match(src, /!!scopedAgentSettings\(\)/);
+  assert.doesNotMatch(src, /Math\.abs\(r\.top - c\.top\)/);
+  assert.match(src, /const settings = await waitFor\(agentSettingsTrigger/);
+  assert.match(src, /await trustedClick\(settings\);/);
+  assert.match(src, /const hit = document\.elementFromPoint\(x, y\);/);
+  assert.match(src, /await trustedClick\(chip\);\s*if \(await waitFor\(agentOn, \{ timeout: 8000/);
+  assert.match(src, /Agent settings\|การตั้งค่า Agent/);
+  assert.match(src, /await waitFor\(openPanel, \{ label: 'Agent settings' \}\);/);
 });

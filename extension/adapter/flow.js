@@ -1,13 +1,8 @@
 /**
- * Adapter ของ Google Flow (flow.google.com) — สร้างภาพให้ Ebook Plus ทีละรูป
+ * Adapter ของ Google Flow (flow.google.com) — ปก/ลายพื้นหลังวาดปกติ ภาพประกอบวาดด้วย Agent
  *
- * ต่อยอดจากตัวขับ Flow ของโปรเจกต์ Youtube Free animation Auto แต่เลือกทางต่างกันหนึ่งเรื่อง:
- * ที่นั่นส่งทั้งชุดให้ Flow Agent แล้วสั่งให้ agent ตั้งชื่อภาพเอง ที่นี่ใช้ช่องพิมพ์ปกติทีละรูป
- *
- *   · หนังสือหนึ่งเล่มมีหลายสัดส่วนในงานเดียว (ปก 3:4 · ภาพประกอบ 4:3 / 16:9)
- *     Agent ตั้งค่าเริ่มต้นได้สัดส่วนเดียว ช่องพิมพ์ปกติเลือกได้ทุกรูป — ภาพจึงไม่ต้องถูกครอป
- *   · ส่งทีละรูปแล้วรอ tile ใหม่ = รู้แน่ว่า tile ไหนคือรูปไหน ไม่ต้องพึ่งให้ agent ตั้งชื่อถูก
- *     แล้วเราเปลี่ยนชื่อ tile ใน Flow เป็นชื่อไฟล์ที่ ChatGPT วางแผนไว้เองผ่านเมนู "เปลี่ยนชื่อ"
+ *   · ปกและลายพื้นหลังใช้ช่องพิมพ์ปกติ สร้างทีละรูปแล้วจับ tile ใหม่
+ *   · ภาพประกอบในเล่มแยกชุดตามสัดส่วน ส่งให้ Agent แล้วจับคู่ภาพกับรหัส media ของแต่ละช็อต
  *   · ดึงไฟล์ด้วยเมนู ดาวน์โหลด → 2K (1792×2400 สำหรับ 3:4 ≈ 300 dpi บน A5) ไม่ใช่ภาพย่อบน tile
  *     ถ้า 2K ไม่มา ถอยไปใช้ภาพ 1K บน tile (ยังใช้ได้ แต่ dpi ต่ำกว่า)
  *
@@ -16,12 +11,18 @@
  *
  * ข้อความที่รับ (ผ่าน service worker):
  *   flow.ping                                      → { ok, url, loggedIn, busy }
- *   flow.run { jobId, op: 'prepare'|'generate', args }  → { ok:true } ทันที
+ *   flow.run { jobId, op: 'prepare'|'generate'|'agentBatch'|'lookupNamed', args }  → { ok:true } ทันที
  *     แล้วส่งผลกลับเป็น runtime message { type:'flow.result', jobId, result }
  *     เพราะงานหนึ่งรูปใช้เวลาเป็นนาที นานกว่าที่ service worker จะอยู่รอถือ sendResponse ไว้ได้
  */
 (() => {
   if (globalThis.__ebookPlusFlow) return; // ฉีดซ้ำ → ไม่เพิ่ม listener ซ้ำ
+  /**
+   * รุ่นของตัวขับ — ต้องตรงกับ FLOW_ADAPTER_REV ใน sw.js
+   * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
+   * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
+   */
+  const ADAPTER_REV = 6;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = (el) => (el?.innerText ?? el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -74,10 +75,10 @@
   }
 
   /** คลิกแบบคนจริง — ปุ่ม Material บางตัวไม่รับ .click() เปล่า ๆ (บทเรียนจากโปรเจกต์ Youtube) */
-  function realClick(el) {
-    el.scrollIntoView?.({ block: 'center' });
+  function realClick(el, point) {
+    if (!point) el.scrollIntoView?.({ block: 'center' });
     const r = el.getBoundingClientRect();
-    const o = { bubbles: true, cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+    const o = { bubbles: true, cancelable: true, composed: true, clientX: point?.x ?? r.left + r.width / 2, clientY: point?.y ?? r.top + r.height / 2, button: 0 };
     el.dispatchEvent(new PointerEvent('pointerdown', o));
     el.dispatchEvent(new MouseEvent('mousedown', o));
     el.dispatchEvent(new PointerEvent('pointerup', o));
@@ -93,17 +94,130 @@
    * ส่วนเมนูและช่องอื่น ๆ ยังรับคลิกของสคริปต์ตามปกติ จึงใช้ทางนี้เฉพาะจุดที่จำเป็น
    * ถ้าเรียก debugger ไม่ได้ (เช่นฉีดทดสอบในหน้าเว็บตรง ๆ) ถอยไปใช้ realClick
    */
-  async function trustedClick(el) {
-    el.scrollIntoView?.({ block: 'center' });
-    await sleep(150);
+  // ปุ่มอาจถูกตัดขอบ viewport หรือมี tooltip บังเฉพาะตรงกลาง: รับเฉพาะจุดที่ hit เป็นปุ่มนี้จริง
+  function clickPoint(el) {
+    if (!el?.isConnected || el.disabled || el.getAttribute('aria-disabled') === 'true') return null;
     const r = el.getBoundingClientRect();
-    const x = Math.round(r.left + r.width / 2);
-    const y = Math.round(r.top + r.height / 2);
+    if (!r.width || !r.height) return null;
+    const left = Math.max(0, r.left);
+    const top = Math.max(0, r.top);
+    const right = Math.min(innerWidth, r.left + r.width);
+    const bottom = Math.min(innerHeight, r.top + r.height);
+    if (right - left < 2 || bottom - top < 2) return null;
+    for (const [fx, fy] of [[0.5, 0.5], [0.25, 0.5], [0.75, 0.5], [0.5, 0.25], [0.5, 0.75]]) {
+      const x = Math.round(left + (right - left - 1) * fx);
+      const y = Math.round(top + (bottom - top - 1) * fy);
+      const hit = document.elementFromPoint(x, y);
+      if (hit && (hit === el || el.contains(hit))) return { x, y };
+    }
+    return null;
+  }
+
+  /**
+   * เล็งก่อนคลิก — พิกัดที่หน้าเว็บวัดได้ (CSS px) กับพิกัดที่ตัวดีบักของ Chrome ใช้ไม่ตรงกันเมื่อแท็บถูกซูม
+   *
+   * ผู้ใช้: "อาการเหมือนมันกดปุ่มไม่ถูก และบางครั้งก็ดึงภาพพลาด" — หน้า Flow ของผู้ใช้ถูกซูมเล็กกว่า 100%
+   * คลิกทุกครั้ง (ปุ่มสร้าง · แผงตั้งค่า · เมนูดาวน์โหลด 2K) จึงตกห่างจากปุ่มจริงตามสัดส่วนซูม
+   * แล้วระบบก็ลองซ้ำ รอ และถอยไปภาพความละเอียดต่ำ — เห็นเป็นช้ามาก กดไม่ถูก และดึงภาพพลาด
+   *
+   * ไม่เดาค่าซูม: เลื่อนเมาส์จริงไปชี้ก่อน (ยังไม่กด) แล้วดูว่าเหตุการณ์ mousemove ไปตกที่ไหนในหน้า
+   * ตกคลาด = ได้อัตราส่วนที่ถูกจากของจริง ปรับแล้วชี้ใหม่ · ชี้โดนปุ่มที่ตั้งใจแล้วจึงกด · ไม่โดน = ไม่กด
+   * อัตราส่วนที่ได้จำไว้ใช้กับคลิกถัดไป ไม่ต้องเล็งใหม่ทุกครั้ง
+   */
+  let lastMove = null;
+  /** ความสัมพันธ์ของพิกัด: จุดที่ตกในหน้า = a × จุดที่ส่งให้ตัวดีบัก + b (แต่ละแกน) — จำไว้ใช้กับคลิกถัดไป */
+  let aim = { ax: 1, bx: 0, ay: 1, by: 0 };
+  document.addEventListener('mousemove', (e) => {
+    if (e.isTrusted) lastMove = { x: e.clientX, y: e.clientY, target: e.target };
+  }, true);
+  const describe = (node) => {
+    const el = node?.nodeType === 1 ? node : node?.parentElement;
+    return el ? (text(el.closest('button') || el).slice(0, 30) || el.tagName.toLowerCase()) : 'ไม่มีอะไร';
+  };
+
+  async function aimTrusted(el, x, y) {
+    /** เลื่อนเมาส์จริงไปที่พิกัดของตัวดีบัก (ยังไม่กด) แล้วคืนจุดที่เหตุการณ์ mousemove ตกจริงในหน้า */
+    const probe = async (sx, sy) => {
+      lastMove = null;
+      const res = await chrome.runtime.sendMessage({ type: 'sw.trustedClick', x: sx, y: sy, moveOnly: true }).catch(() => null);
+      if (!res?.ok) return { legacy: true }; // service worker รุ่นเก่ายังไม่รู้จัก moveOnly — คลิกแบบเดิม
+      const t0 = performance.now();
+      while (!lastMove && performance.now() - t0 < 700) await sleep(30);
+      return lastMove ? { ...lastMove } : null;
+    };
+    const inverse = () => ({ x: (x - aim.bx) / aim.ax, y: (y - aim.by) / aim.ay });
+    // จุดที่ตกตรงที่ตั้งใจ = พิกัดถูกแล้ว · ใต้เมาส์เป็นปุ่มที่ตั้งใจ หรือเป็นของที่โผล่เพราะเมาส์ผ่าน (ภาพตัวอย่าง ฯลฯ) ก็กดได้
+    const onTarget = (m) => m && (m.target === el || el.contains(m.target) || (Math.abs(m.x - x) <= 3 && Math.abs(m.y - y) <= 3));
+
+    const s0 = inverse();
+    const m0 = await probe(s0.x, s0.y);
+    // แท็บที่ไม่ได้แสดงอยู่บางครั้งไม่ส่ง mousemove ให้ตรวจ — ไม่มีหลักฐานว่าคลาด จึงคลิกแบบเดิม
+    if (!m0 || m0.legacy || onTarget(m0)) return s0;
+
+    /**
+     * ตกคลาด: วัดจุดที่สองแล้วหาความสัมพันธ์ "จุดที่ส่ง → จุดที่ตก" ของแต่ละแกน (สัดส่วน + ระยะเลื่อน)
+     * ครอบทั้งซูมของแท็บ (สัดส่วน) และพิกัดที่เลื่อนไปทั้งหน้า (ระยะเลื่อนคงที่) — เจอจริง: ซูม 100% แล้วยังชี้โดน "favorite"
+     */
+    const s1 = { x: s0.x > 120 ? s0.x - 80 : s0.x + 80, y: s0.y > 120 ? s0.y - 60 : s0.y + 60 };
+    const m1 = await probe(s1.x, s1.y);
+    if (m1 && !m1.legacy) {
+      const fit = (sa, sb, la, lb, old) => {
+        const k = (lb - la) / (sb - sa);
+        return k > 0.2 && k < 5 ? { k, b: la - k * sa } : old;
+      };
+      const fx = fit(s0.x, s1.x, m0.x, m1.x, { k: aim.ax, b: aim.bx });
+      const fy = fit(s0.y, s1.y, m0.y, m1.y, { k: aim.ay, b: aim.by });
+      aim = { ax: fx.k, bx: fx.b, ay: fy.k, by: fy.b };
+      const s2 = inverse();
+      const m2 = await probe(s2.x, s2.y);
+      if (!m2 || m2.legacy || onTarget(m2)) return s2;
+    }
+    /**
+     * วัดแล้วยังไม่ลงตัว = การวัดเองไม่น่าเชื่อ (เจอจริง: ซูม 100% แต่ค่าที่วัดได้กระโดด "ตั้งใจ (1333,880) ตกที่ (1267,732)")
+     * ตัวเล็งไม่ใช่ด่านกั้น — คืนค่าความสัมพันธ์เดิมแล้วกดที่พิกัดที่หน้าเว็บวัดได้ตามที่ทำมาก่อนมีตัวเล็ง
+     * ด่านที่ตรวจว่ากดได้ผลจริงอยู่ที่ผู้เรียก (เช่น ข้อความหายจากช่องพิมพ์ · เมนูเปิด)
+     */
+    aim = { ax: 1, bx: 0, ay: 1, by: 0 };
+    return { x, y };
+  }
+
+  async function trustedClick(target) {
+    const resolve = typeof target === 'function' ? target : () => target;
+    let el = null;
+    let point = null;
+    // Flow วาด composer ใหม่หลังปิดแผง/เปลี่ยนโมเดล: หา node และวัดใหม่โดยยังไม่ส่งคลิก
+    for (let attempt = 0; attempt < 8; attempt++) {
+      el = resolve();
+      el?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      await sleep(150);
+      if (el !== resolve()) continue;
+      point = clickPoint(el);
+      if (point) break;
+    }
+    if (!point) {
+      const error = new Error('ตำแหน่งปุ่มใน Flow เปลี่ยนหรือมีแผงบัง — หยุดก่อนคลิกเพื่อไม่ให้กดผิดปุ่ม');
+      error.code = 'wrong_place';
+      throw error;
+    }
+    const { x, y } = point;
     if (typeof chrome !== 'undefined' && chrome.runtime?.id) {
-      const res = await chrome.runtime.sendMessage({ type: 'sw.trustedClick', x, y }).catch((e) => ({ ok: false, error: e?.message }));
+      const aim = await aimTrusted(el, x, y);
+      if (aim.miss) {
+        const error = new Error(`เมาส์ไปไม่ถึงปุ่มใน Flow (ชี้โดน "${aim.miss}") — หยุดก่อนคลิกเพื่อไม่ให้กดผิดปุ่ม`);
+        error.code = 'wrong_place';
+        throw error;
+      }
+      const res = await chrome.runtime.sendMessage({ type: 'sw.trustedClick', x: aim.x, y: aim.y }).catch((e) => ({ ok: false, error: e?.message }));
       if (res?.ok) return true;
     }
-    realClick(el);
+    // debugger อาจใช้เวลาจนหน้าเปลี่ยน: ห้าม fallback ไปคลิก node/พิกัดเดิมโดยไม่ตรวจซ้ำ
+    const fallbackPoint = el === resolve() ? clickPoint(el) : null;
+    if (!fallbackPoint) {
+      const error = new Error('ปุ่มใน Flow เปลี่ยนระหว่างเตรียมคลิก — หยุดรอให้ตรวจหน้า Flow ก่อน');
+      error.code = 'wrong_place';
+      throw error;
+    }
+    realClick(el, fallbackPoint);
     return false;
   }
 
@@ -131,7 +245,33 @@
     tiles: () => $$('flow-grid-tile-container'),
   };
 
-  const agentOn = () => SEL.agentChip()?.getAttribute('aria-pressed') === 'true';
+  // Flow บางรอบไม่อัปเดต aria-pressed ของ chip แต่เปลี่ยนปุ่มตั้งค่าใน composer เป็น Settings ของ Agent แล้ว
+  const scopedAgentSettings = (allowClass = false) => {
+    const chip = SEL.agentChip();
+    if (!chip) return null;
+    const editor = SEL.editor();
+    for (let root = chip.parentElement; root && root !== document.body; root = root.parentElement) {
+      const settings = $$('button', root).filter((button) => visible(button) && (
+        ['Settings', 'การตั้งค่า'].includes(button.getAttribute('aria-label')) ||
+        ['Settings', 'การตั้งค่า'].includes(button.getAttribute('title')) ||
+        ['Settings', 'การตั้งค่า'].includes(text(button)) ||
+        (allowClass && button.matches('button.settings-trigger-button'))
+      ));
+      if (settings.length === 1) return settings[0];
+      if (settings.length > 1) return null;
+      // ไม่ไต่ไปถึง Settings ส่วนหัวของเว็บ
+      if (root.matches('flow-prompt-box, flow-base-prompt-box') || (editor && root.contains(editor))) break;
+    }
+    return null;
+  };
+  const agentOn = () => {
+    const chip = SEL.agentChip();
+    return !!chip && (
+      chip.getAttribute('aria-pressed') === 'true' ||
+      chip.getAttribute('aria-checked') === 'true' ||
+      !!scopedAgentSettings()
+    );
+  };
   const inProject = () => /\/project\//.test(location.pathname);
 
   async function openProject() {
@@ -207,13 +347,36 @@
 
   async function agentOff() {
     await closeAgentChat();
-    for (let i = 0; i < 6 && agentOn(); i++) {
+    // เมนูโมเดลที่ค้างจากชุด Agent บังปุ่ม Agent; ปิดก่อนสลับกลับไปวาดปก
+    if (settingsPane()) await closePane();
+    /**
+     * ทางเดิมที่เคยใช้ได้จริงก่อน: คลิกแบบสคริปต์สลับสองแบบ ลองได้หลายครั้ง
+     * (เจอจริง: เปลี่ยนเป็นคลิกพิกัดครั้งเดียวแล้วหยุดด้วย "Flow ไม่ยอมปิด Agent เพื่อสลับไปสร้างปก")
+     * ไม่ดับค่อยใช้คลิกพิกัดเป็นทางสุดท้าย
+     */
+    for (let i = 0; i < 4 && agentOn(); i++) {
       const chip = await waitFor(SEL.agentChip, { label: 'ปุ่ม Agent' });
       i % 2 === 0 ? chip.click() : realClick(chip);
       await waitFor(() => !agentOn(), { timeout: 2500, label: 'ปิด Agent' }).catch(() => null);
       await sleep(300);
     }
-    if (agentOn()) throw new Error('ปิดโหมด Agent ของ Flow ไม่สำเร็จ — กดปุ่ม Agent ในช่องพิมพ์ให้ดับเองแล้วสั่งใหม่');
+    if (agentOn()) {
+      const chip = await waitFor(SEL.agentChip, { label: 'ปุ่ม Agent' });
+      await trustedClick(chip);
+      try {
+        await waitFor(() => !agentOn(), { timeout: 5000, label: 'ปิด Agent' });
+      } catch (cause) {
+        const error = new Error('Flow ไม่ยอมปิด Agent เพื่อสลับไปสร้างปก — หยุดรอให้ตรวจหน้า Flow ก่อน');
+        error.code = 'wrong_place';
+        error.cause = cause;
+        throw error;
+      }
+    }
+    if (agentOn()) {
+      const error = new Error('ปิดโหมด Agent ของ Flow ไม่สำเร็จ — กดปุ่ม Agent ในช่องพิมพ์ให้ดับเองแล้วสั่งใหม่');
+      error.code = 'wrong_place';
+      throw error;
+    }
     /**
      * แผงตั้งค่า Agent อาจเปิดค้างอยู่ด้านขวา — ปิดทิ้ง ไม่ต้องบันทึกอะไร
      * ต้องกดเฉพาะปุ่ม ← ที่อยู่ในแผงนั้นเท่านั้น: ในคอลเล็กชัน ปุ่ม ← มุมซ้ายบนคือ "กลับหน้าหลักของ project"
@@ -258,14 +421,27 @@
 
   /** ปิดแผงตั้งค่าให้แน่ — บางครั้ง Esc และคลิกฉากหลังไม่ปิด (เห็นกับหน้าจริง) ต้องกดปุ่มเดิมซ้ำเพื่อพับ */
   async function closePane() {
-    for (let i = 0; i < 3 && settingsPane(); i++) {
-      if (i === 0) escape();
-      else realClick(await waitFor(SEL.settingsTrigger, { timeout: 3000, label: 'ปุ่มตั้งค่าโมเดล' }).catch(() => document.body));
-      await waitFor(() => !settingsPane(), { timeout: 1500, label: 'ปิดแผงตั้งค่า' }).catch(() => null);
+    if (!settingsPane()) return;
+    const modelOptions = () => $$('[role="menuitem"], [role="option"]').filter(visible);
+    if (modelOptions().length) {
+      // เมนูมี backdrop ทับปุ่มรุ่นภาพอยู่: การกดปุ่มนั้นด้วยพิกัดจริงจะชน backdrop
+      // เลือกรุ่นที่ใช้อยู่ซ้ำจากรายการที่มองเห็นเพื่อพับเมนูโดยไม่เปลี่ยนค่า
+      const current = readPane()?.model;
+      const selected = modelOptions().find((m) => text(m).replace(/^\S+\s/, '') === current);
+      if (!selected) throw new Error('เมนูโมเดลของ Flow เปิดอยู่ แต่ไม่พบรุ่นที่เลือกไว้สำหรับปิดเมนู');
+      realClick(selected);
+      await waitFor(() => !modelOptions().length, { timeout: 3000, label: 'ปิดรายการโมเดล' });
     }
+    escape();
+    const closed = await waitFor(() => !settingsPane(), { timeout: 1500, label: 'ปิดแผงตั้งค่า' }).catch(() => false);
+    if (closed) return;
+    const trigger = await waitFor(SEL.settingsTrigger, { timeout: 3000, label: 'ปุ่มตั้งค่าโมเดล' });
+    await trustedClick(trigger);
+    await waitFor(() => !settingsPane(), { timeout: 3000, label: 'ปิดแผงตั้งค่า' });
   }
 
   async function openPane() {
+    // ปล่อยให้ closePane ปิดเมนูรุ่นภาพเมื่อเสร็จ; ระหว่างตั้งค่ายังอ่านค่าปัจจุบันได้
     if (settingsPane()) return;
     if (!SEL.settingsTrigger()) await closeAgentChat();
     const trigger = await waitFor(SEL.settingsTrigger, { timeout: 15000, label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }).catch(() => null);
@@ -291,17 +467,22 @@
   async function chooseModel(model) {
     const cur = readPane();
     if (!cur?.modelBtn || cur.model === model) return cur?.model === model;
-    realClick(cur.modelBtn);
+    const modelOptions = () => $$('[role="menuitem"], [role="option"]').filter(visible);
+    if (!modelOptions().length) realClick(cur.modelBtn);
     const item = await waitFor(
-      () => $$('[role="menuitem"], [role="option"]').find((m) => visible(m) && text(m).replace(/^\S+\s/, '') === model),
-      { timeout: 5000, label: `เมนูโมเดล ${model}` },
+      () => modelOptions().length && modelOptions(),
+      { timeout: 3000, label: 'รายการโมเดล' },
     ).catch(() => null);
-    if (!item) {
-      escape();
-      await sleep(500);
-      return false;
+    const choice = item?.find((m) => text(m).replace(/^\S+\s/, '') === model);
+    if (!choice) {
+      // รุ่นที่ขอไม่มีในเมนูปัจจุบัน: ปิดเมนูให้เรียบร้อยก่อนลองรุ่นถัดไป ไม่เปิด/ปิดวน
+      if (modelOptions().length) {
+        escape();
+        await waitFor(() => !modelOptions().length, { timeout: 3000, label: 'ปิดรายการโมเดล' });
+      }
+      return null;
     }
-    realClick(item);
+    realClick(choice);
     await sleep(800);
     return readPane()?.model === model;
   }
@@ -312,20 +493,33 @@
    * ลองโมเดลตามลำดับที่ส่งมา แล้วหยุดที่ตัวแรกที่ Flow บอกว่า "0 เครดิต"
    * ถ้าไม่มีตัวไหนฟรีเลย → หยุดทันที ไม่กดสร้าง (ห้ามเผาเครดิตของผู้ใช้เงียบ ๆ)
    */
-  async function configure({ ratio = '3:4', models = ['Nano Banana 2 Lite', 'Nano Banana 2', 'Nano Banana Pro'] } = {}) {
+  async function configure({ ratio = '3:4', models = ['Nano Banana 2 Lite', 'Nano Banana 2', 'Nano Banana Pro'], agentOnly = false } = {}) {
     await agentOff();
     await openPane();
+    // Agent ตั้งสัดส่วนและจำนวนภาพในแผงของตนเอง ภาพปกติที่เลือกไว้เป็น 0 เครดิตอยู่แล้วไม่ต้องเปิดเมนูโมเดลอีก
+    if (agentOnly) {
+      const current = readPane();
+      if (current?.credits === 0 && current.model && (models.includes(current.model) || /^Nano Banana\b/i.test(current.model))) {
+        await closePane();
+        return { model: current.model, ratio, credits: 0 };
+      }
+    }
     let last = null;
     for (const model of models) {
+      let previous = '';
       for (let attempt = 1; attempt <= 3; attempt++) {
         if (!settingsPane()) await openPane();
         await chooseRadio((t) => /^image\b/i.test(t));
         await chooseRadio((t) => t.split(' ').pop() === ratio);
         await chooseRadio((t) => t === 'x1');
         const okModel = await chooseModel(model);
+        if (okModel === null) break;
         await sleep(400);
         last = readPane();
         if (last && okModel && last.image && last.ratio === ratio && last.count === 'x1') break;
+        const now = last && `${last.image}|${last.ratio}|${last.count}|${last.model}|${last.credits}`;
+        if (now === previous) break;
+        previous = now;
       }
       if (last?.model === model && last.credits === 0) {
         await closePane();
@@ -402,7 +596,12 @@
     const back = iconButton('arrow_back');
     if (back) realClick(back);
     else history.back();
-    await waitFor(() => !inCollection() && SEL.editor(), { timeout: 15000, label: 'หน้าหลักของ project' });
+    try {
+      await waitFor(() => !inCollection() && SEL.editor(), { timeout: 15000, label: 'หน้าหลักของ project' });
+    } catch (e) {
+      e.code = 'wrong_place';
+      throw e;
+    }
     await sleep(600);
   }
 
@@ -690,13 +889,16 @@
           }
           return null;
         }
-        // ทางสำรองเมื่อหา tile ของเราด้วยข้อความไม่เจอ: media id ใหม่ที่ไม่ใช่ไฟล์อัปโหลดและตรงสัดส่วน
+        // ทางสำรองเมื่อหา tile ของเราด้วยข้อความไม่เจอ: ต้องเป็น tile ที่เกิดหลังส่งงานนี้จริง ๆ
+        // ภาพรอบก่อนที่ยัง pending ตอนจด before จะเพิ่งได้ media id ภายหลังและมีสัดส่วนเดียวกัน
+        // จึงห้ามใช้แค่ !before.has(id) มิฉะนั้นปกหน้าจะถูกบันทึกเป็นปกหลัง
         for (const tile of SEL.tiles()) {
           const id = tileId(tile);
           const img = tileImg(tile);
           if (
             id &&
             !before.has(id) &&
+            !beforeEls.has(tile) &&
             img.complete &&
             img.naturalWidth > 0 &&
             !skip.has(tile.getAttribute('aria-label') || '') &&
@@ -723,16 +925,42 @@
   const findTile = (id) => SEL.tiles().find((t) => tileId(t) === id);
 
   async function openTileMenu(id) {
+    // เมนูจาก tile ก่อนหน้าห้ามหลงเหลือ ไม่เช่นนั้นจะเลือกดาวน์โหลดจากเจ้าของเมนูเก่า
+    if ($$('[role="menuitem"]').some(visible)) {
+      escape();
+      await waitFor(() => !$$('[role="menuitem"]').some(visible), { timeout: 2000, label: 'ปิดเมนูภาพก่อนหน้า' });
+    }
     const tile = await waitFor(() => findTile(id), { timeout: 10000, label: 'tile ของภาพ' });
-    tile.scrollIntoView({ block: 'center' });
+    tile.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     tile.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     tile.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
     await sleep(300);
-    const more =
-      $$('button', tile).find((b) => /more|เพิ่มเติม/i.test(b.getAttribute('aria-label') || '') || text(b) === 'more_vert') ||
-      $$('button', tile).pop();
-    if (!more) throw new Error('ไม่พบปุ่มเมนูของภาพใน Flow');
-    realClick(more);
+    /**
+     * ปุ่มเมนู (more_vert) ของภาพโผล่เฉพาะตอนเมาส์จริงชี้ tile อยู่ — คลิกด้วยพิกัดจึงหาจุดคลิกไม่เจอ ("ตำแหน่งปุ่มใน Flow เปลี่ยนหรือมีแผงบัง")
+     * แล้วขอไฟล์ 2K/1K ไม่ได้ ต้องถอยไปใช้ภาพย่อบนการ์ด (ปกได้ราว 145 dpi) — เจอจริงกับปกหน้า ปกหลัง และลายพื้นหลัง
+     * เมนูนี้รับคลิกของสคริปต์ได้ (ทางเดิมก่อนเปลี่ยน) จึงลองทางนั้นก่อน ไม่ขึ้นเมนูค่อยใช้คลิกพิกัด
+     */
+    {
+      const current = findTile(id);
+      const buttons = current ? $$('button', current) : [];
+      const more = buttons.find((b) => /more|เพิ่มเติม/i.test(b.getAttribute('aria-label') || '') || text(b) === 'more_vert') || buttons.at(-1);
+      if (more) {
+        realClick(more);
+        const opened = await waitFor(() => $$('[role="menuitem"]').filter(visible).length && $$('[role="menuitem"]').filter(visible), {
+          timeout: 1500,
+          label: 'เมนูของภาพ',
+        }).catch(() => null);
+        if (opened) return opened;
+      }
+    }
+    // virtual scroll เปลี่ยนเจ้าของ DOM node หลังเลื่อนได้: หา tile ด้วย media id ใหม่ทุกครั้งก่อนกด
+    await trustedClick(() => {
+      const current = findTile(id);
+      if (!current) return null;
+      current.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      const buttons = $$('button', current);
+      return buttons.find((b) => /more|เพิ่มเติม/i.test(b.getAttribute('aria-label') || '') || text(b) === 'more_vert') || buttons.at(-1);
+    });
     return waitFor(() => $$('[role="menuitem"]').filter(visible).length && $$('[role="menuitem"]').filter(visible), {
       timeout: 5000,
       label: 'เมนูของภาพ',
@@ -799,13 +1027,14 @@
    * ดาวน์โหลด 2K ผ่านเมนูของ Flow แล้วดักไฟล์ไว้ก่อนลงโฟลเดอร์ Downloads (ดู adapter/flow-main.js)
    * ขยาย 2K ใช้เวลาราว 5–20 วินาทีและไม่กินเครดิต (ตรวจกับบัญชีจริงแล้ว)
    */
-  async function download2k(id, size = '2K') {
+  /** ง้างตัวดักไฟล์ดาวน์โหลดหนึ่งไฟล์ (adapter/flow-main.js) — คืน { token, got } */
+  function armCapture(ms, size) {
     const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const got = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         window.removeEventListener('message', onMsg);
         reject(new Error(`Flow ไม่ส่งไฟล์ ${size} มาภายในเวลา`));
-      }, 150000);
+      }, ms);
       function onMsg(e) {
         const d = e.data;
         if (e.source !== window || d?.source !== 'ebookplus-main' || d.token !== token) return;
@@ -815,7 +1044,22 @@
       }
       window.addEventListener('message', onMsg);
     });
-    window.postMessage({ source: 'ebookplus-iso', type: 'arm', token, ms: 150000 }, '*');
+    window.postMessage({ source: 'ebookplus-iso', type: 'arm', token, ms }, '*');
+    return { token, got };
+  }
+
+  /**
+   * verify(blob) → '' ถ้าเป็นภาพของ tile นี้ หรือข้อความบอกว่าไม่ตรงเพราะอะไร
+   *
+   * ไฟล์ 2K ทำช้า (Flow ขยายภาพก่อนแล้วค่อยดาวน์โหลดเอง) ไฟล์ของรูปก่อนหน้าจึงมาถึงตอนที่เรารอรูปนี้ได้
+   * เดิมเจอไฟล์ไม่ตรงก็ยอมแพ้ทันทีแล้วใช้ภาพย่อ — ไฟล์ของรูปนี้เองจึงไปตกที่รูปถัดไปอีก เลื่อนกันไปทั้งเล่ม
+   * (เจอจริง: 35 จาก 37 รูปได้แค่ภาพย่อ ต่างกัน 13–29/64 ทุกรูป)
+   * ตอนนี้ทิ้งไฟล์ที่ไม่ตรงแล้วรอไฟล์ถัดไปต่ออีกระยะ ไฟล์ของรูปนี้มักตามมาไม่กี่วินาที
+   */
+  async function download2k(id, size = '2K', verify = null) {
+    const waitMs = size === '1K' ? 20000 : 150000;
+    const strayWaitMs = size === '1K' ? 15000 : 60000;
+    let cap = armCapture(waitMs, size);
     try {
       await openTileMenu(id);
       const dl = menuItem('download');
@@ -826,13 +1070,28 @@
         label: `ตัวเลือก ${size}`,
       });
       realClick(pick);
-      const blob = await got;
-      escape();
-      return blob;
+      let mismatch = '';
+      for (let stray = 0; stray < 4; stray++) {
+        let blob;
+        try {
+          blob = await cap.got;
+        } catch (e) {
+          throw mismatch ? new Error(mismatch) : e;
+        }
+        const why = verify ? await verify(blob) : '';
+        if (!why) {
+          escape();
+          return blob;
+        }
+        mismatch = why;
+        if (stray === 3) break;
+        cap = armCapture(strayWaitMs, size); // ไฟล์ที่มาถึงเป็นของรูปอื่น — รอไฟล์ถัดไป
+      }
+      throw new Error(mismatch);
     } catch (e) {
-      window.postMessage({ source: 'ebookplus-iso', type: 'disarm', token }, '*');
+      window.postMessage({ source: 'ebookplus-iso', type: 'disarm', token: cap.token }, '*');
       escape();
-      got.catch(() => {});
+      cap.got.catch(() => {});
       throw e;
     }
   }
@@ -886,16 +1145,19 @@
   const byAria = (labels, root = document, tag = 'button') => $$(tag, root).filter((b) => labels.includes(b.getAttribute('aria-label')));
   const agentPanel = () => document.querySelector('flow-agent-panel');
   const agentBusy = () => !!byAria(AL.stop).find(visible);
+  const agentSettingsTrigger = () => {
+    if (!agentOn()) return null;
+    return scopedAgentSettings() || scopedAgentSettings(true);
+  };
   const AGENT_GAP_MS = 2 * 60000; // เว้นอย่างน้อย 2 นาทีระหว่างข้อความที่ส่งให้ Agent (ค่าเดียวกับโปรเจกต์ Youtube)
   let lastAgentPromptAt = 0;
 
   async function agentOn_() {
     await closeAgentChat();
-    for (let i = 0; i < 6 && !agentOn(); i++) {
+    for (let attempt = 0; attempt < 2 && !agentOn(); attempt++) {
       const chip = await waitFor(SEL.agentChip, { label: 'ปุ่ม Agent' });
-      i % 2 === 0 ? chip.click() : realClick(chip);
-      await waitFor(agentOn, { timeout: 2500, label: 'เปิด Agent' }).catch(() => null);
-      await sleep(300);
+      await trustedClick(chip);
+      if (await waitFor(agentOn, { timeout: 8000, label: 'เปิด Agent' }).catch(() => false)) break;
     }
     if (!agentOn()) throw new Error('เปิดโหมด Agent ของ Flow ไม่สำเร็จ — กดปุ่ม Agent ในช่องพิมพ์เองแล้วสั่งใหม่');
   }
@@ -919,8 +1181,14 @@
 
   async function configureAgent(model, ratio) {
     await agentOn_();
-    const openPanel = () => (visible(agentPanel()) && AL.imageDefault.test(text(agentPanel())) ? agentPanel() : null);
-    if (!openPanel()) realClick(await waitFor(() => byAria(AL.settings).find(visible), { label: 'ปุ่ม Settings ของ Agent' }));
+    const openPanel = () => {
+      const panel = agentPanel();
+      return visible(panel) && /Agent settings|การตั้งค่า Agent/i.test(text(panel).slice(0, 120)) ? panel : null;
+    };
+    if (!openPanel()) {
+      const settings = await waitFor(agentSettingsTrigger, { label: 'ปุ่ม Settings ข้าง Agent' });
+      await trustedClick(settings);
+    }
     await waitFor(openPanel, { label: 'Agent settings' });
     await waitSettled(openPanel);
     // query ใหม่ทุกครั้ง — แผงวาดใหม่แล้ว element เดิมหลุดจากหน้า
@@ -984,17 +1252,24 @@
         throw new Error(`ตั้ง Agent settings ไม่สำเร็จ (ตอนนี้: ${st.confirm} · ${st.ratio} · ${st.count} · ${st.model}) — ตั้งเองในแผง Agent settings เป็น ไม่เลย · ${ratio} · x1 · ${model} แล้วกดบันทึก แล้วสั่งใหม่`);
       }
     }
-    realClick(await waitFor(() => $$('button', openPanel() ?? document).find((b) => AL.save.includes(text(b))), { label: 'ปุ่มบันทึกของ Agent settings' }));
+    // Flow ไม่ตอบสนองต่อ click แบบสังเคราะห์ของปุ่มนี้ แม้ตัวเลือกในแผงจะเปลี่ยนแล้ว
+    // กดจริงและตรวจว่าปุ่มไม่ถูก Side Panel บัง ก่อนถือว่าบันทึกสำเร็จ
+    await trustedClick(await waitFor(() => $$('button', openPanel() ?? document).find((b) => AL.save.includes(text(b))), { label: 'ปุ่มบันทึกของ Agent settings' }));
     await waitFor(() => !openPanel(), { timeout: 10000, label: 'บันทึก Agent settings' });
     await sleep(800);
   }
 
   // grid เป็น virtual scroll (วาดเฉพาะที่อยู่บนจอ) — จำทุก tile ที่เคยโผล่ ชื่อภาพคือ aria-label ของ tile
   const seenTiles = new Map(); // media id → ชื่อ
+  const seenTileText = new Map(); // media id → ข้อความ prompt/รายละเอียดที่อยู่บน tile
   function collectTiles() {
     for (const t of SEL.tiles()) {
       const id = tileId(t);
-      if (id) seenTiles.set(id, t.getAttribute('aria-label') || '');
+      if (id) {
+        seenTiles.set(id, t.getAttribute('aria-label') || '');
+        const detail = [text(t), tileImg(t)?.alt, tileImg(t)?.title, t.title].filter(Boolean).join(' ');
+        if (detail && !seenTileText.get(id)?.includes(detail)) seenTileText.set(id, `${seenTileText.get(id) || ''} ${detail}`.slice(-4000));
+      }
     }
     return seenTiles;
   }
@@ -1060,14 +1335,67 @@
     return !!findTile(id);
   }
 
-  /** ชื่อภาพตรงชื่อไฟล์ที่สั่ง — agent อาจต่อท้ายว่า "SHOT 03" จึงรับทั้งชื่อเป๊ะ และชื่อที่ขึ้นต้นด้วยชื่อไฟล์แล้วเว้นวรรค */
+  /** รหัสภาพที่ Agent รายงานอาจเปลี่ยนหลัง Flow จัด grid ใหม่ แต่ชื่อที่ตั้งไว้ยังอยู่ใน project */
+  async function recoverTileByName(name) {
+    const matches = () => [...seenTiles].filter(([, label]) => label === name).map(([id]) => id);
+    await scanAllTiles();
+    const ids = matches();
+    if (ids.length !== 1 || !(await revealTile(ids[0]))) return null;
+    return findTile(ids[0])?.getAttribute('aria-label') === name ? ids[0] : null;
+  }
+
+  /** กู้ภาพที่ Agent ตั้งชื่อไว้แล้วก่อนสั่งวาดใหม่เมื่อกลับมาทำเล่มต่อ */
+  async function opLookupNamed({ names = [] } = {}) {
+    await openProject();
+    await goRoot();
+    await scanAllTiles();
+    const mediaIds = {};
+    for (const name of [...new Set(names)]) {
+      const ids = [...seenTiles].filter(([, label]) => label === name).map(([id]) => id);
+      if (ids.length === 1 && await revealTile(ids[0]) && findTile(ids[0])?.getAttribute('aria-label') === name) {
+        mediaIds[name] = ids[0];
+      }
+    }
+    return { mediaIds, projectUrl: location.href };
+  }
+
+  /** Agent เห็นรหัสช็อตชั่วคราวเท่านั้น; ชื่อไฟล์จริงใช้หลังวาดเสร็จ */
   const nameMatches = (label, name) => label === name || label.startsWith(`${name} `);
-  function namedIds(names) {
+  function namedIds(shots, made) {
     const out = new Map();
     for (const [id, label] of collectTiles()) {
-      for (const n of names) if (!out.has(n) && nameMatches(label, n)) out.set(n, id);
+      if (!made.includes(id)) continue;
+      for (const s of shots) {
+        if (!out.has(s.name) && (nameMatches(label, s.key) || nameMatches(label, s.name))) out.set(s.name, id);
+      }
     }
     return out;
+  }
+
+  /** จับคู่จากรหัสช็อตบน tile; ห้ามเดาจากลำดับภาพใน grid */
+  async function findAgentShots(shots, made) {
+    const picks = namedIds(shots, made);
+    const used = new Set(picks.values());
+    for (const id of made) {
+      if (used.has(id)) continue;
+      const detail = `${seenTiles.get(id) || ''} ${seenTileText.get(id) || ''}`;
+      const hits = shots.filter((s) => {
+        const at = detail.indexOf(s.key);
+        if (at < 0) return false;
+        const prev = detail[at - 1] || '';
+        const next = detail[at + s.key.length] || '';
+        return !/[\w.-]/.test(prev) && !/[\w.-]/.test(next);
+      }).map((s) => s.name);
+      // หนึ่ง tile กล่าวถึงหลายชื่อไฟล์ = บอกไม่ได้ว่าเป็นภาพไหน จึงไม่แตะ
+      if (hits.length !== 1 || picks.has(hits[0])) continue;
+      picks.set(hits[0], id);
+      used.add(id);
+    }
+    // ขอเพียงช็อตเดียวและมีภาพใหม่ใบเดียวใน session นี้: รู้ที่มาแน่ แม้ Agent ไม่ระบุชื่อใน tile
+    if (shots.length === 1 && made.length === 1 && !picks.has(shots[0].name)) {
+      picks.set(shots[0].name, made[0]);
+    }
+    return picks;
   }
 
   async function sendAgentPrompt(prompt) {
@@ -1080,14 +1408,14 @@
     let taken = false;
     for (let attempt = 0; attempt < 3 && !taken; attempt++) {
       const btn = attempt === 0 ? send : SEL.send();
-      if (btn && !btn.disabled) await trustedClick(btn);
+      if (btn && !btn.disabled) await trustedClick(SEL.send);
       taken = !!(await waitFor(() => agentBusy() || text(SEL.editor()).length < 5, { timeout: 15000, label: 'Agent รับข้อความ' }).catch(() => false));
     }
     if (!taken) throw new Error('ส่งข้อความให้ Flow Agent ไม่สำเร็จ (ข้อความยังค้างในช่องพิมพ์)');
   }
 
   /** agent นิ่ง = ไม่มีปุ่มหยุดนาน 75 วินาที (ระหว่างวาดปุ่มหยุดอาจหายแวบ ๆ) · เพดานรอบละ 45 นาที */
-  async function waitAgentIdle() {
+  async function waitAgentIdle(maxMs = 45 * 60000) {
     const started = Date.now();
     let idleSince = null;
     for (;;) {
@@ -1099,7 +1427,7 @@
         idleSince ??= Date.now();
         if (Date.now() - idleSince > 75000) return 'idle';
       }
-      if (Date.now() - started > 45 * 60000) return 'timeout';
+      if (Date.now() - started > maxMs) return 'timeout';
     }
   }
 
@@ -1109,11 +1437,26 @@
 
   const shotList = (shots) => shots.map((s) => s.line).join('\n\n');
   const goInstruction = (shots) =>
-    `เริ่มสร้างภาพได้เลยทุกช็อตตาม shot list ที่ส่งไป ไม่ต้องถามยืนยันและไม่ต้องสรุปแผน ใช้ STYLE BIBLE และ CHARACTER LOCK เดิม\nตั้งชื่อแต่ละภาพเป็นชื่อไฟล์หน้าบรรทัดเป๊ะ ๆ เช่น "${shots[0].name}" (ชื่อภาพเท่านั้น ห้ามเขียนลงในภาพ)`;
+    `เริ่มสร้างภาพได้เลยทุกช็อตตาม shot list ที่ส่งไป ไม่ต้องถามยืนยันและไม่ต้องสรุปแผน ใช้ STYLE BIBLE และ CHARACTER LOCK เดิม\nตั้งชื่อการ์ดภาพด้วยรหัสช็อตหน้าบรรทัด เช่น "${shots[0].key}" (ชื่อการ์ดเท่านั้น ห้ามวาดลงในภาพ)`;
   const renameInstruction = (shots) =>
-    `เปลี่ยนชื่อภาพที่สร้างแล้วให้ตรงกับ shot ของมัน โดยใช้ชื่อไฟล์หน้าบรรทัดเป๊ะ ๆ เช่น ภาพของ\n\n${shots[0].line}\n\nให้ชื่อว่า ${shots[0].name}\n\nห้ามสร้างภาพใหม่ แค่เปลี่ยนชื่อภาพที่มีอยู่ให้ครบ`;
+    `เปลี่ยนชื่อการ์ดภาพที่สร้างแล้วให้ตรงกับรหัสช็อตชั่วคราว เช่น ภาพของ\n\n${shots[0].line}\n\nให้ชื่อการ์ดว่า ${shots[0].key}\n\nห้ามสร้างภาพใหม่ และห้ามวาดรหัสลงในภาพ`;
   const continueInstruction = (batch, remaining) =>
-    `ยังขาดภาพอีก ${remaining} ช็อต — รอบนี้สร้าง ${batch.length} ช็อตนี้ ใช้ STYLE BIBLE และ CHARACTER LOCK เดิมทุกอย่าง (ตัวละครหน้าตาเหมือนภาพที่ทำไปแล้ว)\nตั้งชื่อแต่ละภาพเป็นชื่อไฟล์หน้าบรรทัดเป๊ะ ๆ (ชื่อภาพเท่านั้น ห้ามเขียนชื่อไฟล์หรือตัวหนังสือใด ๆ ลงในภาพ)\n\n${shotList(batch)}`;
+    `ยังขาดภาพอีก ${remaining} ช็อต — รอบนี้สร้าง ${batch.length} ช็อตนี้ ใช้ STYLE BIBLE และ CHARACTER LOCK เดิมทุกอย่าง (ตัวละครหน้าตาเหมือนภาพที่ทำไปแล้ว)\nตั้งชื่อการ์ดภาพด้วยรหัสช็อตหน้าบรรทัด (ห้ามวาดรหัสหรือชื่อภาพลงในภาพ) ข้อความอธิบายที่จำเป็นในฉากต้องเป็นภาษาของหนังสือตาม brief เดิม\n\n${shotList(batch)}`;
+
+  async function agentBaseline() {
+    at('นับภาพเดิมใน project');
+    await scanAllTiles();
+    // งานเก่าที่ยังวาดอยู่จะได้ media id หลังจด baseline และอาจถูกจับเป็นภาพใหม่
+    try {
+      await waitFor(() => !agentBusy() && !SEL.tiles().some(isPending), { timeout: 6 * 60000, interval: 2000, label: 'ภาพ Agent ก่อนหน้า' });
+    } catch {
+      const e = new Error('Flow Agent ยังวาดภาพก่อนหน้าไม่เสร็จ — หยุดก่อนเพื่อไม่ให้ภาพนั้นถูกจับเป็นภาพถัดไป');
+      e.code = 'flow_pending';
+      throw e;
+    }
+    await scanAllTiles();
+    return new Set(collectTiles().keys());
+  }
 
   async function opAgentBatch(args = {}) {
     const shots = args.shots || [];
@@ -1121,17 +1464,17 @@
     const wanted = shots.map((s) => s.name);
     at('เปิด project');
     await openProject();
-    await goRoot().catch(() => {});
+    await goRoot();
     if (args.refCollection) {
       for (const r of args.refs || []) {
         if (!r.dataUrl || r.tile) continue;
         at(`เตรียมภาพต้นแบบ ${r.name}`);
         await ensureRefUploaded(r, args.refCollection).catch(() => {});
       }
-      await goRoot().catch(() => {});
+      await goRoot();
     }
     at(`ตรวจ 0 เครดิต ${args.ratio}`);
-    const cfg = await configure({ ratio: args.ratio, models: args.models }); // ไม่ใช่ 0 เครดิต = โยน not_free ไม่สั่ง agent
+    const cfg = await configure({ ratio: args.ratio, models: args.models, agentOnly: true }); // Agent ตั้งสัดส่วนเอง; ตรวจว่าโมเดลที่ใช้เป็น 0 เครดิต
     at('ตั้งค่า Agent');
     await configureAgent(cfg.model, args.ratio);
     at('ภาพต้นแบบตัวละคร');
@@ -1151,16 +1494,14 @@
        * (ผู้ใช้: "ทำไมภาพนิยายไม่แนบหน้าตัวละครไปด้วยหละ")
        */
       if (!attachError && attached < args.refs.length) attachError = `แนบภาพต้นแบบได้ ${attached}/${args.refs.length} ภาพ`;
-      // นิยาย: ตัวละครต้องถูกคน — แนบไม่ครบ = ไม่ให้ Agent วาดชุดนี้ ให้ Studio สร้างทีละรูป (แนบภาพต้นแบบเป็นส่วนผสมของแต่ละรูป)
+      // ตัวละครต้องถูกคน — แนบไม่ครบ = ไม่ให้ Agent วาดชุดนี้ ให้ Studio แจ้งปัญหา
       if (attachError && args.requireRefs) {
         const e = new Error(`แนบภาพต้นแบบตัวละครไม่ครบ (${attachError}) — ไม่ส่งชุดนี้ให้ Agent`);
         e.code = 'refs_not_attached';
         throw e;
       }
     }
-    at('นับภาพเดิมใน project');
-    await scanAllTiles();
-    const base = new Set(collectTiles().keys());
+    const base = await agentBaseline();
     const seenDemandAtStart = highDemandCount();
     at('ส่ง brief ให้ Agent');
     await sendAgentPrompt(args.brief);
@@ -1170,7 +1511,8 @@
     let busyWaits = 0;
     let seenDemand = seenDemandAtStart;
     let picks = new Map();
-    for (let round = 1; round <= 12; round++) {
+    // ถ้า Agent ไม่ตั้งชื่อหลังสั่งซ้ำไม่กี่ครั้ง ให้เครื่องกู้ทีละช็อตโดยอ้างอิง media id แทน
+    for (let round = 1; round <= (shots.length === 1 ? 3 : 4); round++) {
       at(`Agent กำลังวาด (รอบ ${round})`);
       const before = collectTiles().size;
       const how = await waitAgentIdle();
@@ -1179,9 +1521,14 @@
         e.code = 'unusual_activity';
         throw e;
       }
+      if (how === 'timeout') {
+        const e = new Error('Flow Agent ยังทำงานเกิน 45 นาที — หยุดรอ ไม่ส่งคำสั่งซ้ำขณะงานเดิมยังไม่จบ');
+        e.code = 'agent_timeout';
+        throw e;
+      }
       await scanAllTiles();
       const made = [...collectTiles().keys()].filter((id) => !base.has(id));
-      picks = namedIds(wanted);
+      picks = await findAgentShots(shots, made);
       // ยังไม่มีภาพใหม่เลย = agent ถามยืนยัน/สรุปแผนแทนการวาด → สั่งให้เริ่ม
       if (!made.length && !picks.size && nudges < 3) {
         nudges++;
@@ -1189,13 +1536,13 @@
         continue;
       }
       // มีภาพใหม่ที่ยังไม่ได้ตั้งชื่อ → ให้ agent ตั้งชื่อก่อน
-      const unnamed = made.filter((id) => !wanted.some((n) => nameMatches(seenTiles.get(id) || '', n))).length;
+      const unnamed = made.filter((id) => !shots.some((s) => nameMatches(seenTiles.get(id) || '', s.key) || nameMatches(seenTiles.get(id) || '', s.name))).length;
       if (unnamed > 0 && picks.size < wanted.length) {
         at('ให้ Agent ตั้งชื่อภาพ');
         await sendAgentPrompt(renameInstruction(shots.filter((s) => !picks.has(s.name))));
         await waitAgentIdle();
         await scanAllTiles();
-        picks = namedIds(wanted);
+        picks = await findAgentShots(shots, made);
       }
       const missing = shots.filter((s) => !picks.has(s.name));
       if (!missing.length) break;
@@ -1213,11 +1560,17 @@
       }
       await sendAgentPrompt(continueInstruction(missing.slice(0, 10), missing.length));
     }
+    // ตั้งชื่อไฟล์จริงหลังสร้างภาพทั้งหมดเสร็จแล้วเท่านั้น ชื่อไฟล์จึงไม่อยู่ในคำสั่งวาด
+    for (const [name, id] of picks) {
+      if (await revealTile(id)) await renameTile(id, name).catch(() => false);
+    }
     return {
       model: cfg.model,
       credits: cfg.credits,
       attachError,
       named: [...picks.keys()],
+      mediaIds: Object.fromEntries(picks),
+      created: [...collectTiles().keys()].filter((id) => !base.has(id)).length,
       missing: wanted.filter((n) => !picks.has(n)),
       projectUrl: location.href,
     };
@@ -1234,9 +1587,10 @@
 
   async function opPrepare(args = {}) {
     await openProject();
-    await goRoot().catch(() => {});
+    await goRoot();
     await renameProject(args.title).catch(() => {});
-    const cfg = await configure({ ratio: args.ratio || '3:4', models: args.models });
+    // เตรียม project แค่ยืนยันว่าโมเดลปัจจุบันฟรี ภาพปกติแต่ละใบและ Agent จะตั้งสัดส่วนของตัวเองตอนวาด
+    const cfg = await configure({ ratio: args.ratio || '3:4', models: args.models, agentOnly: true });
     return { ...cfg, projectUrl: location.href };
   }
 
@@ -1260,24 +1614,22 @@
      * ห้ามสั่งวาดใหม่ — ใช้ภาพเดิมที่อยู่ใน project ต่อเลย ไม่ให้เกิดภาพซ้ำ
      */
     const done = SEL.tiles().find((t) => t.getAttribute('aria-label') === args.name && tileId(t));
-    if (done && args.reuse !== false) {
+    if (done && !args.onlyExisting && args.reuse !== false) {
       at('ใช้ภาพเดิมที่ตั้งชื่อไว้แล้ว');
       return finishTile(tileId(done), args, { reused: true });
     }
-    /**
-     * ภาพที่ Flow Agent วาดไว้แล้ว (โหมด 1 หน้า 1 ภาพ) — หยิบตามชื่อเท่านั้น ห้ามสร้างเอง
-     * ภาพของ agent อยู่หน้าหลักของ project และอาจยังไม่ถูกวาดใน grid (virtual scroll) → กวาดทั้ง grid ก่อนหา
-     */
+    /** ภาพที่ Flow Agent วาดไว้แล้ว — หยิบตามรหัสภาพที่ยืนยันจากชุด Agent เท่านั้น */
     if (args.onlyExisting) {
       at('หาภาพที่ Agent วาดไว้');
-      await goRoot().catch(() => {});
-      let id = namedIds([args.name]).get(args.name);
-      if (!id) {
-        await scanAllTiles();
-        id = namedIds([args.name]).get(args.name);
-      }
+      await goRoot();
+      let id = args.mediaId;
+      // รหัสนี้มาจากการจับคู่ของชุด Agent ใน project เดียวกัน; เปลี่ยนชื่อการ์ดไม่สำเร็จไม่ใช่ภาพหาย
       if (!id || !(await revealTile(id))) {
-        const e = new Error(`ไม่พบภาพ ${args.name} ที่ Flow Agent วาดไว้ — ไม่สร้างใหม่ทีละภาพ (ภาพตามความเหมาะสม)`);
+        at('ค้นภาพที่ตั้งชื่อไว้ใน Flow');
+        id = await recoverTileByName(args.name);
+      }
+      if (!id) {
+        const e = new Error(`ไม่พบภาพ ${args.name} ตามรหัสที่ Flow Agent จับคู่ไว้ — ไม่ดึงภาพอื่นมาแทน`);
         e.code = 'not_found';
         throw e;
       }
@@ -1308,7 +1660,13 @@
      */
     at('รอภาพก่อนหน้าให้เสร็จ');
     scrollGridTop();
-    await waitFor(() => !SEL.tiles().some(isPending), { timeout: 6 * 60000, interval: 2000, label: 'ภาพที่กำลังวาดอยู่ก่อนหน้า' }).catch(() => {});
+    try {
+      await waitFor(() => !SEL.tiles().some(isPending), { timeout: 6 * 60000, interval: 2000, label: 'ภาพที่กำลังวาดอยู่ก่อนหน้า' });
+    } catch {
+      const e = new Error('Flow ยังวาดภาพก่อนหน้าไม่เสร็จ — หยุดก่อนเพื่อไม่ให้ภาพนั้นถูกบันทึกผิดช่อง');
+      e.code = 'flow_pending';
+      throw e;
+    }
 
     await closePane(); // แผงตั้งค่าที่ค้างอยู่บังปุ่มสร้างได้
     // ด่านสุดท้ายก่อนกด: ต้องยังอยู่ในคอลเล็กชันของรูปนี้ ไม่งั้นภาพจะไปเกิดผิดที่ — หยุดแล้วให้รอบใหม่เปิดให้ถูก
@@ -1337,7 +1695,7 @@
         break;
       }
       const btn = attempt === 0 ? send : SEL.send();
-      if (btn && !btn.disabled) await trustedClick(btn);
+      if (btn && !btn.disabled) await trustedClick(SEL.send);
       taken = !!(await waitFor(accepted, { timeout: 12000, label: 'Flow รับ prompt' }).catch(() => false));
     }
     if (!taken) throw new Error('กดปุ่มสร้างของ Flow แล้วแต่ Flow ไม่รับ prompt (ข้อความยังค้างในช่องพิมพ์)');
@@ -1351,6 +1709,14 @@
     return { ...(await finishTile(id, { ...args, cfg, attached, attachError })), retried };
   }
 
+  /** ไฟล์ที่ดักได้เป็นภาพเดียวกับภาพบน tile ไหม — คืน '' ถ้าใช่ หรือเหตุผลที่ไม่ใช่ */
+  async function matchesTile(blob, thumb) {
+    const [a, b] = await Promise.all([imageSize(blob), imageSize(thumb)]);
+    if (Math.abs(Math.log(a.width / a.height / (b.width / b.height))) > 0.03) return 'ไฟล์ที่ได้สัดส่วนไม่ตรงกับภาพนี้';
+    const dist = hamming(await aHash(blob), await aHash(thumb));
+    return dist > 12 ? `ไฟล์ที่ได้ไม่ใช่ภาพเดียวกับ tile นี้ (ต่างกัน ${dist}/64)` : '';
+  }
+
   /** ตั้งชื่อ · ดึงไฟล์ 2K ที่ตรวจแล้วว่าเป็นภาพของ tile นี้จริง · ถอยไป 1K ถ้าไม่ใช่ */
   async function finishTile(id, args, { reused = false } = {}) {
     const { cfg = {}, attached = 0, attachError = '' } = args;
@@ -1360,10 +1726,12 @@
     let blob = null;
     let via = '2k';
     let hiresError = '';
+    let originalError = '';
     if (args.hires !== false) {
       at('ดาวน์โหลด 2K');
       try {
-        blob = await download2k(id, '2K');
+        const thumbFor2k = await fetchTileImage(id);
+        blob = await download2k(id, '2K', (got) => matchesTile(got, thumbFor2k));
         /**
          * ไฟล์ 2K ของรูปก่อนหน้าที่มาช้าอาจหลุดเข้ามาตอนที่เรากำลังรอรูปนี้ (เจอจริง: ลวดลายพื้นหลังได้ภาพปก)
          * เทียบกับภาพบน tile ที่รู้แน่ว่าเป็นของรูปนี้ ทั้งสัดส่วนและหน้าตา ไม่ผ่านข้อใดข้อหนึ่ง = ไม่รับ
@@ -1379,9 +1747,25 @@
       }
     }
     if (!blob) {
-      at('ดึงภาพ 1K');
-      via = '1k';
-      blob = await fetchTileImage(id);
+      // thumbnail ของ Flow บางใบมีแค่ 512px: ขอไฟล์ต้นฉบับก่อน ไม่เรียกภาพย่อว่า 1K
+      const thumb = await fetchTileImage(id);
+      at('ดาวน์โหลดต้นฉบับ 1K');
+      try {
+        const original = await download2k(id, '1K', (got) => matchesTile(got, thumb));
+        const [a, b] = await Promise.all([imageSize(original), imageSize(thumb)]);
+        if (Math.abs(Math.log(a.width / a.height / (b.width / b.height))) > 0.03 ||
+            hamming(await aHash(original), await aHash(thumb)) > 12) {
+          throw new Error('ไฟล์ต้นฉบับ 1K ไม่ตรงกับภาพบน tile นี้');
+        }
+        if (a.width < b.width || a.height < b.height) throw new Error('ไฟล์ต้นฉบับ 1K เล็กกว่าภาพบน tile');
+        blob = original;
+        via = '1k';
+      } catch (e) {
+        originalError = e?.message || String(e);
+        at('ดึงภาพย่อบน tile');
+        blob = thumb;
+        via = 'thumbnail';
+      }
     }
     const size = await imageSize(blob);
     return {
@@ -1391,6 +1775,7 @@
       renamed,
       via,
       hiresError,
+      originalError,
       attached,
       attachError,
       bytes: blob.size,
@@ -1401,7 +1786,7 @@
     };
   }
 
-  const OPS = { prepare: opPrepare, generate: opGenerate, agentBatch: opAgentBatch };
+  const OPS = { prepare: opPrepare, generate: opGenerate, agentBatch: opAgentBatch, lookupNamed: opLookupNamed };
 
   async function run(op, args) {
     if (!OPS[op]) throw new Error(`ไม่รู้จักคำสั่ง ${op}`);
@@ -1430,7 +1815,7 @@
     if (msg?.type === 'flow.ping') {
       const signIn = $$('a, button').some((el) => visible(el) && /^\s*sign in\s*$|^\s*เข้าสู่ระบบ\s*$/i.test(text(el)));
       const looksIn = inProject() || !!SEL.newProject();
-      sendResponse({ ok: true, url: location.href, loggedIn: signIn ? false : looksIn ? true : null, busy, stage });
+      sendResponse({ ok: true, rev: ADAPTER_REV, url: location.href, loggedIn: signIn ? false : looksIn ? true : null, busy, stage });
       return;
     }
     if (msg?.type !== 'flow.run') return;

@@ -13,8 +13,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
+import { serviceWorkerSource } from '../tools/test-worker-source.mjs';
 
-const source = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+const source = await serviceWorkerSource();
 const url = 'chrome-extension://test/ui/studio.html';
 
 /** ติดตั้ง/โหลดซ้ำส่วนขยาย แล้วบอกว่ามีการสั่งอะไรกับแท็บบ้าง */

@@ -30,11 +30,12 @@
 
   const DEFAULT_SELECTORS = {
     // ต.ค. 2026: ChatGPT ถอด id prompt-textarea ออกจากช่องพิมพ์ เหลือ div.ProseMirror ใน form[data-chatgpt-composer]
-    composer: '#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"]',
+    // ต.ค. 2026 (15): หน้าแชตใหม่/หน้าแรกรุ่นใหม่ใช้ textarea ธรรมดา (form[data-mobile-composer] textarea[name="prompt"]) — อาการ: "ช่องพิมพ์ของห้องแชตใหม่ยังไม่พร้อม"
+    composer: '#prompt-textarea, form[data-chatgpt-composer] div.ProseMirror[contenteditable="true"], div.ProseMirror[contenteditable="true"][role="textbox"], form[data-mobile-composer] textarea[name="prompt"], textarea#mobile-composer-prompt',
     sendButton: '[data-testid="send-button"], button[aria-label*="send" i], button[aria-label*="ส่ง" i], button[title*="send" i]',
     stopButton: '[data-testid="stop-button"], button[aria-label*="Stop" i]',
     // ต.ค. 2026: ห้องแชตรุ่นใหม่ไม่มี data-message-author-role — คำตอบคือกล่องที่ตามหลังหัวข้อ "ChatGPT said:"
-    assistantTurn: '[data-message-author-role="assistant"], [data-turn="assistant"]:not(:has([data-message-author-role="assistant"])), h4[data-conversation-role="assistant"] ~ div',
+    assistantTurn: '[data-message-author-role="assistant"], [data-turn="assistant"]:not(:has([data-message-author-role="assistant"])), h4[data-conversation-role="assistant"] ~ div, li[data-message-role="assistant"]',
     turnContainer: 'main',
     codeBlock: 'pre code, [data-markdown-copy="code-block"] code',
     copyButton: '[data-testid="copy-turn-action-button"], button[aria-label*="Copy" i]',
@@ -101,9 +102,17 @@
    * ข้อความฝั่งผู้ใช้ และขอบของหนึ่งเทิร์น — รองรับทั้งโครงเก่าและโครงใหม่ของ ChatGPT (ต.ค. 2026)
    * โครงใหม่: [data-turn-key] ครอบทั้งคำสั่งและคำตอบ · ข้อความเราเป็น [data-chatgpt-search-unit-key$=":user"]
    */
-  const USER_TURN = '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"]';
-  const ANY_MESSAGE = '[data-message-author-role], [data-turn-key]';
-  const TURN_EDGE = 'article, [data-testid^="conversation-turn"], [data-turn-key]';
+  /**
+   * ต.ค. 2026 (15): หน้าแชตรุ่นใหม่ วางข้อความเป็นรายการ ol[data-conversation-transcript] > li[data-message-role="user|assistant"]
+   * ไม่มี data-message-author-role / data-turn-key / h4[data-conversation-role] อีกแล้ว — ตัวเลือกเดิมได้ 0 ทุกตัว
+   * อาการที่ผู้ใช้เจอ: "ส่งแล้วจับข้อความที่ส่งไม่ได้" และ "คำตอบยาว 0 ตัวอักษร" จนวางสารบัญไม่ได้สามรอบ
+   * เก็บแบบเก่าไว้คู่กัน บัญชีที่หน้าเว็บยังไม่เปลี่ยนจะได้ใช้ต่อได้
+   */
+  const USER_TURN = '[data-message-author-role="user"], [data-chatgpt-search-unit-key$=":user"], li[data-message-role="user"]';
+  const ANY_MESSAGE = '[data-message-author-role], [data-turn-key], li[data-message-role]';
+  const TURN_EDGE = 'article, [data-testid^="conversation-turn"], [data-turn-key], li[data-message-role]';
+  /** กล่องคำตอบแบบรายการรุ่นใหม่ — แถบปุ่ม (Copy response) อยู่ในกล่องเดียวกับคำตอบ */
+  const LIST_ANSWER = 'li[data-message-role="assistant"]';
   const CODE_BOX = 'pre, [data-markdown-copy="code-block"]';
 
   let S = { ...DEFAULT_SELECTORS };
@@ -112,17 +121,25 @@
   chrome.storage.local.get(['selectors', 'limitPatterns']).then((o) => {
     if (o.selectors) S = { ...DEFAULT_SELECTORS, ...o.selectors };
     // Migrate the old saved selector too: image-only replies now use data-turn.
-    if (!/data-conversation-role/.test(S.assistantTurn || '')) {
+    if (!/data-conversation-role/.test(S.assistantTurn || '') || !/data-message-role/.test(S.assistantTurn || '')) {
       S.assistantTurn = DEFAULT_SELECTORS.assistantTurn;
     }
     // ค่าที่เคยบันทึกไว้ซึ่งรู้จักแค่ #prompt-textarea จะหาช่องพิมพ์รุ่นใหม่ไม่เจอ — ใช้ค่าตั้งต้นแทน
-    if (!/ProseMirror/.test(S.composer || '')) S.composer = DEFAULT_SELECTORS.composer;
+    if (!/ProseMirror/.test(S.composer || '') || !/mobile-composer/.test(S.composer || '')) S.composer = DEFAULT_SELECTORS.composer;
     if (!/data-markdown-copy/.test(S.codeBlock || '')) S.codeBlock = DEFAULT_SELECTORS.codeBlock;
     if (o.limitPatterns?.length) LIMITS = o.limitPatterns;
   });
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+  /** ช่องพิมพ์มีสองแบบ: ProseMirror (ข้อความอยู่ใน innerText) กับ textarea รุ่นใหม่ (ข้อความอยู่ใน value) */
+  function isPlainField(box) {
+    return box?.tagName === 'TEXTAREA' || box?.tagName === 'INPUT';
+  }
+  function boxText(box) {
+    if (!box) return '';
+    return String(isPlainField(box) ? box.value : (box.innerText || box.textContent || ''));
+  }
   /**
    * รอหนึ่งเฟรม — แต่ต้องเดินต่อได้แม้แท็บไม่ได้วาดเฟรมเลย
    *
@@ -218,7 +235,7 @@
   const composerMatches = (prompt) => {
     const box = $(S.composer);
     if (!box) return false;
-    const got = loosePrompt(box.innerText || box.textContent);
+    const got = loosePrompt(boxText(box));
     const want = loosePrompt(prompt);
     if (!got || !want) return false;
     if (got === want) return true;
@@ -268,11 +285,10 @@
    * ตอนนี้รอให้ช่องพิมพ์โผล่และใช้งานได้จริงก่อนเสมอ
    */
   function composerReady() {
-    const box = $(S.composer);
-    if (!box) return null;
-    if (box.disabled || box.getAttribute('contenteditable') === 'false') return null;
-    if (box.offsetParent === null && getComputedStyle(box).position !== 'fixed') return null;
-    return box;
+    // หน้าเดียวกันอาจมีช่องพิมพ์สองแบบ (textarea รุ่นใหม่กับ ProseMirror) ตัวหนึ่งซ่อนอยู่ — เลือกตัวที่ใช้ได้จริง ไม่ใช่ตัวแรกในหน้า
+    return $$(S.composer).find((box) =>
+      !box.disabled && box.getAttribute('contenteditable') !== 'false' &&
+      !(box.offsetParent === null && getComputedStyle(box).position !== 'fixed')) || null;
   }
 
   const waitForComposer = (timeoutMs = 45000) => waitForDom(composerReady, { timeoutMs });
@@ -382,6 +398,19 @@
 
       const exact = el.querySelector('[data-testid="copy-turn-action-button"]');
       if (exact) return exact;
+
+      /**
+       * หน้าแบบรายการรุ่นใหม่: กล่องคำตอบติดป้าย data-message-complete เองเมื่อตอบจบ (ไม่ขึ้นกับภาษาของหน้า)
+       * ปุ่ม "Copy response" ก็อยู่ในกล่องเดียวกับคำตอบ — ใช้ตัวเลือก inCodeBlock ไม่ได้ เพราะชั้นที่ครอบปุ่มกับ <pre> ไว้ด้วยกันอยู่ใต้กล่องคำตอบ
+       * ผลใช้เป็นแค่ "จบแล้วหรือยัง" ไม่มีใครกดมัน
+       */
+      if (el === turn && turn.matches?.(LIST_ANSWER)) {
+        if (turn.hasAttribute('data-message-complete')) return turn;
+        const own = [...turn.querySelectorAll('button')].find((b) =>
+          !b.closest('pre') && /copy response|คัดลอกคำตอบ/i.test(b.getAttribute('aria-label') || ''));
+        if (own) return own;
+        break; // ห้ามไต่ออกไปหาปุ่มในรายการ — นั่นคือปุ่มของคำตอบอื่น
+      }
 
       // ในกล่องคำตอบเองไม่เคยมีแถบปุ่มจริง มีแต่ปุ่มของบล็อกโค้ด
       // จึงยอมรับเฉพาะ testid ตรงตัวเท่านั้น ส่วน selector สำรองใช้ได้แค่ชั้นนอกกล่อง
@@ -498,14 +527,30 @@
    */
   const TOO_LONG = /message you submitted was too long|message (?:is|was) too long|ข้อความที่คุณส่งยาวเกินไป|ข้อความยาวเกินไป/i;
   function tooLongAfter(anchor) {
-    return (
-      $$(`${ERROR_BOX}, [class*="red" i]`).find((el) => {
-        if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
-        if (anchor && !(anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
-        const t = (el.innerText || '').trim();
-        return t.length > 0 && t.length <= 200 && TOO_LONG.test(t);
-      }) || null
-    );
+    const after = (el) => !anchor || !!(anchor.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const boxed = $$(`${ERROR_BOX}, [class*="red" i]`).find((el) => {
+      if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') return false;
+      if (!after(el)) return false;
+      const t = (el.innerText || '').trim();
+      return t.length > 0 && t.length <= 200 && TOO_LONG.test(t);
+    });
+    if (boxed) return boxed;
+    /**
+     * หน้ารุ่นใหม่ (ต.ค. 2026) ตั้งชื่อคลาสเป็นรหัสสุ่ม (x19q1bhk …) ไม่มีคำว่า red / error ให้เลือก
+     * จึงหาจากตัวข้อความเองด้วย: ข้อความสั้นที่ตรงคำเตือน อยู่หลังข้อความที่เราส่ง และมองเห็นได้
+     * ไม่นับในช่องพิมพ์และในข้อความของเรา — คำสั่งหนังสือเองอาจมีคำว่า "ยาวเกินไป" ได้
+     */
+    if (typeof document.createTreeWalker !== 'function') return null;
+    const walker = document.createTreeWalker(document.body || document.documentElement, 4 /* NodeFilter.SHOW_TEXT */);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const t = n.nodeValue;
+      if (!t || t.length > 200 || !TOO_LONG.test(t)) continue;
+      const el = n.parentElement;
+      if (!el || !after(el) || el.closest(USER_TURN) || el.closest('form')) continue;
+      if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+      return el;
+    }
+    return null;
   }
 
   function streamErrorAfter(anchor) {
@@ -757,7 +802,7 @@
      * เกิดตอนรอบก่อนพิมพ์สำเร็จแต่กดส่งไม่ติด การล้างแล้วพิมพ์ใหม่ทั้งก้อน
      * (ยาวสองพันกว่าตัวอักษร) ใช้เวลานานและเสี่ยงถูก re-render ตัดกลางคันซ้ำอีก
      */
-    const already = (box.innerText || box.textContent || '').trim();
+    const already = boxText(box).trim();
     if (already && already === String(text).trim()) return box;
 
     /**
@@ -844,7 +889,7 @@
       });
       if (typed?.ok) {
         await frame();
-        ok = !!box.innerText.trim();
+        ok = !!boxText(box).trim();
       } else {
         typeError = typed?.error || 'ไม่ทราบสาเหตุ';
       }
@@ -865,7 +910,7 @@
         box.focus();
         ok = document.execCommand('paste');
         await frame();
-        ok = ok && !!box.innerText.trim();
+        ok = ok && !!boxText(box).trim();
         if (ok) clipboardError = '';
       } catch (e) {
         ok = false;
@@ -877,14 +922,14 @@
     }
 
     // ทางสำรองที่ 1: คำสั่งแทรกข้อความของเบราว์เซอร์
-    if (!box.innerText.trim()) {
+    if (!boxText(box).trim()) {
       ok = document.execCommand('insertText', false, text);
       await frame();
     }
 
     // Do not mutate the editor DOM behind its document state. The caller can
     // recover through browser input if paste/insertText was not accepted.
-    if (!box.innerText.trim()) throw new Error('composer_write_failed');
+    if (!boxText(box).trim()) throw new Error('composer_write_failed');
     /**
      * ต้องได้ข้อความ "ตรงตามที่ตั้งใจส่ง" ไม่ใช่แค่ "ยาวพอประมาณ"
      *
@@ -904,7 +949,7 @@
     const bare = (v) => loosePrompt(v).replace(/\p{N}/gu, '');
     const same = (a, b) => a === b || bare(a) === bare(b);
     const want = String(text || '');
-    let got = String(box.innerText || '');
+    let got = boxText(box);
 
     for (let i = 0; i < 2 && norm(want) && !same(got, want); i++) {
       // ข้อความไม่ตรง = ล้างแล้ววางใหม่ ไม่ต้องรายงานออกไป เพราะ injectText ถูกเรียกก่อนรู้ turnId
@@ -920,7 +965,7 @@
         document.execCommand('insertText', false, text);
       }
       await frame();
-      got = String(box.innerText || '');
+      got = boxText(box);
     }
 
     if (!norm(got)) throw new Error('composer_write_failed');
@@ -1076,6 +1121,14 @@
   async function clearComposer(box) {
     for (let i = 0; i < 3; i++) {
       box.focus();
+      if (isPlainField(box)) {
+        // textarea: เลือกทั้งช่องแล้วลบผ่านคำสั่งของเบราว์เซอร์ หน้าเว็บจึงเห็นเหตุการณ์ input ตามปกติ
+        box.select();
+        document.execCommand('delete', false, null);
+        await frame();
+        if (!boxText(box).trim()) return;
+        continue;
+      }
       const range = document.createRange();
       range.selectNodeContents(box);
       const selection = window.getSelection();
@@ -1083,7 +1136,7 @@
       selection.addRange(range);
       document.execCommand('delete', false, null);
       await frame();
-      if (!(box.innerText || box.textContent || '').trim()) return;
+      if (!boxText(box).trim()) return;
     }
     throw new Error('composer_write_failed');
   }
@@ -1201,6 +1254,7 @@
   const normalizeMessage = (text) => String(text || '').replace(/\s+/g, ' ').trim();
   function userMessageKey(node) {
     return node.getAttribute('data-message-id') ||
+      (node.matches?.('li[data-message-role]') ? node.id : '') ||
       node.getAttribute('data-chatgpt-search-message-ids') ||
       node.closest('[data-testid^="conversation-turn"]')?.getAttribute('data-testid') ||
       node.closest('[data-turn-key]')?.getAttribute('data-turn-key') || '';
@@ -1221,7 +1275,16 @@
     // Item repair prompts can have a Pasted text file tile before the actual bubble.
     // Keep the existing matching path for every caller that has not opted in.
     const body = itemReceipt ? node.querySelector?.('[data-testid="collapsible-user-message-content"]') : null;
-    return normalizeMessage(body ? (body.innerText || body.textContent) : (node.innerText || node.textContent));
+    return normalizeMessage(body ? (body.innerText || body.textContent) : withoutAttribution(node));
+  }
+  /**
+   * หน้าแบบรายการรุ่นใหม่ซ่อนหัว "You said:" / "ChatGPT said:" ไว้ในกล่องข้อความเอง (h4[data-message-attribution])
+   * innerText จึงขึ้นต้นด้วยหัวนี้ — การเทียบ "ขึ้นต้นด้วยคำสั่งของเรา" ไม่เคยตรง และคำตอบแบบข้อความล้วนมีหัวติดมา
+   */
+  function withoutAttribution(node) {
+    const text = String(node?.innerText || node?.textContent || '');
+    const label = String(node?.querySelector?.('h4[data-message-attribution]')?.innerText || '').trim();
+    return label && text.trimStart().startsWith(label) ? text.trimStart().slice(label.length) : text;
   }
   function snapshotUserMessages(itemReceipt = false) {
     const rows = $$(USER_TURN).map(node => ({
@@ -1751,7 +1814,7 @@
       return { text: codes.map((c) => c.textContent).join('\n'), blocks: codes.length };
     }
     // ไม่มีบล็อกโค้ด — คืนข้อความล้วนให้ชั้นบนตัดสินใจ
-    return { text: turn.innerText || '', blocks: 0 };
+    return { text: withoutAttribution(turn).trim(), blocks: 0 };
   }
 
   /**

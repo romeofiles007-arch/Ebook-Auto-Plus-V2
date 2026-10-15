@@ -44,17 +44,23 @@ export function mountRunStatus(parent, act) {
   box.append(header, reason, age, button);
   parent.prepend(box);
   let state;
+  let activityAt = 0;
   const tick = () => {
     if (!state) return;
-    age.textContent = state.at ? `ขั้น: ${state.step || 'เตรียมเล่ม'} · อัปเดต ${new Date(state.at).toLocaleTimeString('th-TH')} · ${Math.max(0, Math.floor((Date.now()-state.at)/1000))} วินาทีที่แล้ว` : 'ยังไม่มีข้อมูลจากงาน';
+    const stageAge = Math.max(0, Math.floor((Date.now() - state.at) / 1000));
+    const activityAge = Math.max(0, Math.floor((Date.now() - activityAt) / 1000));
+    age.textContent = state.at
+      ? `ขั้น: ${state.step || 'เตรียมเล่ม'} · เริ่มขั้น ${new Date(state.at).toLocaleTimeString('th-TH')} (${stageAge} วินาที)${activityAt > state.at ? ` · กิจกรรมล่าสุด ${activityAge} วินาทีที่แล้ว` : ''}`
+      : 'ยังไม่มีข้อมูลจากงาน';
   };
   button.onclick = async () => {
     button.disabled = true;
     try { await act(state); } catch(e) { reason.textContent = e.message; }
     finally { button.disabled = false; }
   };
-  const paint = (next) => {
-    if (!next || !STATE_LABELS[next.kind] || (state && next.at < state.at)) return;
+  const paint = (next, latestActivityAt = 0) => {
+    activityAt = Math.max(activityAt, latestActivityAt);
+    if (!next || !STATE_LABELS[next.kind] || (state && next.at < state.at)) { tick(); return; }
     state = next;
     box.dataset.state = next.kind;
     heading.textContent = `● ${STATE_LABELS[next.kind]}`;
