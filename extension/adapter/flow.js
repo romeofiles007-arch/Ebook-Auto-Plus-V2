@@ -195,7 +195,16 @@
       if (point) break;
     }
     if (!point) {
-      const error = new Error('ตำแหน่งปุ่มใน Flow เปลี่ยนหรือมีแผงบัง — หยุดก่อนคลิกเพื่อไม่ให้กดผิดปุ่ม');
+      // บอกด้วยว่าอะไรทับปุ่มอยู่ — "มีแผงบัง" เฉย ๆ ไม่พอให้แก้ต่อได้จากบันทึก
+      let why = '';
+      if (el?.isConnected) {
+        const r = el.getBoundingClientRect();
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') why = 'ปุ่มยังกดไม่ได้ (disabled)';
+        else if (!r.width || !r.height) why = 'ปุ่มไม่มีขนาด';
+        else if (r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) why = 'ปุ่มอยู่นอกจอ';
+        else why = `ชี้แล้วโดน "${describe(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))}"`;
+      } else why = 'หาปุ่มไม่เจอ';
+      const error = new Error(`ตำแหน่งปุ่มใน Flow เปลี่ยนหรือมีแผงบัง (${why}) — หยุดก่อนคลิกเพื่อไม่ให้กดผิดปุ่ม`);
       error.code = 'wrong_place';
       throw error;
     }
@@ -240,8 +249,18 @@
     editor: () =>
       $$('flow-prompt-box .ProseMirror, flow-base-prompt-box .ProseMirror').find(visible) ??
       $$('.ProseMirror[contenteditable="true"]').find(visible),
-    send: () =>
-      $$('button[aria-label="Start generation"], button[aria-label="เริ่มสร้าง"]').find(visible) || iconButton('arrow_forward'),
+    /**
+     * prompt ยาวทำให้ Flow กางช่องพิมพ์เป็นแผงใหญ่ (มีปุ่ม × และ ⤢) ที่มีปุ่มส่งของตัวเอง
+     * ปุ่มส่งตัวเดิมยังนับว่า "มองเห็น" แต่ถูกแผงนั้นทับอยู่ — เลือกตัวแรกจึงได้ปุ่มที่กดไม่ได้
+     * แล้วหยุดด้วย "มีแผงบัง" ทุกรอบ (เจอจริง ต.ค. 2026 ที่ปกหน้า) จึงเลือกตัวที่จุดคลิกโดนตัวมันจริงก่อน
+     */
+    send: () => {
+      const all = [
+        ...$$('button[aria-label="Start generation"], button[aria-label="เริ่มสร้าง"]').filter(visible),
+        ...$$('button').filter((b) => visible(b) && (text(b) === 'arrow_forward' || text(b).startsWith('arrow_forward '))),
+      ];
+      return all.find((b) => clickPoint(b)) || all[0] || null;
+    },
     tiles: () => $$('flow-grid-tile-container'),
   };
 

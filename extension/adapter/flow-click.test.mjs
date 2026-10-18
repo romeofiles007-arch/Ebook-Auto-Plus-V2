@@ -129,3 +129,35 @@ test('overlay appears during debugger failure: do not fall back to a blocked cli
   await assert.rejects(h.click(h.button), { code: 'wrong_place' });
   assert.equal(h.events.length, 0);
 });
+
+/**
+ * prompt ยาวทำให้ Flow กางช่องพิมพ์เป็นแผงใหญ่ที่มีปุ่มส่งของตัวเอง ปุ่มเดิมยัง "มองเห็น" แต่ถูกทับ
+ * (เจอจริง ต.ค. 2026: หยุดที่ "มีแผงบัง (ขั้น: กดสร้าง)" ตั้งแต่ปกหน้า)
+ */
+test('send prefers the generate button that is not covered by the expanded prompt panel', () => {
+  const start = source.indexOf('    send: () => {');
+  const fn = source.slice(start + '    send: '.length, source.indexOf('\n    },', start) + 6);
+  const covered = { name: 'covered', label: 'Start generation' };
+  const free = { name: 'free', label: 'arrow_forward' };
+  const send = vm.runInNewContext(`(${fn})`, {
+    $$: (sel) => (sel === 'button' ? [covered, free] : [covered]),
+    visible: () => true,
+    text: (b) => b.label,
+    clickPoint: (b) => (b === free ? { x: 1, y: 1 } : null),
+  });
+  assert.equal(send(), free);
+});
+
+test('a covered button stops with what is covering it, without clicking', async () => {
+  const context = vm.createContext({
+    innerWidth: 500, innerHeight: 300,
+    text: (el) => el.label || '',
+    document: { elementFromPoint: () => ({ nodeType: 1, label: 'close', closest: () => null }), addEventListener: () => {} },
+    sleep: async () => {},
+    chrome: { runtime: { id: 'test', sendMessage: async () => assert.fail('must not click') } },
+  });
+  vm.runInContext(`${clicks}\nglobalThis.click = trustedClick;`, context);
+  const button = { isConnected: true, disabled: false, getAttribute: () => null, contains: () => false,
+    getBoundingClientRect: () => ({ left: 100, top: 100, width: 80, height: 40, right: 180, bottom: 140 }) };
+  await assert.rejects(context.click(button), (e) => e.code === 'wrong_place' && /ชี้แล้วโดน "close"/.test(e.message));
+});
