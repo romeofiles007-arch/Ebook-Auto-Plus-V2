@@ -1014,6 +1014,11 @@ function handleGptMessage(m) {
 const RETRYABLE_TURN_STATUS = new Set(['error', 'empty', 'no_response']);
 
 function turnErrorMessage(res) {
+  /**
+   * ทาง API ต้องไม่ขึ้นว่า "ChatGPT ตอบกลับสถานะ error"
+   * ผู้ใช้จะไปไล่ดูแท็บ ChatGPT ที่ไม่ได้ใช้เลย ทั้งที่ต้องไปแก้คีย์หรือชื่อโมเดล
+   */
+  if (res?.meta?.via === 'api') return `OpenAI API: ${res.meta.error || `สถานะ ${res?.status || 'error'}`}`;
   if (res?.meta?.error === 'previous_turn_running') return 'ChatGPT ยังทำเทิร์นก่อนหน้าอยู่ — ระบบไม่กดหยุดหรือส่งงานทับ รอเทิร์นนั้นจบแล้วลองต่อใน Studio';
   if (res?.meta?.error === 'outcome_unknown') return res.meta.detail;
   const why = res?.meta?.error ? ` (${res.meta.error})` : '';
@@ -1032,7 +1037,8 @@ function retryNotice(box, n, max, what, res) {
   const why = res?.error ? ` — ${String(res.error).slice(0, 200)}` : '';
   const msg = `${what}ยังไม่สำเร็จ${why} · กำลังลองใหม่อัตโนมัติ ครั้งที่ ${n + 1}/${max}...`;
   if (box) box.textContent = msg;
-  status(`${what}ยังไม่สำเร็จ กำลังลองใหม่ ${n + 1}/${max}`);
+  // เหตุผลต้องไปถึงบันทึกและแถบข้างด้วย ไม่ใช่อยู่แค่ในกล่องที่อาจซ่อนอยู่คนละขั้นของหน้า
+  status(`${what}ยังไม่สำเร็จ${why} · กำลังลองใหม่ ${n + 1}/${max}`);
 }
 
 /**
@@ -1138,7 +1144,8 @@ async function sendTurn(transport, prompt, opts = {}, { attempts = 3, onRetry, p
        * ความระวังเดิมยังอยู่ครบสำหรับขั้นที่ส่งซ้ำแล้วเสียหายจริง — ที่นี่ปลดเฉพาะขั้นเตรียมเล่ม
        */
       const unknownSubmission = ['outcome_unknown','previous_turn_running'].includes(res.meta?.error);
-      fatal = unknownSubmission ? !prepStep : !RETRYABLE_TURN_STATUS.has(res.status);
+      // คีย์ผิด/ไม่มีคีย์/ไม่มีโมเดลนี้ ยิงซ้ำได้ผลเดิมทุกรอบ — หยุดบอกเหตุผลเลย ไม่เผาสามรอบในวินาทีเดียว
+      fatal = unknownSubmission ? !prepStep : !RETRYABLE_TURN_STATUS.has(res.status) || !!res.meta?.permanent;
       if (unknownSubmission && prepStep) {
         addEvent('system', 'ยืนยันผลไม่ได้ แต่ขั้นนี้ลองใหม่ได้', `ขั้น ${opts.label || '-'} · ยังไม่มีอะไรถูกเขียนลงเล่ม — ไล่บันไดกู้ต่อ แทนที่จะหยุดทั้งรอบ`);
       }
@@ -1714,7 +1721,7 @@ async function generateOutlineDirections() {
     if (!autoPilot()) runState('input', 'เลือกทิศทางสารบัญใน Studio แล้วระบบจะเริ่มเขียน', 'outlineDirections', 'เปิดตัวเลือกสารบัญ');
   } catch (e) {
     box.innerHTML = `<b>สร้างตัวเลือกสารบัญไม่สำเร็จ</b><div class="muted">${esc(e?.message || e)}</div>`;
-    status('สร้างตัวเลือกสารบัญไม่สำเร็จ');
+    status(`สร้างตัวเลือกสารบัญไม่สำเร็จ — ${String(e?.message || e).slice(0, 200)}`);
     if (!autoPilot()) runState('stopped', e?.message || String(e), 'start', 'ลองเสนอสารบัญใหม่ใน Studio');
   } finally {
     button.disabled = false;
@@ -2683,6 +2690,11 @@ async function runFullAuto() {
   button.disabled = true;
   button.textContent = '🤖 กำลังทำทั้งเล่ม...';
   try {
+    // เขียนผ่าน API แต่ช่องคีย์ว่าง — บอกตั้งแต่ก่อนเริ่ม ไม่ใช่ไปล้มเงียบ ๆ ที่ขั้นวางสารบัญ
+    if (useTextApi() && !apiKeyValue.trim()) {
+      $('openaiApiKey')?.focus();
+      throw new Error('ยังไม่ได้ใส่ OpenAI API key — วางคีย์ในช่อง OpenAI API key ที่ขั้นเลือกโหมด แล้วกดทดสอบคีย์ก่อนเริ่ม');
+    }
     if ((pickedAuthorRefTargets().length || on('authorPhotoCover')) && !setupAuthorPhoto)
       throw new Error('ยังไม่มีรูปผู้เขียนที่เลือกให้ใช้ กรุณาแนบรูปก่อนเริ่ม');
     for (const id of ['coverMode','figureMode']) {
@@ -2758,7 +2770,10 @@ async function runFullAuto() {
       await generateOutlineDirections();
       if (!fullAutoRunning) return;
       const pick = $('outlineDirections')?.querySelector('[data-outline-index="0"]');
-      if (!pick) throw new Error('วางสารบัญไม่สำเร็จ — ยังไม่ได้เริ่มเขียนเล่ม');
+      if (!pick) {
+        const why = $('outlineDirections')?.querySelector('.muted')?.textContent?.trim();
+        throw new Error(`วางสารบัญไม่สำเร็จ — ยังไม่ได้เริ่มเขียนเล่ม${why ? ` (${why.slice(0, 200)})` : ''}`);
+      }
       pick.click();
     }
     addEvent('system', 'อัตโนมัติ: เลือกสารบัญ', outlineDirection?.name || '-');

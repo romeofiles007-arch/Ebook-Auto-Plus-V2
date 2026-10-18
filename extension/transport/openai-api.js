@@ -62,7 +62,7 @@ export class OpenAiApiTransport {
    */
   async send(prompt, opts = {}) {
     if (!this.apiKey) {
-      return { status: 'error', text: '', meta: { error: 'ยังไม่ได้ใส่ OpenAI API key' } };
+      return { status: 'error', text: '', meta: { error: 'ยังไม่ได้ใส่ OpenAI API key', via: 'api', permanent: true } };
     }
     /**
      * เทิร์นที่ขอภาพต้องไม่มาทางนี้
@@ -75,7 +75,7 @@ export class OpenAiApiTransport {
       return {
         status: 'error',
         text: '',
-        meta: { error: 'ทางนี้ใช้เขียนข้อความเท่านั้น — ให้ตั้งแหล่งสร้างภาพเป็น OpenAI API หรือสร้างภาพเอง' },
+        meta: { error: 'ทางนี้ใช้เขียนข้อความเท่านั้น — ให้ตั้งแหล่งสร้างภาพเป็น OpenAI API หรือสร้างภาพเอง', via: 'api', permanent: true },
       };
     }
 
@@ -132,10 +132,11 @@ export class OpenAiApiTransport {
         const body = await res.json().catch(() => null);
         const message = apiErrorMessage(res.status, body);
         // ชนลิมิตต้องแยกออกจากความผิดพลาดอื่น เพราะระบบหยุดรอคนสั่งทำต่อ ไม่ใช่ลองใหม่เอง
+        // คีย์ผิด · ไม่มีสิทธิ์ · ไม่มีโมเดลนี้ · คำขอผิดรูป ยิงซ้ำกี่รอบก็ได้ผลเดิม จึงบอกปลายทางว่าไม่ต้องลองใหม่
         return {
           status: res.status === 429 ? 'rate_limited' : 'error',
           text: '',
-          meta: { error: message, http: res.status },
+          meta: { error: message, http: res.status, via: 'api', permanent: [400, 401, 403, 404].includes(res.status) },
         };
       }
 
@@ -146,7 +147,7 @@ export class OpenAiApiTransport {
         return {
           status: 'empty',
           text: '',
-          meta: { error: out.error || 'โมเดลตอบกลับมาว่าง', finish: out.finish },
+          meta: { error: out.error || 'โมเดลตอบกลับมาว่าง', finish: out.finish, via: 'api' },
         };
       }
 
@@ -166,8 +167,8 @@ export class OpenAiApiTransport {
         },
       };
     } catch (e) {
-      if (e?.name === 'AbortError') return { status: 'timeout', text: '', meta: { ms: timeoutMs } };
-      return { status: 'error', text: '', meta: { error: e?.message || String(e) } };
+      if (e?.name === 'AbortError') return { status: 'timeout', text: '', meta: { ms: timeoutMs, via: 'api' } };
+      return { status: 'error', text: '', meta: { error: e?.message || String(e), via: 'api' } };
     } finally {
       clearTimeout(timer);
     }
