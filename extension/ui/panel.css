@@ -15,3 +15,5 @@ body.logFull{overflow:hidden}
 .runControls button{margin:0;flex:1}
 .runControls .danger{background:#5b2230;color:#ffd9e0}
 .runControls .danger:hover{background:#6d2a3a}
+.hidden{display:none!important}
+.updateBox{margin-top:8px;padding:10px 12px;border-radius:10px;background:#17261c;border:1px solid #3b5843;font-size:12px;line-height:1.5;color:#d5e5d1}.updateBox.newer{border-color:#8bd7aa;background:#1f3a2a}.updateText{font-weight:750;color:#f2f7ee}.updateActions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}.updateLink{display:inline-block;padding:7px 12px;border-radius:9px;background:#70c89d;color:#10241a;font-weight:800;text-decoration:none}.updateLink.subtle{background:transparent;color:#b3e6bf;padding:7px 2px;text-decoration:underline}.updateSteps{margin:8px 0 0;padding-left:18px}.updateSteps li{margin:2px 0}

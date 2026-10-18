@@ -13,6 +13,16 @@ html[data-studio-room="proof"] { --scene-image: url('crew/rooms/proof-dusk.jpg')
 html[data-studio-room="layout"] { --scene-image: url('crew/rooms/layout-dusk.jpg'); --scene-accent: #a4bfff; }
 html[data-studio-room="ship"] { --scene-image: url('crew/rooms/ship-night.jpg'); --scene-accent: #ffd2a0; }
 html[data-studio-room="ceo"] { --scene-image: url('crew/rooms/ceo-night.jpg'); --scene-accent: #ffd6b1; }
+/*
+  ธีมทั้งหน้าตามโหมดที่เลือก (ผู้ใช้ขอ) — เป็นสีพื้นของ Studio ตอนว่างหรือตอนฝ่ายค้นคว้าทำงาน
+  พอแผนกอื่นเริ่มงาน สีของแผนกนั้นขึ้นแทนตามเดิม แล้วกลับมาเป็นสีโหมดเมื่อทีมว่าง
+  ใช้โทนอ่อนกว่าแสงของการ์ด เพราะปุ่มหลักใช้สีนี้เป็นพื้นแล้วต้องอ่านตัวหนังสือสีเข้มบนนั้นได้
+*/
+html[data-mode-theme="flow"][data-studio-room="research"] { --scene-accent: #6fe0ae; }
+html[data-mode-theme="gemini"][data-studio-room="research"] { --scene-accent: #94b8ff; }
+html[data-mode-theme="apiflow"][data-studio-room="research"] { --scene-accent: #7fe3f5; }
+html[data-mode-theme="plus"][data-studio-room="research"] { --scene-accent: #e2a6ff; }
+html[data-mode-theme="api"][data-studio-room="research"] { --scene-accent: #aeb0ff; }
 
 body {
   position: relative;
@@ -146,9 +156,9 @@ header {
 */
 .modeCard[data-mode="flow"] { --mode-c: #19c37d; --mode-c2: #10a37f; }
 .modeCard[data-mode="gemini"] { --mode-c: #4c8df6; --mode-c2: #a970ff; }
-.modeCard[data-mode="apiflow"] { --mode-c: #6b93e6; --mode-c2: #3367d6; }
-.modeCard[data-mode="plus"] { --mode-c: #ab68ff; --mode-c2: #19c37d; }
-.modeCard[data-mode="api"] { --mode-c: #6b93e6; --mode-c2: #8fb0f0; }
+.modeCard[data-mode="apiflow"] { --mode-c: #22c4e0; --mode-c2: #4c8df6; }
+.modeCard[data-mode="plus"] { --mode-c: #c56bff; --mode-c2: #ff7ac8; }
+.modeCard[data-mode="api"] { --mode-c: #7a7dff; --mode-c2: #5b5fe0; }
 .modeCard[data-mode] { position: relative; }
 .modeCard[data-mode]:hover { border-color: color-mix(in srgb, var(--mode-c) 70%, #fff); }
 .modeCard[data-mode].sel {

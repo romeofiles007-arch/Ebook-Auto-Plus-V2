@@ -1,4 +1,5 @@
 import './panel-activity.js';
+import { checkForUpdate, DOWNLOAD_ZIP, CHANGES_URL } from '../core/update-check.js';
 const $ = (id) => document.getElementById(id);
 async function openPage(buttonId, type, label) {
   const button = $(buttonId);
@@ -38,6 +39,34 @@ async function command(buttonId, name, label) {
     button.disabled = false;
   }
 }
+/**
+ * ตรวจเวอร์ชันจากแผงข้าง — ตัวเดียวกับปุ่มบนหัว Studio
+ * ตรวจเฉพาะตอนกดเอง ส่วนการตรวจเงียบ ๆ ตอนเปิดเป็นหน้าที่ของ Studio ไม่ต้องยิงซ้ำสองที่
+ */
+$('updateDownload').href = DOWNLOAD_ZIP;
+$('updateChanges').href = CHANGES_URL;
+$('checkUpdate').onclick = async () => {
+  const button = $('checkUpdate');
+  const current = chrome.runtime.getManifest?.().version || '0';
+  const show = (text, newer = false) => {
+    $('updateText').textContent = text;
+    $('updateActions').classList.toggle('hidden', !newer);
+    $('updateSteps').classList.toggle('hidden', !newer);
+    $('updateBox').classList.toggle('newer', newer);
+    $('updateBox').classList.remove('hidden');
+  };
+  button.disabled = true;
+  show('กำลังตรวจเวอร์ชันบน GitHub...');
+  try {
+    const r = await checkForUpdate(current);
+    show(r.newer ? `มีเวอร์ชันใหม่ ${r.latest} แล้ว — เครื่องนี้ยังเป็น ${current}` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, r.newer);
+  } catch (error) {
+    show(error.message);
+  } finally {
+    button.disabled = false;
+  }
+};
+
 $('jobStop').onclick = () => command('jobStop', 'stopJob', 'หยุดงาน');
 $('jobResume').onclick = () => command('jobResume', 'resumeJob', 'ทำต่อ');
 chrome.runtime.onMessage.addListener((m) => {

@@ -16,6 +16,20 @@
   <p>ติดตามงานที่นี่ · สร้างและจัดการหนังสือใน Studio</p>
   <button id="studio">เปิด Studio</button>
   <button id="chat">เปิด ChatGPT</button>
+  <button id="checkUpdate" title="ตรวจว่ามีเวอร์ชันใหม่บน GitHub หรือยัง">ตรวจหาอัปเดต</button>
+  <!-- ผลตรวจเวอร์ชัน (core/update-check.js) — ตรวจแล้วแจ้งเท่านั้น ส่วนขยายเขียนทับไฟล์ของตัวเองไม่ได้ -->
+  <div id="updateBox" class="updateBox hidden" role="status" aria-live="polite">
+    <div id="updateText" class="updateText"></div>
+    <div id="updateActions" class="updateActions hidden">
+      <a id="updateDownload" class="updateLink" target="_blank" rel="noopener">ดาวน์โหลด ZIP</a>
+      <a id="updateChanges" class="updateLink subtle" target="_blank" rel="noopener">ดูว่ามีอะไรเปลี่ยน</a>
+    </div>
+    <ol id="updateSteps" class="updateSteps hidden">
+      <li>แตก ZIP แล้วคัดลอกทุกอย่างในโฟลเดอร์ <b>extension</b> ไปวางทับโฟลเดอร์ส่วนขยายเดิม</li>
+      <li>เปิด <b>chrome://extensions</b> แล้วกดรีโหลดที่ Ebook Plus</li>
+      <li>ปิดแล้วเปิด Studio ใหม่ — เล่มที่ทำค้างไว้ยังอยู่ครบ</li>
+    </ol>
+  </div>
   <div class="runControls">
     <button id="jobStop" class="danger">⏸ หยุดงาน</button>
     <button id="jobResume">▶ ทำต่อ</button>

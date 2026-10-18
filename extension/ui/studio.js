@@ -6514,6 +6514,7 @@ function highlightMode(mode) {
     (MODE_NOTE[mode] || '') +
     (authorRefSummary(readAuthorRefDraft()) ? ' · Prompt ของภาพที่เลือกไว้จะมีคำสั่งให้แนบรูปผู้เขียนติดไปด้วย' : '');
   chosenMode = mode;
+  document.documentElement.dataset.modeTheme = mode;
 }
 
 function pickMode(mode) {
@@ -6555,6 +6556,7 @@ function syncModeFromForm() {
    * ห้ามไฮไลต์การ์ดมั่ว ต้องกางช่องตั้งเองให้เห็นว่าค่าจริงคืออะไร
    */
   chosenMode = null;
+  delete document.documentElement.dataset.modeTheme;
   $('modePicker')
     .querySelectorAll('[data-mode]')
     .forEach((b) => b.classList.remove('sel'));
