@@ -140,6 +140,42 @@ header {
   background: linear-gradient(135deg, color-mix(in srgb, var(--scene-accent) 32%, transparent), transparent 58%), #244332bd;
   box-shadow: inset 0 1px #ffffffa1, 0 0 0 2px color-mix(in srgb, var(--scene-accent) 22%, transparent), 0 8px 16px #0007;
 }
+/*
+  การ์ดที่เลือกเรืองแสงเป็นสีของโมเดลหลักที่ใช้เขียน — เห็นปุ๊บรู้ว่าเลือกทางไหนอยู่
+  --mode-c คือสีหลัก --mode-c2 คือสีปลายไล่ (Gemini ไล่ฟ้า→ม่วงตามโลโก้)
+*/
+.modeCard[data-mode="flow"] { --mode-c: #19c37d; --mode-c2: #10a37f; }
+.modeCard[data-mode="gemini"] { --mode-c: #4c8df6; --mode-c2: #a970ff; }
+.modeCard[data-mode="apiflow"] { --mode-c: #6b93e6; --mode-c2: #3367d6; }
+.modeCard[data-mode="plus"] { --mode-c: #ab68ff; --mode-c2: #19c37d; }
+.modeCard[data-mode="api"] { --mode-c: #6b93e6; --mode-c2: #8fb0f0; }
+.modeCard[data-mode] { position: relative; }
+.modeCard[data-mode]:hover { border-color: color-mix(in srgb, var(--mode-c) 70%, #fff); }
+.modeCard[data-mode].sel {
+  border-color: color-mix(in srgb, var(--mode-c) 85%, #fff);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--mode-c) 38%, transparent), color-mix(in srgb, var(--mode-c2) 16%, transparent) 62%, transparent),
+    #1d3328c7;
+  box-shadow:
+    inset 0 1px #ffffffa1,
+    0 0 0 2px color-mix(in srgb, var(--mode-c) 45%, transparent),
+    0 0 18px color-mix(in srgb, var(--mode-c) 45%, transparent),
+    0 10px 24px -6px color-mix(in srgb, var(--mode-c2) 55%, transparent);
+}
+/* แสงเรืองชั้นนอกหายใจช้า ๆ — ขยับแค่ opacity ของเลเยอร์แยก ไม่ต้องวาด box-shadow ใหม่ทุกเฟรม */
+.modeCard[data-mode].sel::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 30px 4px color-mix(in srgb, var(--mode-c) 50%, transparent),
+    0 0 54px 10px color-mix(in srgb, var(--mode-c2) 26%, transparent);
+  opacity: .45;
+  animation: modeGlow 2.8s ease-in-out infinite alternate;
+}
+@keyframes modeGlow { to { opacity: 1; } }
 .modeCard b { color: #fff; }
 .modeCard .modeWhat, .modeCard.sel .modeWhat { color: #edf6e9; font-size: 15px; line-height: 1.5; }
 .modeCard .modeNote { font-size: 15px; line-height: 1.55; }
@@ -185,7 +221,9 @@ input::placeholder, textarea::placeholder { color: #c6d8c4; opacity: 1; }
 @media (prefers-reduced-transparency: reduce) {
   header, .card, .macroSteps, .wizardBar, .modeCard, .run-status, .run-timer { backdrop-filter: none; background: #1b3425; }
   .modeCard.sel, .wizardStep.now { background: #304e37; }
+  .modeCard[data-mode].sel { background: color-mix(in srgb, var(--mode-c) 24%, #1b3425); }
 }
 @media (prefers-reduced-motion: reduce) {
+  .modeCard[data-mode].sel::after { animation: none; opacity: .8; }
   .bar i { transition: none; }
 }

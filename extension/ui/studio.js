@@ -6354,9 +6354,11 @@ function renderTextPrice() {
           .filter(Boolean)
           .join(' · ')}) ราว <b>${esc(formatCost(img.usd, usdThb))}</b>` +
         `<br><b>รวมทั้งเล่มราว ${esc(formatCost(total, usdThb))}</b>`
-      : est
-        ? `<br>ยังไม่รวมค่าภาพ เพราะเล่มนี้ตั้งให้สร้างภาพเอง ไม่ผ่าน API`
-        : '') +
+      : !est
+        ? ''
+        : val('imageSource', 'web') === 'flow'
+          ? `<br>ค่าภาพ 0 บาท — ปกและภาพในเล่มวาดด้วย Google Flow โหมดฟรี · <b>รวมทั้งเล่มราว ${esc(formatCost(total, usdThb))}</b>`
+          : `<br>ยังไม่รวมค่าภาพ เพราะเล่มนี้สร้างภาพผ่านหน้าเว็บหรือสร้างเอง ไม่ผ่าน API`) +
     `<br>เป็นการประเมิน ไม่ใช่ราคาที่ตกลงไว้ — ตัวเลขจริงจะขึ้นให้เห็นทุกเทิร์นระหว่างทำงาน`;
 }
 
@@ -6490,6 +6492,7 @@ $('wizardNext').onclick = () => wizardShift(1);
 const MODE_PRESET = {
   flow: { textSource: 'web', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
   gemini: { textSource: 'gemini', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
+  apiflow: { textSource: 'api', imageSource: 'flow', coverMode: 'auto', figureMode: 'auto', illus: 'max' },
   plus: { textSource: 'web', imageSource: 'web', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
   api: { textSource: 'api', imageSource: 'api', coverMode: 'auto', figureMode: 'auto', illus: 'light' },
 };
@@ -6497,6 +6500,7 @@ const MODE_PRESET = {
 const MODE_NOTE = {
   flow: 'โหมด Ebook Plus: เขียนเนื้อหาผ่านหน้าเว็บ ChatGPT แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูปตามแผนของ ChatGPT · ภาพถูกตั้งชื่อตามตำแหน่งในเล่ม เก็บลงโฟลเดอร์ของเล่ม แล้วใส่เข้าหน้าให้เอง · ต้องเปิดแท็บ chatgpt.com และล็อกอิน flow.google.com ไว้',
   gemini: 'โหมด Gemini + Flow: เขียนเนื้อหาผ่านหน้าเว็บ Gemini แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูปตามแผนของ Gemini · ใช้บัญชี Google เดียวทั้งสองเว็บ ไม่ต้องมีบัญชี ChatGPT · ต้องล็อกอิน gemini.google.com และ flow.google.com ไว้ และเลือกโหมดของ Gemini (เช่น Flash) ค้างไว้ในหน้าเว็บ · ระหว่างเขียนต้องปล่อยแท็บ Gemini ไว้หน้าจอ (Gemini หยุดทำงานเมื่อมองไม่เห็น ระบบจะดึงแท็บกลับมาให้เอง) ดูความคืบหน้าได้จากแถบข้าง',
+  apiflow: 'โหมด API + Flow: เขียนเนื้อหาผ่าน OpenAI API ไม่ต้องเปิดแท็บ ChatGPT แล้วให้ Google Flow โหมดฟรีวาดปกหน้า ปกหลัง และภาพประกอบทุกรูป · จ่ายเฉพาะค่าเขียนตามจำนวน token ที่ใช้จริง ภาพไม่เสียเงิน · ต้องใส่ API key และล็อกอิน flow.google.com ไว้',
   plus: 'โหมด Plus: เขียนและสร้างภาพด้วยบัญชีเดียว ระบบดึงภาพมาใส่ให้เอง · หรือจะเปลี่ยนเป็นเอา Prompt ไปสร้างเองแล้วแนบก็ได้ที่ขั้นรูปเล่มและภาพ · ต้องเปิดแท็บ chatgpt.com ค้างไว้ตลอด',
   api: 'โหมด API: เขียนและสร้างภาพผ่าน API ไม่ต้องเปิดแท็บ ChatGPT เลย · เปลี่ยนเป็นเอา Prompt ไปสร้างเองก็ได้เหมือนกัน · ต้องใส่ API key และจ่ายตามจำนวน token ที่ใช้จริง',
 };
@@ -6543,6 +6547,7 @@ function syncModeFromForm() {
   if (t === 'api' && i === 'api') return highlightMode('api');
   if (t === 'web' && i === 'flow') return highlightMode('flow');
   if (t === 'gemini' && i === 'flow') return highlightMode('gemini');
+  if (t === 'api' && i === 'flow') return highlightMode('apiflow');
   // การ์ด ChatGPT ฟรี ถูกเอาออกแล้ว (ผู้ใช้สั่ง) — หน้าเว็บทั้งคู่ไฮไลต์ Plus เฉพาะตอนที่เลือกการ์ดนั้นเอง ไม่งั้นแสดงเป็นค่าที่ตั้งเอง
   if (t === 'web' && i === 'web' && chosenMode === 'plus') return highlightMode('plus');
   /**
