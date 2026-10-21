@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { plainMath, texToPlain } from './plain-math.js';
 import { prepareForTypeset } from './thai.js';
 import { mdToTypst } from '../typeset/template.js';
+import { mdToHtml } from './md-html.js';
 
 test('สูตรจากหน้า 69 → ข้อความธรรมดาที่อ่านได้', () => {
   assert.equal(plainMath('\\[ d=\\sqrt{1200^2+1500^2} \\]'), 'd = √(1200² + 1500²)');
@@ -32,14 +33,45 @@ test('แท็ก <text> ถูกถอด เหลือข้อควา�
   assert.equal(plainMath('ถ้า a < b และ b > c'), 'ถ้า a < b และ b > c');
 });
 
-test('แผนผังที่วาดด้วยเส้น → บล็อกโค้ด คงแนวบรรทัด · ตาราง markdown ไม่แตะ', () => {
-  const diagram = ['ด้านนอกของกรอบ', '| โปรไฟล์กรอบ |', '|   |  ยางกด  |', 'กระจก', '|---+----|---|'].join('\n');
-  const out = plainMath(diagram).split('\n');
-  assert.equal(out[0], 'ด้านนอกของกรอบ');
-  assert.equal(out[1], '```');
-  assert.equal(out.at(-1), '```');
-  assert.ok(out.includes('กระจก'));
+test('แผนผังหน้า 18 ที่ช่องว่างถูกยุบแล้ว → กล่องรายชื่อชิ้นส่วนตามลำดับ ไม่มีเส้น | — | เหลือ', () => {
+  const page18 = [
+    'ภาพตัดขวางต่อไปนี้เป็นแผนผังเชิงแนวคิด',
+    '',
+    'ด้านนอกของกรอบ',
+    '---------------------',
+    '| โปรไฟล์กรอบ |',
+    '| --------------- |',
+    '|| ยางกดกระจก ||',
+    '|-- |',
+    '|||',
+    '|| กระจก ||',
+    '|-- |',
+    'ด้านในของกรอบ',
+    '',
+    'ย่อหน้าถัดไป',
+  ].join('\n');
+  assert.equal(
+    plainMath(page18),
+    'ภาพตัดขวางต่อไปนี้เป็นแผนผังเชิงแนวคิด\n\n:::box ด้านนอกของกรอบ\n- โปรไฟล์กรอบ\n- ยางกดกระจก\n- กระจก\n- ด้านในของกรอบ\n:::\n\nย่อหน้าถัดไป',
+  );
+  // .docx และ EPUB ไม่รู้จัก ``` — เคยพิมพ์เครื่องหมายนี้ลงเนื้อหนังสือ
+  assert.ok(!plainMath(page18).includes('```'));
+  assert.match(mdToHtml(page18), /<div class="box"><b>ด้านนอกของกรอบ<\/b><ul><li>โปรไฟล์กรอบ<\/li>/);
+  const typ = mdToTypst(prepareForTypeset(page18, 'th'));
+  assert.ok(!/raw\(|\|/.test(typ), typ);
+});
 
+test('แผนผังแบบอื่น: เส้นกล่องเต็มรูป ผังลำดับแนวตั้ง ป้ายชื่อคั่นกลาง', () => {
+  const spaced = ['| โปรไฟล์กรอบ |', '|   |  ยางกด  |', 'กระจก', '|---+----|---|'].join('\n');
+  assert.equal(plainMath(spaced), ':::box\n- โปรไฟล์กรอบ\n- ยางกด\n- กระจก\n:::');
+  const grid = '┌──────┬────────┐\n│ ชนิด │ ความหนา │\n├──────┼────────┤\n│ 6063 │ 1.2 มม. │\n└──────┴────────┘';
+  assert.equal(plainMath(grid), ':::box\n- ชนิด · ความหนา\n- 6063 · 1.2 มม.\n:::');
+  assert.equal(plainMath('วัดช่อง\n   |\n   v\nตัดโปรไฟล์\n   ↓\nประกอบ'), ':::box\n- วัดช่อง → ตัดโปรไฟล์ → ประกอบ\n:::');
+  // เส้นคั่นตอน --- กับย่อหน้าธรรมดาไม่ถูกแตะ
+  assert.equal(plainMath('ข้อความ\n\n---\n\nหัวข้อใหม่'), 'ข้อความ\n\n---\n\nหัวข้อใหม่');
+});
+
+test('ตาราง markdown กับรายการ ไม่ถูกตีเป็นแผนผัง', () => {
   const table = '| ชนิด | ความหนา |\n|---|---|\n| 6063 | 1.2 มม. |';
   assert.equal(plainMath(table), table);
   const list = '- ขนาด 10-20 มม.\n- หนา 1.2 มม.';

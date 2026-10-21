@@ -8,7 +8,7 @@
  * จึงกวาดที่ prepareForTypeset ซึ่งทุกเส้นทางผลิต PDF ผ่าน
  *  - สูตร LaTeX → ข้อความธรรมดาที่มีสัญลักษณ์ √ ² ≈ ×
  *  - แท็ก HTML/XML ที่รู้จัก → ถอดแท็กเหลือแต่ข้อความ
- *  - แผนผังที่วาดด้วยเส้น → ห่อเป็นบล็อกโค้ดให้คงแนวบรรทัดไว้ ไม่ถูกต่อเป็นย่อหน้า
+ *  - แผนผังที่วาดด้วยเส้น → กล่อง :::box รายชื่อชิ้นส่วนตามลำดับ ไม่ถูกต่อเป็นย่อหน้า
  */
 
 const SYMBOLS = {
@@ -154,19 +154,69 @@ function drawn(line) {
   return box >= 2 || pipes >= 2 || (rule && (pipes >= 1 || /[+\/\\]/.test(line)));
 }
 
-/** ห่อแผนผังที่วาดด้วยเส้น (2 บรรทัดขึ้นไปติดกัน) เป็นบล็อกโค้ด ตารางที่มีแถวคั่น |---| ไม่แตะ */
-function fenceDiagrams(lines) {
+// เส้นล้วนที่ไม่มีข้อความ ("-----", "═════") — เป็นเส้นของแผนผังเมื่ออยู่ติดบรรทัดที่วาด
+const RULE_ONLY = /^\s*[-_=—–─━═+]{3,}\s*$/;
+// ป้ายชื่อสั้น ๆ ที่ไม่ใช่ประโยค หัวข้อ หรือรายการ
+const isLabel = (l) => !!l && !!l.trim() && l.trim().length < 40 && !/^\s*(#|!\[|>|```|:::|[-*+]\s|\d+[.)]\s)/.test(l) && !drawn(l) && !RULE_ONLY.test(l);
+// เส้นเชื่อมแนวตั้งที่อยู่บรรทัดเดียว ("|", "v", "↓") ระหว่างขั้นของผังลำดับ
+const CONNECTOR = /^\s*(?:[|│┃↓▼↑▲]|[vV])\s*$/;
+const stroke = (l) => drawn(l) || CONNECTOR.test(l);
+const partOf = (l, next) => stroke(l) || (RULE_ONLY.test(l) && drawn(next || ''));
+
+// ทุกอย่างที่เป็น "เส้น" ในแผนผัง — เหลือไว้แต่ข้อความระหว่างเส้น
+const STROKES = /[│┃┌┐└┘├┤┬┴┼─━═║╔╗╚╝╠╣╦╩╬|+]+|[-_=—–]{2,}>?|<?[-=]{2,}|->|<-|=>|[→←↑↓▲▼►◄]|^\s*[-—–]\s*$/g;
+const ARROW_H = /->|=>|→|►|<-|←|◄/;
+const ARROW_V = /[↓▼↑▲]|^\s*[vV]\s*$/;
+
+/** แต่ละบรรทัดของแผนผัง → ข้อความที่อยู่ในบรรทัดนั้น */
+function diagramItems(run) {
+  const rows = [];
+  let flow = false;
+  for (const line of run) {
+    if (CONNECTOR.test(line)) { flow = true; continue; }
+    const labels = line.split(STROKES).map((s) => s.replace(/^[\s\/\\:.]+|[\s\/\\:]+$/g, '').replace(/\s+/g, ' ')).filter((s) => /[\p{L}\p{N}]/u.test(s));
+    if (!labels.length) { if (ARROW_V.test(line)) flow = true; continue; }
+    const row = labels.join(ARROW_H.test(line) ? (/<-|←|◄/.test(line) && !/->|=>|→|►/.test(line) ? ' ← ' : ' → ') : ' · ');
+    if (rows.at(-1) !== row) rows.push(row);
+  }
+  return flow && rows.length > 1 ? [rows.join(' → ')] : rows;
+}
+
+/**
+ * แผนผังที่วาดด้วยเส้น (2 บรรทัดขึ้นไปติดกัน) → กล่อง :::box รายชื่อชิ้นส่วนตามลำดับ
+ *
+ * เคยห่อเป็นบล็อกโค้ดให้คงแนวบรรทัด แต่ข้อความที่ดึงจาก ChatGPT ถูกยุบช่องว่างไปแล้ว
+ * (แผนผังที่ไม่อยู่ในบล็อกโค้ดถูกแสดงเป็นย่อหน้า) เส้นจึงไม่ตรงกันอีก หน้า 18 ได้ "|| ยางกดกระจก ||" "|||" ซึ่งอ่านไม่ออก
+ * อักษรไทยในฟอนต์ความกว้างคงที่ก็ไม่ตรงแนวอยู่ดี และ .docx / EPUB ไม่รู้จัก ``` จึงพิมพ์ออกมาตรง ๆ
+ * กล่องเป็นรูปแบบเดียวที่ทั้ง PDF, Word และ EPUB วาดได้ และสิ่งที่ผู้อ่านต้องการจากแผนผังคือชื่อชิ้นส่วนกับลำดับ
+ * ตารางที่มีแถวคั่น |---| ไม่แตะ
+ */
+function boxDiagrams(lines) {
   const out = [];
   for (let i = 0; i < lines.length; ) {
-    if (!drawn(lines[i])) { out.push(lines[i++]); continue; }
+    if (!partOf(lines[i], lines[i + 1])) { out.push(lines[i++]); continue; }
     let j = i;
-    // ป้ายชื่อสั้น ๆ ที่คั่นกลางระหว่างเส้นของแผนผังเดียวกัน ("ด้านนอกของกรอบ") ไปด้วยกัน
-    while (j < lines.length && (drawn(lines[j]) || (lines[j].trim() && lines[j].length < 40 && drawn(lines[j + 1] || '')))) j++;
+    // ป้ายชื่อสั้น ๆ ที่คั่นกลางระหว่างเส้นของแผนผังเดียวกัน ("กระจก") ไปด้วยกัน
+    while (j < lines.length && (partOf(lines[j], lines[j + 1]) || (isLabel(lines[j]) && partOf(lines[j + 1] || '', lines[j + 2])))) j++;
     const run = lines.slice(i, j);
-    const table = run.some((l) => TABLE_SEP.test(l)) && /^\s*\|/.test(run[0]);
+    const sep = run.findIndex((l) => TABLE_SEP.test(l));
+    const table = sep >= 0 && /^\s*\|/.test(lines[i + sep - 1] || '');
     const listOnly = run.every((l) => /^\s*([-*+]|\d+[.)])\s/.test(l));
-    if (run.length < 2 || table || listOnly) out.push(...run);
-    else out.push('```', ...run, '```');
+    const drawnCount = run.filter(stroke).length;
+    if (drawnCount < 2 || table || listOnly) { out.push(...run); i = j; continue; }
+
+    // ป้ายที่ติดอยู่บนสุด ("ด้านนอกของกรอบ") เป็นหัวกล่อง ป้ายท้ายที่ปิดย่อหน้า ("ด้านในของกรอบ") เป็นรายการสุดท้าย
+    // ผังลำดับที่เริ่มด้วยเส้นเชื่อม ป้ายบนสุดคือขั้นแรก ไม่ใช่หัวกล่อง
+    let title = '';
+    if (isLabel(out.at(-1)) && !(out.at(-2) || '').trim()) title = out.pop().trim();
+    if (title && CONNECTOR.test(run[0])) { run.unshift(title); title = ''; }
+    if (isLabel(lines[j]) && lines[j].trim().length < 25 && !(lines[j + 1] || '').trim()) run.push(lines[j++]);
+    const items = diagramItems(run);
+    if (items.length) {
+      if (out.length && out.at(-1).trim()) out.push('');
+      out.push(`:::box ${title}`.trimEnd(), ...items.map((x) => `- ${x}`), ':::');
+      if (j < lines.length && lines[j].trim()) out.push('');
+    } else if (title) out.push(title); // เส้นล้วนไม่มีข้อความ — ไม่มีอะไรให้อ่าน ทิ้งไป
     i = j;
   }
   return out;
@@ -174,10 +224,10 @@ function fenceDiagrams(lines) {
 
 export function plainMath(md) {
   const text = String(md ?? '');
-  if (!/[\\<$|│┃┌└├─═║{]/.test(text)) return text;
+  if (!/[\\<$|│┃┌└├─═║{+→↓]/.test(text)) return text;
   // บล็อกโค้ดเดิมไม่แตะ — ตั้งใจให้พิมพ์ตามตัวอักษร
   const parts = text.split(/(^```[^\n]*\n[\s\S]*?^```[ \t]*$)/m);
   return parts
-    .map((part, k) => (k % 2 ? part : fenceDiagrams(mathSpans(stripTags(part)).split('\n')).join('\n')))
+    .map((part, k) => (k % 2 ? part : boxDiagrams(mathSpans(stripTags(part)).split('\n')).join('\n')))
     .join('');
 }
