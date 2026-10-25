@@ -297,6 +297,20 @@
   }
 
   // ---------- รอคำตอบ ----------
+  /**
+   * เพดาน 5 นาทีเป็นเพดาน "ไม่มีอะไรเกิดขึ้น" ไม่ใช่เพดานของคำตอบที่ยังพิมพ์อยู่
+   * เจอจริง (Gemini + Flow · ขั้นเขียนเนื้อหา): ตอนยาวในกล่องโค้ด Markdown ใช้เวลาเกิน 5 นาที ปุ่มหยุดยังขึ้น
+   * ข้อความยังงอก แต่ถูกตัดจบเป็น outcome_unknown ทุกตอน งานหยุดซ้ำ ๆ ทั้งที่ Gemini กำลังเขียนให้อยู่
+   * รอต่อตราบที่ยังพิมพ์ (ปุ่มหยุดขึ้น และข้อความเปลี่ยนภายใน 2 นาที) แต่ไม่เกิน 20 นาทีรวม
+   */
+  const ANSWER_HARD_CAP_MS = 20 * 60000;
+  const ANSWER_STALL_MS = 120000;
+  function answerTimedOut({ now, t0, stableSince, busy, timeoutMs }) {
+    if (now - t0 <= timeoutMs) return false;
+    const stillWriting = busy && now - stableSince < ANSWER_STALL_MS;
+    return !stillWriting || now - t0 > Math.max(timeoutMs, ANSWER_HARD_CAP_MS);
+  }
+
   function waitForAnswer(turnId, anchor, prompt, { timeoutMs = 300000, startMs = 120000, quietMs = 1800 } = {}) {
     return new Promise((resolve) => {
       const t0 = Date.now();
@@ -332,7 +346,7 @@
             return finish('ok');
         }
         if (!resp && now - t0 > startMs) return finish('no_response');
-        if (now - t0 > timeoutMs) return finish('timeout');
+        if (answerTimedOut({ now, t0, stableSince, busy, timeoutMs })) return finish('timeout');
         report(
           turnId,
           'waiting',

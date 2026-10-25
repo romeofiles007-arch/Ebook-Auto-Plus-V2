@@ -27,6 +27,16 @@ test('โหมดยืดหยุ่น: ความยาวเป็นข
   assert.match(proseCompose({ book: soft, chapter: { sections: [s] }, sections: [s], context: '', output: '', drafts: [] }), /ยกเว้นตอนปิดบท\/ปิดเล่ม/);
 });
 
+/**
+ * เจอจริง (วิศวะเครื่องกล · เป้า 20 หน้า): โควตาตอนละ ~2,000 อักษร แต่ ChatGPT เขียนตอนละ 7,000–14,000
+ * เล่มออกมา 218 หน้า — "ไม่ใช่เพดาน" อย่างเดียวไม่มีขอบบนเลย ผู้ใช้ยอมให้เกินราว 40 → 70 (ไม่ถึงสองเท่า)
+ */
+test('โหมดยืดหยุ่นมีขอบบนอ่อน ๆ ราวสองเท่า (ไม่ใช่ปล่อยยาวไม่จำกัด)', async () => {
+  assert.match(lengthLine(soft, s), /ไม่ควรเกินราว 4,000/);
+  const src = await readFile(new URL('./prompts.js', import.meta.url), 'utf8');
+  assert.match(src, /ไม่ควรเกินราว \$\{\(s\.quota \* 2\)\.toLocaleString\(\)\}/);
+});
+
 test('โหมดเป๊ะยังมีเพดานเหมือนเดิม', () => {
   assert.match(lengthLine(strict, s), /เพดาน 2500/);
   assert.match(proseRules(strict), /ครบประเด็นแล้วจบได้/);

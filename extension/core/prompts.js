@@ -905,7 +905,7 @@ function fictionBatchPrompt({ book, outline, bible, chapter, sections, prevSumma
   แรงส่งท้ายฉาก: ${s.hook || '-'}
   beats: ${(s.beats || []).map((b, i) => `${i + 1}) ${b}`).join(' ')}
   continuity ที่ห้ามหาย: ${(s.takeaways || []).join(' · ')}
-  ${(book.pageMode || 'soft') !== 'strict' ? `ความยาวตั้งต้นราว ${s.quota.toLocaleString()} ${u} — ขั้นต่ำโดยประมาณ ไม่ใช่เพดาน ฉากต้องเล่าจนครบ beats และจบฉากจริง ยาวกว่านี้ได้ ห้ามรวบรัด` : `ความยาว ${s.quota.toLocaleString()} ${u} — ห้ามเกิน ${(s.maxChars || Math.round(s.quota * 1.25)).toLocaleString()} ${u} เด็ดขาด`}`).join('\n\n');
+  ${(book.pageMode || 'soft') !== 'strict' ? `ความยาวตั้งต้นราว ${s.quota.toLocaleString()} ${u} — ขั้นต่ำโดยประมาณ ไม่ใช่เพดาน ฉากต้องเล่าจนครบ beats และจบฉากจริง ยาวกว่านี้ได้ ห้ามรวบรัด · แต่ไม่ควรเกินราว ${(s.quota * 2).toLocaleString()} ${u}` : `ความยาว ${s.quota.toLocaleString()} ${u} — ห้ามเกิน ${(s.maxChars || Math.round(s.quota * 1.25)).toLocaleString()} ${u} เด็ดขาด`}`).join('\n\n');
   const ids = sections.map((s) => s.id);
   // ท้ายฉากก่อนหน้าคำต่อคำ — สรุปสองประโยคบอกได้แค่ "เกิดอะไร" ไม่ได้บอกว่าค้างไว้ตรงไหน ฉากใหม่จึงเคยต่อแบบกระโดด
   const tail = prevTail
