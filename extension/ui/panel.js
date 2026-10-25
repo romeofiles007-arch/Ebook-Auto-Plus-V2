@@ -19,21 +19,31 @@ $('studio').onclick = () => openPage('studio', 'sw.openStudio', 'Studio');
  * โหมด Gemini เคยขึ้นปุ่ม "เปิด ChatGPT" แล้วกดไปเปิด ChatGPT จริง ทั้งที่งานวิ่งอยู่ใน Gemini (ลูกค้าแจ้งมา)
  */
 let chatSite = 'chatgpt';
+/**
+ * ปุ่ม "เปิด Google Flow" — แสดงเมื่อเล่มวาดภาพด้วย Flow (ไม่รู้ = แสดงไว้ก่อน เพราะเป็นโหมดหลักของ Ebook Plus)
+ * กดแล้วดึงแท็บ Flow ที่ใช้อยู่ขึ้นมา หรือเปิดที่ project ของเล่มถ้ายังไม่มีแท็บ
+ */
+let flowInfo = { imageSource: '', flowProjectUrl: '' };
 const chatName = () => (chatSite === 'gemini' ? 'Gemini' : 'ChatGPT');
 const paintChatButton = () => {
   $('chat').textContent = `เปิด ${chatName()}`;
+  $('flow').hidden = !!flowInfo.imageSource && flowInfo.imageSource !== 'flow';
 };
-chrome.storage.local.get('chatSite').then(({ chatSite: s }) => {
+chrome.storage.local.get(['chatSite', 'flowInfo']).then(({ chatSite: s, flowInfo: f }) => {
   chatSite = s === 'gemini' ? 'gemini' : 'chatgpt';
+  if (f) flowInfo = f;
   paintChatButton();
 }).catch(() => {});
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes.chatSite) return;
-  chatSite = changes.chatSite.newValue === 'gemini' ? 'gemini' : 'chatgpt';
+  if (area !== 'local' || (!changes.chatSite && !changes.flowInfo)) return;
+  if (changes.chatSite) chatSite = changes.chatSite.newValue === 'gemini' ? 'gemini' : 'chatgpt';
+  if (changes.flowInfo) flowInfo = changes.flowInfo.newValue || flowInfo;
   paintChatButton();
 });
 $('chat').onclick = () =>
   openPage('chat', 'sw.focusChat', chatName(), chatSite === 'gemini' ? { site: 'gemini' } : {});
+$('flow').onclick = () =>
+  openPage('flow', 'sw.focusFlow', 'Google Flow', flowInfo.flowProjectUrl ? { url: flowInfo.flowProjectUrl } : {});
 
 /**
  * สั่งหยุด/ทำต่อจากแผงข้างได้โดยไม่ต้องสลับไปหน้า Studio

@@ -26,6 +26,9 @@ const labelBook = () => {
   };
 };
 const brand = (s) => siteLabel(s, labelBook());
+// ค่าล่าสุดที่ฝากให้แผงข้าง (syncChatSiteLabel) — ประกาศไว้บนสุด เพราะ renderSteps ถูกเรียกได้ตั้งแต่หน้ากำลังโหลด
+let lastChatSite = '';
+let lastFlowInfo = '';
 
 const paintRunStatus = mountRunStatus(document.querySelector('main'), async (state) => {
   if (state.action === 'resume') return resumeGo();
@@ -644,7 +647,6 @@ const renderSteps = () => {
  * บรรทัดรายละเอียดถูกเขียนจากหลายจุด จึงแปลงที่ตัวบรรทัดเองทุกครั้งที่เปลี่ยน
  * แผงข้างไม่รู้ว่าเล่มไหนเปิดอยู่ — ฝากชื่อเว็บไว้ใน storage ให้มันอ่านตาม (panel.js)
  */
-let lastChatSite = '';
 function syncChatSiteLabel() {
   const name = chatSiteName(labelBook());
   const btn = $('chat');
@@ -653,6 +655,14 @@ function syncChatSiteLabel() {
   if (name !== lastChatSite) {
     lastChatSite = name;
     chrome.storage.local.set({ chatSite: name === 'Gemini' ? 'gemini' : 'chatgpt' }).catch(() => {});
+  }
+  // ปุ่มเปิด Google Flow ในแผงข้าง: แสดงเมื่อเล่มวาดด้วย Flow และเปิดที่ project ของเล่มนี้
+  const lb = labelBook();
+  const flowInfo = { imageSource: lb.imageSource || 'web', flowProjectUrl: lb.imagePhase?.flowProjectUrl || '' };
+  const key = `${flowInfo.imageSource}|${flowInfo.flowProjectUrl}`;
+  if (key !== lastFlowInfo) {
+    lastFlowInfo = key;
+    chrome.storage.local.set({ flowInfo }).catch(() => {});
   }
 }
 {

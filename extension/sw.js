@@ -273,7 +273,7 @@ const isFlowUrl = (url = '') => /^https:\/\/flow\.google\.com\//.test(url);
  * แท็บ Flow ที่ใช้สร้างภาพ — ใช้แท็บเดิมของงานนี้ก่อน เพราะ project ของเล่มเปิดค้างอยู่ในแท็บนั้น
  * ถ้าไม่มีเลยค่อยเปิดหน้าต่างใหม่ที่ไม่ย่อ (แท็บที่มองไม่เห็นถูก Chrome ชะลอจนงานช้าลงหลายเท่า)
  */
-async function ensureFlowTab() {
+async function ensureFlowTab(homeUrl = 'https://flow.google.com/') {
   let tab = null;
   const rememberedId = await S.get('flowTabId');
   if (rememberedId != null) {
@@ -301,7 +301,7 @@ async function ensureFlowTab() {
         windowId = (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
       } catch {}
     }
-    tab = await chrome.tabs.create({ url: 'https://flow.google.com/', active: false, ...(windowId != null ? { windowId } : {}) });
+    tab = await chrome.tabs.create({ url: isFlowUrl(homeUrl) ? homeUrl : 'https://flow.google.com/', active: false, ...(windowId != null ? { windowId } : {}) });
   }
   try {
     let fresh = await chrome.tabs.get(tab.id);
@@ -567,6 +567,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'sw.openStudio': {
         const t = await ensureStudioTab(true);
         return sendResponse({ ok: true, tabId: t.id });
+      }
+
+      /**
+       * ปุ่ม "เปิด Google Flow" ในแผงข้าง — ดึงแท็บ Flow ที่ใช้อยู่ขึ้นมา หรือเปิดใหม่ที่ project ของเล่ม
+       * แท็บที่มีอยู่แล้วไม่เปลี่ยนที่อยู่ เพราะอาจกำลังวาดภาพของเล่มอยู่ การโหลดทับจะทำให้ภาพนั้นหาย
+       */
+      case 'sw.focusFlow': {
+        const t = await ensureFlowTab(isFlowUrl(msg.url) ? msg.url : undefined);
+        await chrome.tabs.update(t.id, { active: true });
+        await chrome.windows.update(t.windowId, { focused: true });
+        return sendResponse({ ok: true });
       }
 
       case 'sw.focusChat': {
