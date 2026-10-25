@@ -8,6 +8,24 @@ import * as db from '../core/db.js';
 import { planFlowImageRepair } from '../core/image-repair.js';
 import { mountRunStatus } from './run-status.js';
 import { mountRunTimer, nextClock } from './run-timer.js';
+import { siteLabel, chatSiteName } from './site-label.js';
+
+/**
+ * ข้อความบนจอใช้ชื่อเว็บที่เขียนจริง (Gemini) แทน "ChatGPT" ที่เขียนตายตัวไว้ทั่วทั้งหน้า — ดู site-label.js
+ * ยังไม่มีเล่ม = อ่านจากตัวเลือกบนฟอร์ม (อ่านจาก DOM ตรง ๆ เพราะถูกเรียกได้ก่อนประกาศ val ข้างล่าง)
+ */
+const labelBook = () => {
+  try {
+    if (book) return book;
+  } catch {
+    /* ถูกเรียกก่อนประกาศ book — ใช้ค่าบนฟอร์ม */
+  }
+  return {
+    textSource: document.getElementById('textSource')?.value || 'web',
+    imageSource: document.getElementById('imageSource')?.value || 'web',
+  };
+};
+const brand = (s) => siteLabel(s, labelBook());
 
 const paintRunStatus = mountRunStatus(document.querySelector('main'), async (state) => {
   if (state.action === 'resume') return resumeGo();
@@ -19,6 +37,7 @@ const paintRunTimer = mountRunTimer(document.body);
 /** นาฬิกาจับเวลาของงานปัจจุบัน — Studio เป็นเจ้าของเวลา แล้วส่งติดไปกับสถานะให้แผงข้างอ่านตาม */
 let jobClock = null;
 function runState(kind, reason, action = '', actionLabel = '') {
+  reason = brand(reason);
   const step = book?.job?.step;
   const run = {kind, reason, action, actionLabel, at:Date.now(), step:STEP_NAMES[step] || step || 'เตรียมเล่ม'};
   jobClock = nextClock(jobClock, run);
@@ -190,7 +209,8 @@ const activitySession = crypto.randomUUID();
 const REPEAT_WINDOW_MS = 20000;
 let lastPublished = { message: '', at: 0 };
 function publishActivity(message, level = 'info', crew = null) {
-  const text = String(message || '').slice(0, 1600);
+  const text = brand(String(message || '').slice(0, 1600));
+  if (crew?.detail) crew = { ...crew, detail: brand(crew.detail) };
   if (text) {
     recentLog.push(`[${level}] ${text}`);
     if (recentLog.length > 30) recentLog.shift();
@@ -218,6 +238,7 @@ function setMode(label = '', { busy = false } = {}) {
 }
 
 const status = (s) => {
+  s = brand(s);
   $('status').textContent = s;
   publishActivity(currentMode ? `[${currentMode}] ${s}` : s);
   // แถบข้างเห็นได้บรรทัดเดียว จึงต้องพ่วงชื่อโหมดไปกับข้อความ
@@ -313,14 +334,16 @@ async function syncSharedProject(id = book?.id) {
 }
 
 function addEvent(direction, label, text, meta = '') {
+  label = brand(label);
+  meta = brand(meta);
   publishActivity([label, text, meta].filter(Boolean).join(' · '), label === 'warn' || label === 'error' ? label : direction);
   const feed = $('feed');
   if (eventCount === 0) feed.innerHTML = '';
   eventCount++;
   const el = document.createElement('div');
   el.className = `event ${direction}`;
-  const who =
-    direction === 'send' ? '➡️ Extension → ChatGPT' : direction === 'receive' ? '⬅️ ChatGPT → Extension' : '⚙️ Extension';
+  const who = brand(
+    direction === 'send' ? '➡️ Extension → ChatGPT' : direction === 'receive' ? '⬅️ ChatGPT → Extension' : '⚙️ Extension');
   el.innerHTML =
     `<div class="head"><span>${who}</span><span>${new Date().toLocaleTimeString()}</span></div>` +
     `<div class="label">${esc(label)}</div>` +
@@ -601,8 +624,8 @@ const renderSteps = () => {
       `<div class="dept ${progress} ${severity}" data-room="${d.id}">` +
       crewMarkup(d.id, 'crew-backdrop') +
       `<div class="mark">${mark}</div>` +
-      `<div class="body"><b>${esc(d.name)}</b><span class="role">${esc(d.role)}</span>` +
-      (note ? `<span class="note">${esc(note.text)}</span>` : '') +
+      `<div class="body"><b>${esc(d.name)}</b><span class="role">${esc(brand(d.role))}</span>` +
+      (note ? `<span class="note">${esc(brand(note.text))}</span>` : '') +
       `</div>${crewMarkup(d.id, 'crew-art')}</div>`
     );
   }).join('');
@@ -613,7 +636,35 @@ const renderSteps = () => {
     name: visible.map((member) => member.name).join(' + '), working: crewBusy(),
     detail: activeDept < 0 ? (currentMode || 'ทีมงานพร้อมเริ่ม · สร้างหนังสือใน Studio') :
       $('detail').textContent || deptNotes.get(activeDept)?.text || d.role });
+  syncChatSiteLabel();
 };
+
+/**
+ * ปุ่ม "เปิดหน้าต่าง ChatGPT" และบรรทัดรายละเอียดต้องบอกเว็บที่ใช้จริง
+ * บรรทัดรายละเอียดถูกเขียนจากหลายจุด จึงแปลงที่ตัวบรรทัดเองทุกครั้งที่เปลี่ยน
+ * แผงข้างไม่รู้ว่าเล่มไหนเปิดอยู่ — ฝากชื่อเว็บไว้ใน storage ให้มันอ่านตาม (panel.js)
+ */
+let lastChatSite = '';
+function syncChatSiteLabel() {
+  const name = chatSiteName(labelBook());
+  const btn = $('chat');
+  const label = btn && [...btn.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+  if (label) label.textContent = `เปิดหน้าต่าง ${name}`;
+  if (name !== lastChatSite) {
+    lastChatSite = name;
+    chrome.storage.local.set({ chatSite: name === 'Gemini' ? 'gemini' : 'chatgpt' }).catch(() => {});
+  }
+}
+{
+  const detail = document.getElementById('detail');
+  if (detail) {
+    new MutationObserver(() => {
+      const t = detail.textContent;
+      const b = brand(t);
+      if (b !== t) detail.textContent = b;
+    }).observe(detail, { childList: true, characterData: true, subtree: true });
+  }
+}
 
 /**
  * แถบขั้นตอนหลัก — คงอยู่ทุกหน้าจอ (ต่างจาก #steps ที่อยู่แค่ในหน้า progress)

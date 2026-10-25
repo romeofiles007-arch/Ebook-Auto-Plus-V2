@@ -1,12 +1,12 @@
 import './panel-activity.js';
 import { checkForUpdate, DOWNLOAD_ZIP, CHANGES_URL } from '../core/update-check.js';
 const $ = (id) => document.getElementById(id);
-async function openPage(buttonId, type, label) {
+async function openPage(buttonId, type, label, extra = {}) {
   const button = $(buttonId);
   button.disabled = true;
   $('live').textContent = `กำลังเปิด ${label}...`;
   try {
-    const result = await chrome.runtime.sendMessage({ type });
+    const result = await chrome.runtime.sendMessage({ type, ...extra });
     if (!result?.ok) throw new Error(result?.error || `เปิด ${label} ไม่สำเร็จ`);
     $('live').textContent = `เปิด ${label} แล้ว`;
   } catch (error) {
@@ -14,7 +14,26 @@ async function openPage(buttonId, type, label) {
   } finally { button.disabled = false; }
 }
 $('studio').onclick = () => openPage('studio', 'sw.openStudio', 'Studio');
-$('chat').onclick = () => openPage('chat', 'sw.focusChat', 'ChatGPT');
+/**
+ * เว็บที่เล่มปัจจุบันใช้เขียน — Studio ฝากไว้ใน storage (chatSite) เพราะแผงนี้ไม่รู้ว่าเปิดเล่มไหนอยู่
+ * โหมด Gemini เคยขึ้นปุ่ม "เปิด ChatGPT" แล้วกดไปเปิด ChatGPT จริง ทั้งที่งานวิ่งอยู่ใน Gemini (ลูกค้าแจ้งมา)
+ */
+let chatSite = 'chatgpt';
+const chatName = () => (chatSite === 'gemini' ? 'Gemini' : 'ChatGPT');
+const paintChatButton = () => {
+  $('chat').textContent = `เปิด ${chatName()}`;
+};
+chrome.storage.local.get('chatSite').then(({ chatSite: s }) => {
+  chatSite = s === 'gemini' ? 'gemini' : 'chatgpt';
+  paintChatButton();
+}).catch(() => {});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.chatSite) return;
+  chatSite = changes.chatSite.newValue === 'gemini' ? 'gemini' : 'chatgpt';
+  paintChatButton();
+});
+$('chat').onclick = () =>
+  openPage('chat', 'sw.focusChat', chatName(), chatSite === 'gemini' ? { site: 'gemini' } : {});
 
 /**
  * สั่งหยุด/ทำต่อจากแผงข้างได้โดยไม่ต้องสลับไปหน้า Studio
