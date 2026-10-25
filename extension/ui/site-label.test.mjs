@@ -40,3 +40,14 @@ test('Studio และแผงข้างใช้ตัวเปลี่ย�
   const panel = await readFile(new URL('./panel.js', import.meta.url), 'utf8');
   assert.match(panel, /chatSite/);
 });
+
+test('เมนู 2 Phase บอกเครื่องมือวาดจริง: Flow ไม่พูดถึง ChatGPT', async () => {
+  const { autoImageLabels } = await import('./site-label.js');
+  const flow = autoImageLabels('flow');
+  assert.doesNotMatch(flow.cover + flow.figure, /ChatGPT/);
+  assert.match(flow.cover, /Google Flow/);
+  assert.match(autoImageLabels('api').cover, /API/);
+  assert.match(autoImageLabels('web').cover, /ChatGPT/);
+  const studio = await readFile(new URL('./studio.js', import.meta.url), 'utf8');
+  assert.match(studio, /autoImageLabels\(/, 'Studio ต้องตั้งข้อความตัวเลือกจากแหล่งภาพ');
+});

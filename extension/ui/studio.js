@@ -8,7 +8,7 @@ import * as db from '../core/db.js';
 import { planFlowImageRepair } from '../core/image-repair.js';
 import { mountRunStatus } from './run-status.js';
 import { mountRunTimer, nextClock } from './run-timer.js';
-import { siteLabel, chatSiteName } from './site-label.js';
+import { siteLabel, chatSiteName, autoImageLabels } from './site-label.js';
 
 /**
  * ข้อความบนจอใช้ชื่อเว็บที่เขียนจริง (Gemini) แทน "ChatGPT" ที่เขียนตายตัวไว้ทั่วทั้งหน้า — ดู site-label.js
@@ -6431,6 +6431,12 @@ function renderTextPrice() {
 function syncApiSources() {
   const imageApi = val('imageSource', 'web') === 'api';
   const textApi = val('textSource', 'web') === 'api';
+  // ตัวเลือก 2 Phase ของปก/ภาพในเล่มบอกเครื่องมือวาดตามแหล่งภาพที่เลือก (Flow ไม่ใช่ ChatGPT)
+  const autoLabels = autoImageLabels(val('imageSource', 'web'));
+  const coverAuto = $('coverMode')?.querySelector('option[value="auto"]');
+  const figureAuto = $('figureMode')?.querySelector('option[value="auto"]');
+  if (coverAuto) coverAuto.textContent = autoLabels.cover;
+  if (figureAuto) figureAuto.textContent = autoLabels.figure;
   // คีย์เดียวใช้ได้ทั้งสองงาน ช่องคีย์จึงโผล่เมื่อมีงานใดงานหนึ่งเลือกทาง API
   $('apiKeyField').hidden = !imageApi && !textApi;
   $('textApiRow').hidden = !textApi;
