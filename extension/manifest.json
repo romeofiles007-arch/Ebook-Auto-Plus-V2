@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Ebook Plus",
-  "version": "0.2.7",
-  "version_name": "0.2.7 Ebook Plus · Google Flow",
+  "version": "0.2.8",
+  "version_name": "0.2.8 Ebook Plus · Google Flow",
   "description": "ให้หัวข้อ แล้วสร้างหนังสือทั้งเล่มผ่านหน้าเว็บ ChatGPT พร้อมภาพปกและภาพประกอบฟรีจาก Google Flow เรียงพิมพ์ด้วย Typst ในเบราว์เซอร์",
   "minimum_chrome_version": "114",
 
@@ -49,6 +49,12 @@
   "side_panel": { "default_path": "ui/panel.html" },
 
   "content_scripts": [
+    {
+      "matches": ["https://flow.google.com/*", "https://chatgpt.com/*", "https://chat.openai.com/*", "https://gemini.google.com/*"],
+      "js": ["adapter/no-translate.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    },
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
       "js": ["adapter/chatgpt.js"],

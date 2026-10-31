@@ -318,7 +318,7 @@ async function ensureFlowTab(homeUrl = 'https://flow.google.com/') {
 }
 
 /** รุ่นของตัวขับในหน้า Flow ที่ service worker นี้คาดหวัง — ต้องตรงกับ ADAPTER_REV ใน adapter/flow.js */
-const FLOW_ADAPTER_REV = 9;
+const FLOW_ADAPTER_REV = 10;
 
 async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
   const until = Date.now() + timeoutMs;
@@ -331,6 +331,17 @@ async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
        * ตอบได้แต่เป็นรุ่นเก่า (แท็บเปิดค้างจากก่อนอัปเดตส่วนขยาย) — ฉีดซ้ำไม่ช่วย เพราะตัวเก่ากันการฉีดซ้ำไว้
        * โหลดแท็บใหม่ครั้งเดียว ให้ Chrome ใส่ตัวขับรุ่นปัจจุบันตาม manifest
        */
+      /**
+       * Chrome แปลหน้า Flow เป็นภาษาไทยอยู่ ("Translated to Thai") — ปุ่มและชื่อรุ่นถูกแปลจนหาไม่เจอ
+       * โหลดใหม่ครั้งเดียวตอนว่าง: adapter/no-translate.js ประกาศห้ามแปลตั้งแต่เริ่มโหลด หน้าใหม่จึงเป็นภาษาเดิม
+       */
+      if (r.translated && !r.busy && !reloaded) {
+        reloaded = true;
+        await chrome.tabs.reload(tabId);
+        await new Promise((res) => setTimeout(res, 1500));
+        await waitForComplete(tabId, Math.max(0, until - Date.now())).catch(() => {});
+        return false;
+      }
       if (r.rev !== FLOW_ADAPTER_REV && !reloaded && !r.busy) {
         reloaded = true;
         await chrome.tabs.reload(tabId);

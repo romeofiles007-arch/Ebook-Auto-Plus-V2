@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 9;
+  const ADAPTER_REV = 10;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = (el) => (el?.innerText ?? el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -1891,11 +1891,17 @@
 
   if (typeof chrome === 'undefined' || !chrome.runtime?.id) return; // ฉีดทดสอบในหน้าเว็บตรง ๆ
 
+  /**
+   * Chrome แปลหน้านี้ไปแล้ว (ใส่คลาส translated-ltr/rtl ที่ <html>) — ข้อความ ชื่อรุ่น และชื่อไอคอนถูกเปลี่ยนทั้งหน้า
+   * service worker จะโหลดแท็บใหม่ให้ตอนว่าง ซึ่งตอนนั้น adapter/no-translate.js กันการแปลไว้ตั้งแต่เริ่มโหลด
+   */
+  const pageTranslated = () => /\btranslated-(ltr|rtl)\b/.test(document.documentElement.className || '');
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === 'flow.ping') {
       const signIn = $$('a, button').some((el) => visible(el) && /^\s*sign in\s*$|^\s*เข้าสู่ระบบ\s*$/i.test(text(el)));
       const looksIn = inProject() || !!SEL.newProject();
-      sendResponse({ ok: true, rev: ADAPTER_REV, url: location.href, loggedIn: signIn ? false : looksIn ? true : null, busy, stage });
+      sendResponse({ ok: true, rev: ADAPTER_REV, url: location.href, loggedIn: signIn ? false : looksIn ? true : null, busy, stage, translated: pageTranslated() });
       return;
     }
     if (msg?.type !== 'flow.run') return;
