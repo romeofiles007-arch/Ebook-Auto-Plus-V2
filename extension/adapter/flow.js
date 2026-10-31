@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 7;
+  const ADAPTER_REV = 8;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = (el) => (el?.innerText ?? el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -449,10 +449,20 @@
       // เมนูมี backdrop ทับปุ่มรุ่นภาพอยู่: การกดปุ่มนั้นด้วยพิกัดจริงจะชน backdrop
       // เลือกรุ่นที่ใช้อยู่ซ้ำจากรายการที่มองเห็นเพื่อพับเมนูโดยไม่เปลี่ยนค่า
       const current = readPane()?.model;
-      const selected = modelOptions().find((m) => text(m).replace(/^\S+\s/, '') === current);
-      if (!selected) throw new Error('เมนูโมเดลของ Flow เปิดอยู่ แต่ไม่พบรุ่นที่เลือกไว้สำหรับปิดเมนู');
-      realClick(selected);
-      await waitFor(() => !modelOptions().length, { timeout: 3000, label: 'ปิดรายการโมเดล' });
+      const selected = current && modelOptions().find((m) => text(m).replace(/^\S+\s/, '') === current);
+      if (selected) {
+        realClick(selected);
+        await waitFor(() => !modelOptions().length, { timeout: 3000, label: 'ปิดรายการโมเดล' });
+      } else {
+        /**
+         * รายการที่เปิดค้างไม่ใช่เมนูโมเดล (เมนูของภาพ · ตัวเลือกสื่อ) หรืออ่านรุ่นปัจจุบันไม่ได้
+         * เจอจริง (ลูกค้า 0.2.5 · เหลือภาพ 3 ใบ): หยุดทั้งงานที่ "ไม่พบรุ่นที่เลือกไว้สำหรับปิดเมนู"
+         * ปิดทิ้งด้วย Esc แทน — ไม่กดรายการใดเลย จึงไม่เปลี่ยนรุ่นหรือสั่งอะไรผิด · หยุดเฉพาะเมื่อปิดไม่ลงจริง ๆ
+         */
+        escape();
+        const gone = await waitFor(() => !modelOptions().length, { timeout: 3000, label: 'ปิดเมนูที่ค้าง' }).catch(() => false);
+        if (!gone) throw new Error('เมนูโมเดลของ Flow เปิดอยู่ แต่ไม่พบรุ่นที่เลือกไว้สำหรับปิดเมนู');
+      }
     }
     escape();
     const closed = await waitFor(() => !settingsPane(), { timeout: 1500, label: 'ปิดแผงตั้งค่า' }).catch(() => false);
