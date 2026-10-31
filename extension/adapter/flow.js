@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 6;
+  const ADAPTER_REV = 7;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = (el) => (el?.innerText ?? el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -231,7 +231,10 @@
   }
 
   const escape = () => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+    const esc = () => new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true });
+    // หน้า Flow รุ่นใหม่ปิดเมนูเมื่อ Escape ส่งถึงตัวเมนูเอง ไม่ใช่ระดับเอกสาร (ตรวจกับหน้าจริง ต.ค. 2026)
+    document.querySelector('[role="menu"]')?.dispatchEvent(esc());
+    document.dispatchEvent(esc());
     document.querySelector('.cdk-overlay-backdrop')?.click();
   };
 
@@ -968,6 +971,32 @@
         const opened = await waitFor(() => $$('[role="menuitem"]').filter(visible).length && $$('[role="menuitem"]').filter(visible), {
           timeout: 1500,
           label: 'เมนูของภาพ',
+        }).catch(() => null);
+        if (opened) return opened;
+      }
+    }
+    /**
+     * หน้า Flow รุ่นใหม่ (ต.ค. 2026): ปุ่ม "ตัวเลือกเพิ่มเติม" ซ่อนด้วย visibility:hidden จนกว่าเมาส์จริงชี้ tile
+     * คลิกพิกัดจึงตกที่รูปใต้ปุ่ม — เจอจริง: "ชี้แล้วโดน author-photo.jpg" แล้วงานหยุดที่ขั้นสร้างภาพ
+     * แต่ tile เป็น mat-context-menu-trigger: คลิกขวาที่ tile เปิดเมนูเดียวกันครบ
+     * (เพิ่มไปยังพรอมต์ · ดาวน์โหลด · เปลี่ยนชื่อ) และรับเหตุการณ์จากสคริปต์ — ตรวจกับหน้าจริงแล้ว
+     */
+    {
+      const current = findTile(id);
+      if (current) {
+        const r = current.getBoundingClientRect?.() || { left: 0, top: 0, width: 0, height: 0 };
+        current.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            button: 2,
+            clientX: r.left + r.width / 2,
+            clientY: r.top + r.height / 2,
+          }),
+        );
+        const opened = await waitFor(() => $$('[role="menuitem"]').filter(visible).length && $$('[role="menuitem"]').filter(visible), {
+          timeout: 1500,
+          label: 'เมนูของภาพ (คลิกขวา)',
         }).catch(() => null);
         if (opened) return opened;
       }

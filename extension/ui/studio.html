@@ -82,11 +82,13 @@
   </div>
 </header>
 
-<!-- แจ้งเวอร์ชันใหม่ (core/update-check.js) — ตรวจแล้วแจ้งเท่านั้น ส่วนขยายเขียนทับไฟล์ของตัวเองไม่ได้ -->
+<!-- แจ้งเวอร์ชันใหม่ (core/update-check.js) · ปุ่ม "อัปเดตเลย" เขียนไฟล์ใหม่ลงโฟลเดอร์ส่วนขยายที่ผู้ใช้อนุญาต (core/self-update.js) -->
+<!-- ขั้นตอนแตก ZIP เองด้านล่างเป็นทางสำรอง แสดงเมื่ออัปเดตอัตโนมัติไม่สำเร็จ -->
 <div id="updateBanner" class="updateBanner hidden" role="status" aria-live="polite">
   <div id="updateText" class="updateText"></div>
   <div class="updateActions">
-    <a id="updateDownload" class="updateLink" target="_blank" rel="noopener">ดาวน์โหลดเวอร์ชันใหม่ (ZIP)</a>
+    <button id="updateNow" type="button" class="updateLink hidden">อัปเดตเลย</button>
+    <a id="updateDownload" class="updateLink subtle" target="_blank" rel="noopener">ดาวน์โหลดเวอร์ชันใหม่ (ZIP)</a>
     <a id="updateChanges" class="updateLink subtle" target="_blank" rel="noopener">ดูว่ามีอะไรเปลี่ยน</a>
     <button id="updateDismiss" type="button" class="inline">ปิด</button>
   </div>

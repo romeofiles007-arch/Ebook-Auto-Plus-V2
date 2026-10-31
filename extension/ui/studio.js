@@ -109,6 +109,7 @@ import * as X from '../core/export.js';
 import { cleanSource, SOURCE_LIMIT } from '../core/source-material.js';
 import { keepFigureMarkers } from '../core/figure-markers.js';
 import { checkForUpdate, DOWNLOAD_ZIP as UPDATE_DOWNLOAD_ZIP, CHANGES_URL as UPDATE_CHANGES_URL } from '../core/update-check.js';
+import { runSelfUpdate } from './self-update-ui.js';
 import { docxPlainText } from '../core/docx.js';
 import { pdfPlainText } from '../core/pdf-text.js';
 import * as W from '../core/workspace.js';
@@ -6249,6 +6250,7 @@ function showUpdateBanner(text, { newer = false, steps = false } = {}) {
   $('updateText').textContent = text;
   $('updateDownload').href = UPDATE_DOWNLOAD_ZIP;
   $('updateChanges').href = UPDATE_CHANGES_URL;
+  $('updateNow').classList.toggle('hidden', !newer);
   $('updateDownload').classList.toggle('hidden', !newer);
   $('updateChanges').classList.toggle('hidden', !newer);
   $('updateSteps').classList.toggle('hidden', !steps);
@@ -6267,10 +6269,10 @@ async function runUpdateCheck({ manual = false } = {}) {
     const r = await checkForUpdate(current);
     localSet('updateCheckedAt', String(Date.now()));
     if (r.newer && (manual || localGet('updateDismissed') !== r.latest)) {
-      showUpdateBanner(`มีเวอร์ชันใหม่ ${r.latest} แล้ว — เครื่องนี้ยังเป็น ${current}`, { newer: true, steps: true });
+      showUpdateBanner(`มีเวอร์ชันใหม่ ${r.latest} แล้ว — เครื่องนี้ยังเป็น ${current} · กด "อัปเดตเลย"`, { newer: true });
       $('updateBanner').dataset.latest = r.latest;
     } else if (manual) {
-      showUpdateBanner(r.newer ? `มีเวอร์ชันใหม่ ${r.latest}` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, { newer: r.newer, steps: r.newer });
+      showUpdateBanner(r.newer ? `มีเวอร์ชันใหม่ ${r.latest} · กด "อัปเดตเลย"` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, { newer: r.newer });
     }
   } catch (e) {
     if (manual) showUpdateBanner(e.message);
@@ -6280,6 +6282,20 @@ async function runUpdateCheck({ manual = false } = {}) {
 }
 
 $('checkUpdate').onclick = () => runUpdateCheck({ manual: true });
+$('updateNow').onclick = async () => {
+  const button = $('updateNow');
+  button.disabled = true;
+  const say = (t) => { $('updateText').textContent = t; };
+  try {
+    const r = await runSelfUpdate({ say });
+    if (r?.cancelled) say('ยกเลิกการอัปเดต — กด "อัปเดตเลย" ใหม่ได้เมื่อพร้อม');
+  } catch (e) {
+    say(`อัปเดตอัตโนมัติไม่สำเร็จ: ${e.message} · ใช้วิธีดาวน์โหลด ZIP ด้านล่างแทนได้`);
+    $('updateSteps').classList.remove('hidden');
+  } finally {
+    button.disabled = false;
+  }
+};
 $('updateDismiss').onclick = () => {
   if ($('updateBanner').dataset.latest) localSet('updateDismissed', $('updateBanner').dataset.latest);
   $('updateBanner').classList.add('hidden');

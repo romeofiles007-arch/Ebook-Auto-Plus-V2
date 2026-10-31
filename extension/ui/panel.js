@@ -1,5 +1,6 @@
 import './panel-activity.js';
 import { checkForUpdate, DOWNLOAD_ZIP, CHANGES_URL } from '../core/update-check.js';
+import { runSelfUpdate } from './self-update-ui.js';
 const $ = (id) => document.getElementById(id);
 async function openPage(buttonId, type, label, extra = {}) {
   const button = $(buttonId);
@@ -80,7 +81,8 @@ $('checkUpdate').onclick = async () => {
   const show = (text, newer = false) => {
     $('updateText').textContent = text;
     $('updateActions').classList.toggle('hidden', !newer);
-    $('updateSteps').classList.toggle('hidden', !newer);
+    // ขั้นตอนแตก ZIP เองเป็นทางสำรอง — แสดงเมื่อปุ่ม "อัปเดตเลย" ทำไม่สำเร็จเท่านั้น
+    $('updateSteps').classList.add('hidden');
     $('updateBox').classList.toggle('newer', newer);
     $('updateBox').classList.remove('hidden');
   };
@@ -91,6 +93,21 @@ $('checkUpdate').onclick = async () => {
     show(r.newer ? `มีเวอร์ชันใหม่ ${r.latest} แล้ว — เครื่องนี้ยังเป็น ${current}` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, r.newer);
   } catch (error) {
     show(error.message);
+  } finally {
+    button.disabled = false;
+  }
+};
+
+$('updateNow').onclick = async () => {
+  const button = $('updateNow');
+  button.disabled = true;
+  const say = (t) => { $('updateText').textContent = t; };
+  try {
+    const r = await runSelfUpdate({ say });
+    if (r?.cancelled) say('ยกเลิกการอัปเดต — กด "อัปเดตเลย" ใหม่ได้เมื่อพร้อม');
+  } catch (error) {
+    say(`อัปเดตอัตโนมัติไม่สำเร็จ: ${error.message} · ใช้วิธีดาวน์โหลด ZIP ด้านล่างแทนได้`);
+    $('updateSteps').classList.remove('hidden');
   } finally {
     button.disabled = false;
   }
