@@ -1,6 +1,5 @@
 import './panel-activity.js';
 import { checkForUpdate, DOWNLOAD_ZIP, CHANGES_URL } from '../core/update-check.js';
-import { runSelfUpdate } from './self-update-ui.js';
 const $ = (id) => document.getElementById(id);
 async function openPage(buttonId, type, label, extra = {}) {
   const button = $(buttonId);
@@ -98,15 +97,21 @@ $('checkUpdate').onclick = async () => {
   }
 };
 
+/**
+ * แผงข้างไม่อัปเดตเอง — ส่งไปทำที่ Studio
+ * หน้าต่างยืนยันและหน้าต่างเลือกโฟลเดอร์ของเบราว์เซอร์ไม่ขึ้นในแผงข้าง (ผู้ใช้เห็น "ยกเลิกการอัปเดต" ทุกครั้ง)
+ * Studio รู้ด้วยว่ามีงานเดินอยู่ไหม จึงกันการอัปเดตกลางงานได้
+ */
 $('updateNow').onclick = async () => {
   const button = $('updateNow');
   button.disabled = true;
-  const say = (t) => { $('updateText').textContent = t; };
+  $('updateText').textContent = 'กำลังเปิด Studio เพื่ออัปเดต...';
   try {
-    const r = await runSelfUpdate({ say });
-    if (r?.cancelled) say('ยกเลิกการอัปเดต — กด "อัปเดตเลย" ใหม่ได้เมื่อพร้อม');
+    const result = await chrome.runtime.sendMessage({ type: 'ui.command', command: 'showUpdate' });
+    if (!result?.ok) throw new Error(result?.error || 'เปิด Studio ไม่ได้');
+    $('updateText').textContent = 'อัปเดตต่อที่หน้า Studio — ดูความคืบหน้าที่แถบด้านบนของ Studio';
   } catch (error) {
-    say(`อัปเดตอัตโนมัติไม่สำเร็จ: ${error.message} · ใช้วิธีดาวน์โหลด ZIP ด้านล่างแทนได้`);
+    $('updateText').textContent = `เปิด Studio ไม่ได้: ${error.message} · ใช้วิธีดาวน์โหลด ZIP ด้านล่างแทนได้`;
     $('updateSteps').classList.remove('hidden');
   } finally {
     button.disabled = false;

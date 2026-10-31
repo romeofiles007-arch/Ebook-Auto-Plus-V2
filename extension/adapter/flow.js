@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 8;
+  const ADAPTER_REV = 9;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = (el) => (el?.innerText ?? el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -416,6 +416,28 @@
 
   // ── แผงตั้งค่าของช่องพิมพ์ (Image · สัดส่วน · โมเดล · x1 · ตัวบอกเครดิต) ──
 
+  /**
+   * ชื่อรุ่นเทียบกันแบบไม่สนภาษา — บางบัญชี Flow แสดงชื่อรุ่นเป็นภาษาไทย ("นาโน บานานา 2 Lite" · "นาโนบานาน่า โปร")
+   * ผู้ใช้: "ของลูกค้าบางคนเป็น นาโน บานานา เลยนะ" — เทียบตรงตัวกับ "Nano Banana 2 Lite" จึงหาไม่เจอทุกจุด
+   * แปลงคำไทยที่รู้จักเป็นอังกฤษ ตัดอีโมจิ/ช่องว่าง/ไอคอน แล้วเทียบเท่ากันทั้งคำ ("2" ≠ "2.1" · "Pro" ≠ "2 Lite")
+   * ไอคอนที่อาจนำหน้า (เช่นเครื่องหมายถูกของรุ่นที่เลือก) ตัดทิ้งโดยเริ่มอ่านที่คำว่า nanobanana
+   */
+  const modelKey = (s) => {
+    const k = String(s || '')
+      .toLowerCase()
+      .replace(/arrow_drop_down/g, '')
+      .replace(/นาโน/g, 'nano')
+      .replace(/บานาน่า|บานานา|บะนานา/g, 'banana')
+      .replace(/โปร/g, 'pro')
+      .replace(/ไลต์|ไลท์|ไลฑ์/g, 'lite')
+      .replace(/[^a-z0-9.]+/g, '');
+    const at = k.indexOf('nanobanana');
+    return at > 0 ? k.slice(at) : k;
+  };
+  const sameModel = (a, b) => !!modelKey(a) && modelKey(a) === modelKey(b);
+  const isNanoBanana = (s) => modelKey(s).startsWith('nanobanana');
+
+
   const settingsPane = () =>
     $$('.cdk-overlay-pane').find((p) => visible(p) && $$('[role="radio"]', p).length && /credit|เครดิต/i.test(text(p)));
 
@@ -449,7 +471,7 @@
       // เมนูมี backdrop ทับปุ่มรุ่นภาพอยู่: การกดปุ่มนั้นด้วยพิกัดจริงจะชน backdrop
       // เลือกรุ่นที่ใช้อยู่ซ้ำจากรายการที่มองเห็นเพื่อพับเมนูโดยไม่เปลี่ยนค่า
       const current = readPane()?.model;
-      const selected = current && modelOptions().find((m) => text(m).replace(/^\S+\s/, '') === current);
+      const selected = current && modelOptions().find((m) => sameModel(text(m), current));
       if (selected) {
         realClick(selected);
         await waitFor(() => !modelOptions().length, { timeout: 3000, label: 'ปิดรายการโมเดล' });
@@ -498,14 +520,14 @@
 
   async function chooseModel(model) {
     const cur = readPane();
-    if (!cur?.modelBtn || cur.model === model) return cur?.model === model;
+    if (!cur?.modelBtn || sameModel(cur.model, model)) return sameModel(cur?.model, model);
     const modelOptions = () => $$('[role="menuitem"], [role="option"]').filter(visible);
     if (!modelOptions().length) realClick(cur.modelBtn);
     const item = await waitFor(
       () => modelOptions().length && modelOptions(),
       { timeout: 3000, label: 'รายการโมเดล' },
     ).catch(() => null);
-    const choice = item?.find((m) => text(m).replace(/^\S+\s/, '') === model);
+    const choice = item?.find((m) => sameModel(text(m), model));
     if (!choice) {
       // รุ่นที่ขอไม่มีในเมนูปัจจุบัน: ปิดเมนูให้เรียบร้อยก่อนลองรุ่นถัดไป ไม่เปิด/ปิดวน
       if (modelOptions().length) {
@@ -516,7 +538,7 @@
     }
     realClick(choice);
     await sleep(800);
-    return readPane()?.model === model;
+    return sameModel(readPane()?.model, model);
   }
 
   /**
@@ -531,7 +553,7 @@
     // Agent ตั้งสัดส่วนและจำนวนภาพในแผงของตนเอง ภาพปกติที่เลือกไว้เป็น 0 เครดิตอยู่แล้วไม่ต้องเปิดเมนูโมเดลอีก
     if (agentOnly) {
       const current = readPane();
-      if (current?.credits === 0 && current.model && (models.includes(current.model) || /^Nano Banana\b/i.test(current.model))) {
+      if (current?.credits === 0 && current.model && (models.some((m) => sameModel(m, current.model)) || isNanoBanana(current.model))) {
         await closePane();
         return { model: current.model, ratio, credits: 0 };
       }
@@ -553,7 +575,7 @@
         if (now === previous) break;
         previous = now;
       }
-      if (last?.model === model && last.credits === 0) {
+      if (sameModel(last?.model, model) && last.credits === 0) {
         await closePane();
         await sleep(300);
         return { model, ratio, credits: 0 };
@@ -1274,7 +1296,7 @@
         },
       };
     };
-    const ok = (st) => st.confirm === 'Never' && st.ratio === ratio && st.count === 'x1' && st.model === model;
+    const ok = (st) => st.confirm === 'Never' && st.ratio === ratio && st.count === 'x1' && sameModel(st.model, model);
     for (let attempt = 1; attempt <= 4; attempt++) {
       let cur = read();
       if (!cur) throw new Error('แผง Agent settings ปิดไปเอง');
@@ -1294,9 +1316,9 @@
         }
       }
       cur = read();
-      if (cur && cur.state.model !== model) {
+      if (cur && !sameModel(cur.state.model, model)) {
         realClick(cur.modelBtn);
-        const item = await waitFor(() => $$('[role="menuitem"]').find((m) => visible(m) && text(m).replace(/^\S+\s/, '') === model), {
+        const item = await waitFor(() => $$('[role="menuitem"]').find((m) => visible(m) && sameModel(text(m), model)), {
           timeout: 5000,
           label: `เมนูโมเดล ${model}`,
         }).catch(() => null);

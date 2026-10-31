@@ -11,6 +11,8 @@ import { readFile } from 'node:fs/promises';
 const source = await readFile(new URL('./flow.js', import.meta.url), 'utf8');
 const start = source.indexOf('  async function closePane(');
 const method = source.slice(start, source.indexOf('  async function openPane(', start));
+// ตัวเทียบชื่อรุ่น (ไทย/อังกฤษ) ที่ closePane ใช้ — ดู flow-model-names.test.mjs
+const helpers = source.slice(source.indexOf('  const modelKey = '), source.indexOf('\n\n', source.indexOf('const isNanoBanana')));
 
 function harness({ items, model = 'Nano Banana 2 Lite', escapeCloses = true }) {
   const log = [];
@@ -28,7 +30,7 @@ function harness({ items, model = 'Nano Banana 2 Lite', escapeCloses = true }) {
     SEL: { settingsTrigger: () => ({}) },
     trustedClick: async () => { pane = false; },
   });
-  vm.runInContext(`${method}\nglobalThis.closePane = closePane;`, ctx);
+  vm.runInContext(`${helpers}\n${method}\nglobalThis.closePane = closePane;`, ctx);
   return { closePane: ctx.closePane, log };
 }
 
@@ -55,4 +57,10 @@ test('ปิดด้วย Esc ไม่ลงจริง ๆ → หยุด
   const h = harness({ items: ['download ดาวน์โหลด'], escapeCloses: false });
   await assert.rejects(h.closePane(), /ไม่พบรุ่นที่เลือกไว้สำหรับปิดเมนู/);
   assert.equal(h.log.some(([k]) => k === 'click'), false);
+});
+
+test('ชื่อรุ่นในเมนูเป็นภาษาไทย ("นาโน บานานา") — ยังเลือกรุ่นเดิมซ้ำเพื่อพับเมนูได้', async () => {
+  const h = harness({ items: ['🍌 นาโน บานานา โปร', '🍌 นาโน บานานา 2 Lite', '🍌 นาโน บานานา 2.1'], model: 'นาโน บานานา 2 Lite' });
+  await h.closePane();
+  assert.deepEqual(h.log[0], ['click', '🍌 นาโน บานานา 2 Lite']);
 });

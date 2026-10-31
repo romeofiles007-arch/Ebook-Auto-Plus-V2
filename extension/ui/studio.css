@@ -534,3 +534,4 @@ html .bar{background:color-mix(in srgb,var(--scene-accent,#8bd7aa) 16%,#1a221c)}
 .openerCard .mix img{height:100%;object-fit:cover}
 .openerCard b{font-size:12.5px;font-weight:700}
 @media(prefers-reduced-motion:reduce){.openerCard .thumb img{transition:none}.openerCard:hover .thumb img{transform:none}}
+.updateDetails{margin-top:8px}.updateDetails summary{cursor:pointer;color:#b3e6bf;font-weight:700}.updateCommits{margin:6px 0 0;padding-left:20px;color:#d5e5d1}.updateCommits li{margin:2px 0}.updateCommits small{color:#9fb8a3;margin-left:6px}#updateNow[disabled]{opacity:.55;cursor:not-allowed}

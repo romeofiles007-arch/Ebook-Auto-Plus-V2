@@ -108,7 +108,7 @@ import { pickRandomOpener } from '../typeset/template.js';
 import * as X from '../core/export.js';
 import { cleanSource, SOURCE_LIMIT } from '../core/source-material.js';
 import { keepFigureMarkers } from '../core/figure-markers.js';
-import { checkForUpdate, DOWNLOAD_ZIP as UPDATE_DOWNLOAD_ZIP, CHANGES_URL as UPDATE_CHANGES_URL } from '../core/update-check.js';
+import { checkForUpdate, recentChanges, DOWNLOAD_ZIP as UPDATE_DOWNLOAD_ZIP, CHANGES_URL as UPDATE_CHANGES_URL } from '../core/update-check.js';
 import { runSelfUpdate } from './self-update-ui.js';
 import { docxPlainText } from '../core/docx.js';
 import { pdfPlainText } from '../core/pdf-text.js';
@@ -6238,11 +6238,12 @@ $('unstickChat').onclick = async (ev) => {
 $('newBook').onclick = startNewBook;
 
 /**
- * แจ้งเวอร์ชันใหม่จาก GitHub (core/update-check.js)
- * เปิด Studio = ตรวจเงียบ ๆ ไม่เกินครึ่งวันครั้ง เจอของใหม่จึงขึ้นแถบ · กดปุ่มเอง = บอกผลเสมอ แม้ใช้ตัวล่าสุดอยู่แล้ว
- * ปิดแถบแล้ว เวอร์ชันนั้นไม่ขึ้นซ้ำตอนตรวจอัตโนมัติ — ขึ้นอีกครั้งเมื่อมีเวอร์ชันที่ใหม่กว่านั้น
+ * แจ้งเวอร์ชันใหม่จาก GitHub (core/update-check.js) แล้วอัปเดตได้ด้วยปุ่มเดียว (core/self-update.js)
+ * แบบเดียวกับโปรเจกต์ Youtube: ตรวจเองทุก 30 นาทีตลอดที่ Studio เปิดอยู่ · เจอของใหม่ขึ้นแถบพร้อม "มีอะไรใหม่"
+ * กด "อัปเดตเลย" แล้วอัปเดตทันทีโดยไม่ถามซ้ำ · ปิดปุ่มไว้ระหว่างที่มีงานเดินอยู่ (อัปเดตจะรีโหลดส่วนขยาย)
+ * กดปุ่มตรวจเอง = บอกผลเสมอ แม้ใช้ตัวล่าสุดอยู่แล้ว · ปิดแถบแล้ว เวอร์ชันนั้นไม่ขึ้นซ้ำตอนตรวจอัตโนมัติ
  */
-const UPDATE_CHECK_EVERY_MS = 12 * 3600 * 1000;
+const UPDATE_CHECK_EVERY_MS = 30 * 60 * 1000;
 const localGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const localSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ไม่มีที่เก็บก็แค่ตรวจบ่อยขึ้น */ } };
 
@@ -6256,6 +6257,29 @@ function showUpdateBanner(text, { newer = false, steps = false } = {}) {
   $('updateSteps').classList.toggle('hidden', !steps);
   $('updateBanner').classList.toggle('newer', newer);
   $('updateBanner').classList.remove('hidden');
+  if (!newer) $('updateDetails').classList.add('hidden');
+  syncUpdateButton();
+}
+
+/** ปุ่มอัปเดตกดไม่ได้ระหว่างทำเล่ม — อัปเดตรีโหลดส่วนขยาย งานที่เดินอยู่จะหยุดกลางทาง */
+function syncUpdateButton() {
+  $('updateNow').disabled = machineBusy;
+  $('updateNow').title = machineBusy ? 'กำลังทำเล่มอยู่ — อัปเดตได้เมื่องานเสร็จหรือกดหยุดก่อน' : '';
+}
+
+/** "มีอะไรใหม่" — หัวข้อ commit ล่าสุดของส่วนขยาย ต่อ GitHub ไม่ได้ก็แค่ไม่แสดงรายการ */
+async function showUpdateChanges() {
+  const list = await recentChanges();
+  const box = $('updateDetails');
+  box.classList.toggle('hidden', !list.length);
+  if (!list.length) return;
+  $('updateCommits').textContent = '';
+  for (const c of list) {
+    const li = document.createElement('li');
+    li.append(c.subject, ' ');
+    if (c.date) li.append(Object.assign(document.createElement('small'), { textContent: new Date(c.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) }));
+    $('updateCommits').append(li);
+  }
 }
 
 async function runUpdateCheck({ manual = false } = {}) {
@@ -6269,11 +6293,14 @@ async function runUpdateCheck({ manual = false } = {}) {
     const r = await checkForUpdate(current);
     localSet('updateCheckedAt', String(Date.now()));
     if (r.newer && (manual || localGet('updateDismissed') !== r.latest)) {
-      showUpdateBanner(`มีเวอร์ชันใหม่ ${r.latest} แล้ว — เครื่องนี้ยังเป็น ${current} · กด "อัปเดตเลย"`, { newer: true });
+      showUpdateBanner(`🔔 มีอัปเดตใหม่ ${r.latest} — เครื่องนี้ยังเป็น ${current} · กด "อัปเดตเลย"`, { newer: true });
       $('updateBanner').dataset.latest = r.latest;
+      showUpdateChanges().catch(() => {});
     } else if (manual) {
-      showUpdateBanner(r.newer ? `มีเวอร์ชันใหม่ ${r.latest} · กด "อัปเดตเลย"` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, { newer: r.newer });
+      showUpdateBanner(r.newer ? `🔔 มีอัปเดตใหม่ ${r.latest} · กด "อัปเดตเลย"` : `ใช้เวอร์ชันล่าสุดอยู่แล้ว (${current})`, { newer: r.newer });
+      if (r.newer) showUpdateChanges().catch(() => {});
     }
+    return r;
   } catch (e) {
     if (manual) showUpdateBanner(e.message);
   } finally {
@@ -6284,24 +6311,41 @@ async function runUpdateCheck({ manual = false } = {}) {
 $('checkUpdate').onclick = () => runUpdateCheck({ manual: true });
 $('updateNow').onclick = async () => {
   const button = $('updateNow');
+  if (machineBusy) {
+    $('updateText').textContent = 'กำลังทำเล่มอยู่ — อัปเดตได้เมื่องานเสร็จ หรือกด "หยุด" ก่อนแล้วค่อยกดอัปเดต';
+    return;
+  }
   button.disabled = true;
   const say = (t) => { $('updateText').textContent = t; };
   try {
     const r = await runSelfUpdate({ say });
-    if (r?.cancelled) say('ยกเลิกการอัปเดต — กด "อัปเดตเลย" ใหม่ได้เมื่อพร้อม');
+    if (r?.cancelled) say('ยังไม่ได้เลือกโฟลเดอร์ — กด "อัปเดตเลย" อีกครั้ง แล้วเลือกโฟลเดอร์ที่ใช้ตอน Load unpacked');
   } catch (e) {
     say(`อัปเดตอัตโนมัติไม่สำเร็จ: ${e.message} · ใช้วิธีดาวน์โหลด ZIP ด้านล่างแทนได้`);
     $('updateSteps').classList.remove('hidden');
   } finally {
-    button.disabled = false;
+    syncUpdateButton();
   }
 };
+
+/** แผงข้างกด "อัปเดตเลย" → มาที่นี่: ตรวจเวอร์ชัน โชว์แถบ แล้วชี้ไปที่ปุ่ม (หน้าต่างเลือกโฟลเดอร์ต้องเกิดจากการกดในหน้านี้) */
+async function showUpdateFromPanel() {
+  const r = await runUpdateCheck({ manual: true });
+  $('updateBanner').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (r?.newer && !machineBusy) {
+    $('updateText').textContent = `🔔 มีอัปเดตใหม่ ${r.latest} — กดปุ่ม "อัปเดตเลย" ตรงนี้อีกครั้งเพื่อเริ่ม (ครั้งแรกจะให้เลือกโฟลเดอร์ส่วนขยาย)`;
+    $('updateNow').focus();
+  }
+}
 $('updateDismiss').onclick = () => {
   if ($('updateBanner').dataset.latest) localSet('updateDismissed', $('updateBanner').dataset.latest);
   $('updateBanner').classList.add('hidden');
 };
-// รอให้หน้าตั้งตัวเสร็จก่อน — การตรวจเวอร์ชันไม่ควรแย่งจังหวะกับการโหลดเล่มที่ค้าง
+// รอให้หน้าตั้งตัวเสร็จก่อน — การตรวจเวอร์ชันไม่ควรแย่งจังหวะกับการโหลดเล่มที่ค้าง · แล้วตรวจซ้ำทุก 30 นาที
 setTimeout(() => runUpdateCheck().catch(() => {}), 4000);
+setInterval(() => runUpdateCheck().catch(() => {}), UPDATE_CHECK_EVERY_MS);
+// สถานะ "กำลังทำเล่ม" เปลี่ยนได้ทุกเมื่อ — ตามปุ่มอัปเดตให้ทันโดยไม่ต้องไล่แก้ทุกจุดที่ตั้ง machineBusy
+setInterval(syncUpdateButton, 2000);
 $('secSave').onclick = saveSection;
 $('secRegen').onclick = regenerateSection;
 $('fillEmptySections').onclick = fillEmptySections;
@@ -7775,6 +7819,11 @@ function handleUiCommand(m) {
     openSavedProject(m.bookId).catch(fail);
     return;
   }
+  // "อัปเดตเลย" จากแผงข้าง — มาทั้งตอน Studio เปิดค้างอยู่ และตอนเพิ่งเปิด (คำสั่งที่ฝากไว้)
+  if (m?.type === 'ui.command' && m.command === 'showUpdate') {
+    showUpdateFromPanel().catch(fail);
+    return;
+  }
   if (m?.type === 'ui.command' && m.command === 'trendRandom') {
     $('title').value = m.title || '';
     if (typeof m.audience === 'string') $('audience').value = m.audience;
@@ -7818,6 +7867,11 @@ chrome.runtime.onMessage.addListener((m, _sender, sendResponse) => {
    */
   // หน้าอ่านส่งเล่มกลับเข้ามาแก้ไข — ต้องตอบรับ เพื่อให้ฝั่งนั้นรู้ว่ามีหน้า Studio รับงานแล้ว
   if (m?.type === 'ui.command' && m.command === 'openProject' && m.bookId) {
+    handleUiCommand(m);
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (m?.type === 'ui.command' && m.command === 'showUpdate') {
     handleUiCommand(m);
     sendResponse({ ok: true });
     return true;

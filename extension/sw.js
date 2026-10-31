@@ -318,7 +318,7 @@ async function ensureFlowTab(homeUrl = 'https://flow.google.com/') {
 }
 
 /** รุ่นของตัวขับในหน้า Flow ที่ service worker นี้คาดหวัง — ต้องตรงกับ ADAPTER_REV ใน adapter/flow.js */
-const FLOW_ADAPTER_REV = 8;
+const FLOW_ADAPTER_REV = 9;
 
 async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
   const until = Date.now() + timeoutMs;
@@ -524,6 +524,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
          * ถ้าฝากไว้อย่างเดียว คำสั่งจะเงียบหายทุกครั้งที่ Studio เปิดค้างอยู่ — ซึ่งเป็นกรณีปกติที่สุด
          * จึงต้องกระจายก่อน แล้วค่อยฝากไว้เฉพาะตอนที่ไม่มีใครรับ
          */
+        // "อัปเดตเลย" จากแผงข้าง — ไปทำที่ Studio (กระจาย/ฝากแบบเดียวกับ openProject ด้านล่าง)
+        if (msg.command === 'showUpdate') {
+          const live = await chrome.runtime.sendMessage({ ...msg, _relayed: true }).catch(() => null);
+          if (!live?.ok) await S.set('pendingUiCommand', msg);
+          const studio = await ensureStudioTab(true);
+          return sendResponse({ ok: true, tabId: studio.id });
+        }
         if (msg.command === 'openProject' && msg.bookId) {
           const live = await chrome.runtime.sendMessage({ ...msg, _relayed: true }).catch(() => null);
           if (!live?.ok) await S.set('pendingUiCommand', msg);

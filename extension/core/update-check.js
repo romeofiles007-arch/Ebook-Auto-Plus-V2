@@ -48,3 +48,21 @@ export async function checkForUpdate(current, fetcher = fetch) {
   if (!/^\d+(\.\d+){0,3}$/.test(latest)) throw new Error('ไฟล์เวอร์ชันบน GitHub อ่านไม่ออก');
   return { current, latest, newer: compareVersions(latest, current) > 0, latestName: String(remote.version_name || latest) };
 }
+
+/**
+ * "มีอะไรใหม่" บนแบนเนอร์อัปเดต (แบบเดียวกับโปรเจกต์ Youtube) — หัวข้อ commit ล่าสุดที่แตะโฟลเดอร์ extension
+ * api.github.com ตอบ CORS * ไม่ต้องขอสิทธิ์เพิ่ม · ต่อไม่ได้หรือโดนจำกัดจำนวนครั้ง = รายการว่าง ไม่ทำให้แบนเนอร์พัง
+ */
+export const COMMITS_URL = `https://api.github.com/repos/${REPO}/commits?sha=${BRANCH}&path=extension&per_page=8`;
+export async function recentChanges(fetcher = fetch) {
+  try {
+    const res = await fetcher(COMMITS_URL, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const list = await res.json();
+    return (Array.isArray(list) ? list : [])
+      .map((c) => ({ subject: String(c?.commit?.message || '').split('\n')[0].trim(), date: String(c?.commit?.committer?.date || '') }))
+      .filter((c) => c.subject);
+  } catch {
+    return [];
+  }
+}

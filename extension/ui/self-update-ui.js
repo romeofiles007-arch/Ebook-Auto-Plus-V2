@@ -28,10 +28,10 @@ async function grantedDir() {
 }
 
 /**
- * say(ข้อความ) แสดงความคืบหน้า · คืน { cancelled } หรือ { changed, total } · โยนข้อผิดพลาดเป็นภาษาคน
+ * say(ข้อความ) แสดงความคืบหน้า · คืน { cancelled } (ปิดหน้าต่างเลือกโฟลเดอร์) หรือ { changed, total } · โยนข้อผิดพลาดเป็นภาษาคน
  * ต้องเรียกจากการกดปุ่มโดยตรง — การขอสิทธิ์โฟลเดอร์ต้องเกิดระหว่างที่ผู้ใช้เพิ่งกด
  */
-export async function runSelfUpdate({ say = () => {}, ask = (m) => window.confirm(m) } = {}) {
+export async function runSelfUpdate({ say = () => {} } = {}) {
   if (typeof window.showDirectoryPicker !== 'function')
     throw new Error('เบราว์เซอร์นี้ให้เลือกโฟลเดอร์ไม่ได้ — ใช้ปุ่มดาวน์โหลด ZIP แล้วแตกไฟล์ทับแทน');
   const name = chrome.runtime.getManifest?.().name || 'Ebook Plus';
@@ -47,8 +47,11 @@ export async function runSelfUpdate({ say = () => {}, ask = (m) => window.confir
   }
   dir = await resolveExtensionDir(dir, name);
   await db.setting(KEY, dir);
-  if (!ask('อัปเดต Ebook Plus เป็นเวอร์ชันล่าสุดจาก GitHub?\n\nเสร็จแล้วส่วนขยายจะรีโหลดตัวเองและเปิด Studio ใหม่ให้ · งานที่กำลังเดินอยู่จะหยุด (กด "ทำต่อ" ได้) · เล่มที่ทำไว้อยู่ครบ'))
-    return { cancelled: true };
+  /**
+   * ไม่ถามยืนยันซ้ำ — การกดปุ่ม "อัปเดตเลย" คือการยืนยันแล้ว (แบบเดียวกับโปรเจกต์ Youtube)
+   * เดิมใช้กล่องยืนยันของเบราว์เซอร์ ซึ่งไม่ขึ้นในแผงข้างของ Chrome และตอบ "ไม่" ทันที ผู้ใช้จึงเห็น "ยกเลิกการอัปเดต" ทุกครั้ง
+   * ผู้เรียกต้องกันไม่ให้กดระหว่างมีงานเดินอยู่เอง (Studio ปิดปุ่มด้วย machineBusy)
+   */
   const r = await applyUpdate({ dir, onProgress: say });
   say(r.changed ? `อัปเดตแล้ว ${r.changed} ไฟล์ — กำลังรีโหลด Ebook Plus...` : 'ไฟล์ตรงกับบน GitHub อยู่แล้ว — กำลังรีโหลด Ebook Plus...');
   try {
