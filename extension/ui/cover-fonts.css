@@ -1,0 +1,81 @@
+/* Original Thai cover fonts; individual license notices ship in fonts/cover. */
+@font-face {
+  font-family: "SP-Kangfu";
+  src: url("../fonts/cover/SP-Kangfu.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Charmonman";
+  src: url("../fonts/cover/Charmonman-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Chonburi";
+  src: url("../fonts/cover/Chonburi-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Chakra Petch";
+  src: url("../fonts/cover/ChakraPetch-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Pridi";
+  src: url("../fonts/cover/Pridi-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Kanit";
+  src: url("../fonts/cover/Kanit-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Pattaya";
+  src: url("../fonts/cover/Pattaya-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Niramit";
+  src: url("../fonts/cover/Niramit-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Sriracha";
+  src: url("../fonts/cover/Sriracha-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mitr";
+  src: url("../fonts/cover/Mitr-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Charm";
+  src: url("../fonts/cover/Charm-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+.coverFontSample { margin-top: 10px; padding: 12px 0; font-size: clamp(calc(26px * var(--cover-font-scale, 1)), calc(3vw * var(--cover-font-scale, 1)), calc(36px * var(--cover-font-scale, 1))); line-height: 1.65; overflow-wrap: anywhere; color: var(--fiction-ink, #f2f7ee); }
+.coverFontName { display: block; color: var(--fiction-muted, #d5e5d1); font-size: 13px; }
+

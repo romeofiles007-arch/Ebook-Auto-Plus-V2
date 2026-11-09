@@ -71,7 +71,8 @@ test('ไม่กดสร้างถ้า Flow บอกว่าต้อ�
 test('ตัวดัก 2K ทำงานเฉพาะตอนง้าง และครั้งละไฟล์', () => {
   assert.match(hook, /if \(live\(\) && this\.hasAttribute\('download'\)/);
   assert.match(hook, /armed = null;/);
-  assert.match(hook, /return click\.call\(this\)/);
+  assert.match(hook, /return native\.click\.call\(this\)/);
+  assert.match(hook, /restore\(\);/); // แตะหน้าเว็บเฉพาะช่วงง้าง — ดู adapter/flow-main.test.mjs
   const cs = manifest.content_scripts.find((c) => c.js.includes('adapter/flow-main.js'));
   assert.equal(cs.world, 'MAIN');
   assert.equal(cs.run_at, 'document_start');
@@ -782,7 +783,8 @@ test('ปกโปสเตอร์หนัง: คำสั่งของต
   assert.match(front, /NEVER: an office, meeting room, desk, computer screen, laptop, notebook or phone on a table; background crowds or silhouettes of office workers/);
   // ทดสอบจริง: Flow เติมออฟฟิศและเงาคนไว้ด้านหลังตัวเอก — พื้นหลังต้องเป็นตัวคอนเซปต์เอง
   assert.match(front, /BACKGROUND: the concept itself is the world behind the hero/);
-  assert.ok(front.length < 3500, `คำสั่งปกต้องสั้น (${front.length})`);
+  // +ราว 600 ตัวอักษรจากกติกาตัวอักษรไทยตามแนวหนังสือ (core/cover-fonts.js coverTypographyRule)
+  assert.ok(front.length < 4500, `คำสั่งปกต้องสั้น (${front.length})`);
   const back = P.flowPosterCoverPrompt({ book, outline, style, back: true, authorInBack: true });
   assert.match(back, /BACK COVER of the same/);
   assert.doesNotMatch(back, /"ธรรมะทีละขั้น"/);

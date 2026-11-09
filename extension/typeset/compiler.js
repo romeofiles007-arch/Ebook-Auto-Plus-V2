@@ -22,6 +22,7 @@
 
 import { buildDocument, buildItemsDocument, buildCalibrationDoc } from './template.js';
 import { fixThaiTextLayer } from './pdf-text-fix.js';
+import { COVER_FONTS } from '../core/cover-fonts.js';
 
 const url = (p) => chrome.runtime.getURL(p);
 
@@ -32,9 +33,10 @@ export const BUNDLED_FONTS = [
   'fonts/Sarabun-BoldItalic.ttf',
   'fonts/IBMPlexSansThai-Regular.ttf',
   'fonts/IBMPlexSansThai-SemiBold.ttf',
+  ...COVER_FONTS.map((font) => font.file),
 ];
 
-export const FONT_FAMILIES = ['Sarabun', 'IBM Plex Sans Thai'];
+export const FONT_FAMILIES = ['Sarabun', 'IBM Plex Sans Thai', ...COVER_FONTS.map((font) => font.family)];
 
 let ready = null;
 let frame = null;

@@ -9,6 +9,10 @@
 <link rel="stylesheet" href="crew.css">
 <link rel="stylesheet" href="run-status.css">
 <link rel="stylesheet" href="studio-crystal.css">
+<link rel="stylesheet" href="studio-fiction.css">
+<link rel="stylesheet" href="fiction-atmosphere.css">
+<link rel="stylesheet" href="studio-palace.css">
+<link rel="stylesheet" href="cover-fonts.css">
 </head>
 <body><main class="app">
 
@@ -70,7 +74,7 @@
 <header>
   <div>
     <div class="brand"><img class="brand-logo" src="../icons/icon-48.png" alt=""> <span>Ebook Plus</span></div>
-    <div class="sub">Extension ↔ ChatGPT ↔ Typst</div>
+    <div class="sub" data-brand="writer">Extension ↔ ChatGPT ↔ Typst</div>
     <div id="sceneLabel" class="sceneLabel" aria-live="polite">หมู่บ้านยามเช้า · ทีมงานพร้อมเริ่ม</div>
   </div>
   <div class="headerRight">
@@ -151,8 +155,8 @@
 
   <ol id="stepGuide" class="stepGuide" data-step="never">
     <li data-step="setup"><b>1 · ตั้งค่าเล่มให้ครบก่อน</b><span>ผู้อ่าน · โทน · จำนวนหน้า · ภาษา · โหมดเนื้อหา — ทุกค่าถูกล็อกเข้าไปในสารบัญ</span></li>
-    <li data-step="title"><b>2 · ได้หัวข้อหรือชื่อหนังสือ</b><span>พิมพ์เอง หรือใช้ <svg class="i" aria-hidden="true"><use href="#i-dice"/></svg>ดูกระแส / <svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT คิดชื่อ</span></li>
-    <li data-step="outline"><b>3 · ได้สารบัญแล้วเลือก 1 ทาง</b><span>กด <svg class="i" aria-hidden="true"><use href="#i-compass"/></svg>เสนอสารบัญ 3 ทาง ให้ ChatGPT คิดให้ — หรือเปิด <svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg>โหมดแรงบันดาลใจ ถ้ามีสารบัญของตัวเองอยู่แล้ว · ขั้นนี้ต้องมาหลังข้อ 1 เสมอ</span></li>
+    <li data-step="title" data-brand="writer"><b>2 · ได้หัวข้อหรือชื่อหนังสือ</b><span>พิมพ์เอง หรือใช้ <svg class="i" aria-hidden="true"><use href="#i-dice"/></svg>ดูกระแส / <svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT คิดชื่อ</span></li>
+    <li data-step="outline" data-brand="writer"><b>3 · ได้สารบัญแล้วเลือก 1 ทาง</b><span>กด <svg class="i" aria-hidden="true"><use href="#i-compass"/></svg>เสนอสารบัญ 3 ทาง ให้ ChatGPT คิดให้ — หรือเปิด <svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg>โหมดแรงบันดาลใจ ถ้ามีสารบัญของตัวเองอยู่แล้ว · ขั้นนี้ต้องมาหลังข้อ 1 เสมอ</span></li>
     <li data-step="create"><b>4 · กด <svg class="i" aria-hidden="true"><use href="#i-rocket"/></svg>เริ่มสร้าง Ebook</b><span>ตั้งแต่จุดนี้ระบบเดินยาวจนจบเนื้อหา</span></li>
   </ol>
   <!-- ห้ามอ้างเลขข้อในข้อความ: เลขของ wizard กับเลขในลิสต์เก่า (#stepGuide ที่ไม่แสดงแล้ว) ไม่ตรงกัน
@@ -244,7 +248,7 @@
   <div class="row" data-step="topic">
     <label class="settingLabel" for="title"><svg class="i" aria-hidden="true"><use href="#i-book-cover"/></svg>หัวข้อหรือชื่อหนังสือ</label>
     <button id="trendRandom" type="button"><svg class="i" aria-hidden="true"><use href="#i-dice"/></svg>ดูกระแส: ขอ 10 หัวข้อ</button>
-    <button id="titleIdeate" type="button"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT คิดชื่อ</button>
+    <button id="titleIdeate" type="button" data-brand="writer"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT คิดชื่อ</button>
     <button id="outlineIdeate" type="button"><svg class="i" aria-hidden="true"><use href="#i-compass"/></svg>เสนอสารบัญ 3 ทาง</button>
   </div>
   <input id="title" data-step="topic" autofocus placeholder="ใส่หัวข้อคร่าว ๆ เช่น การเงินสำหรับฟรีแลนซ์">
@@ -259,7 +263,7 @@
   -->
   <details class="more inspireBox" id="inspireBox" data-step="topic">
     <summary><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg>โหมดแรงบันดาลใจ — ฉันมีสารบัญของตัวเองอยู่แล้ว</summary>
-    <div class="muted inspireHint">ใส่ชื่อเรื่องด้านบน ตั้งจำนวนหน้าที่ต้องการ แล้วพิมพ์สารบัญของคุณบรรทัดละบท ChatGPT จะไม่คิดโครงใหม่ แต่จะตกแต่งของคุณให้เขียนเป็นหนังสือได้จริง แล้วเสนอ 3 ทางให้เลือก — ทาง A คือโครงเดิมของคุณเสมอ</div>
+    <div class="muted inspireHint" data-brand="writer">ใส่ชื่อเรื่องด้านบน ตั้งจำนวนหน้าที่ต้องการ แล้วพิมพ์สารบัญของคุณบรรทัดละบท ChatGPT จะไม่คิดโครงใหม่ แต่จะตกแต่งของคุณให้เขียนเป็นหนังสือได้จริง แล้วเสนอ 3 ทางให้เลือก — ทาง A คือโครงเดิมของคุณเสมอ</div>
     <div class="field">
       <label class="settingLabel" for="inspireOutline"><svg class="i" aria-hidden="true"><use href="#i-pages"/></svg>สารบัญของคุณ (บรรทัดละบท ใส่คำอธิบายหลัง — ได้)</label>
       <textarea id="inspireOutline" rows="8" placeholder="1. ทำไมเรื่องนี้ถึงสำคัญกับคุณ — เปิดด้วยปัญหาที่ผู้อ่านเจอจริง
@@ -273,7 +277,7 @@
       <input id="inspireNote" placeholder="เช่น อยากให้มีเคสจริงทุกบท หรือ ห้ามเพิ่มบทใหม่">
     </div>
     <div class="trendActions">
-      <button type="button" id="inspirePolish" class="primary inline"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT ตกแต่งสารบัญของฉัน</button>
+      <button type="button" id="inspirePolish" class="primary inline" data-brand="writer"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT ตกแต่งสารบัญของฉัน</button>
     </div>
   </details>
 
@@ -360,7 +364,7 @@
         <option value="medium">จาง (7%) — เห็นลายชัดขึ้นแต่ยังอ่านสบาย</option>
         <option value="strong">ค่อนข้างเห็น (10%) — สำหรับเล่มที่เน้นงานออกแบบ</option>
       </select>
-      <div class="muted">ChatGPT จะวาดลายตามแนวของเล่ม แล้วระบบลดความเข้มให้เองก่อนพิมพ์ใต้ตัวหนังสือทุกหน้า</div>
+      <div class="muted" data-brand="image">ChatGPT จะวาดลายตามแนวของเล่ม แล้วระบบลดความเข้มให้เองก่อนพิมพ์ใต้ตัวหนังสือทุกหน้า</div>
     </div>
     <div class="field openerField">
       <label class="settingLabel" for="chapterOpenerPick"><svg class="i" aria-hidden="true"><use href="#i-book-cover"/></svg>หน้าเปิดบท</label>
@@ -444,7 +448,7 @@
 
   <details class="more" data-step="book">
     <summary><svg class="i" aria-hidden="true"><use href="#i-pen"/></svg>เกี่ยวกับผู้เขียน — ระบบจะไม่แต่งข้อมูลนี้เอง</summary>
-    <p class="muted" style="margin:10px 0 0">
+    <p class="muted" style="margin:10px 0 0" data-brand="writer">
       หน้านี้เป็นหน้าเดียวในเล่มที่เป็นข้อเท็จจริงเกี่ยวกับคนจริง ระบบจึงไม่เขียนให้เอง
       พิมพ์เองที่นี่ แล้วจะให้ ChatGPT ช่วยเรียบเรียงถ้อยคำก็ได้ โดยห้ามเพิ่มข้อมูลใหม่
     </p>
@@ -453,7 +457,7 @@
       placeholder="เช่น&#10;ชื่อ อาชีพปัจจุบัน&#10;ทำงานด้านนี้มากี่ปี ผ่านอะไรมา&#10;ผลงานหรือประสบการณ์ที่เกี่ยวกับหนังสือเล่มนี้&#10;ช่องทางติดต่อ"></textarea>
     <div class="row" style="margin-top:8px">
       <span id="aboutState" class="muted"></span>
-      <button id="aboutPolish"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT ช่วยเรียบเรียง (ห้ามเพิ่มข้อมูล)</button>
+      <button id="aboutPolish" data-brand="writer"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>ให้ ChatGPT ช่วยเรียบเรียง (ห้ามเพิ่มข้อมูล)</button>
     </div>
   </details>
 
@@ -503,6 +507,7 @@
           <option value="comingofage">Coming of Age</option>
           <option value="literary">วรรณกรรมร่วมสมัย</option>
           <option value="senior">นิยายสำหรับผู้สูงอายุ</option>
+          <option value="chinese">จีนโบราณ — วัง จวน ท่านอ๋อง ทะลุมิติ ยุทธภพ</option>
         </select>
       </div>
       <div class="field">
@@ -532,10 +537,54 @@
         </select>
       </div>
     </div>
+    <!-- นิยายจีนโบราณ (core/chinese-ancient.js) — โผล่เมื่อเลือกแนว "จีนโบราณ" เท่านั้น ตัวเลือกถูกเติมจาก studio.js -->
+    <div class="cnOpts" id="cnOpts" hidden>
+      <div class="authorRefHead"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>สูตรนิยายจีนโบราณ — เลือกเอง หรือกดสุ่มชุดยอดนิยม</div>
+      <div class="grid">
+        <div class="field">
+          <label class="settingLabel" for="cnWorld"><svg class="i" aria-hidden="true"><use href="#i-compass"/></svg>โลกของเรื่อง</label>
+          <select id="cnWorld"></select>
+        </div>
+        <div class="field">
+          <label class="settingLabel" for="cnEntry"><svg class="i" aria-hidden="true"><use href="#i-flag"/></svg>ประตูเข้าเรื่อง</label>
+          <select id="cnEntry"></select>
+        </div>
+        <div class="field">
+          <label class="settingLabel" for="cnMood"><svg class="i" aria-hidden="true"><use href="#i-heart"/></svg>อารมณ์ของเรื่อง</label>
+          <select id="cnMood"></select>
+        </div>
+      </div>
+      <fieldset class="cnGroup">
+        <legend><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg>สนามหลัก <span class="muted">เลือก 1–2</span></legend>
+        <div id="cnArenas" class="cnChips"></div>
+      </fieldset>
+      <fieldset class="cnGroup">
+        <legend><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg>ไม้เด็ด <span class="muted">เลือกได้ไม่เกิน 4 · ไม่เลือกก็ได้</span></legend>
+        <div id="cnTropes" class="cnChips"></div>
+      </fieldset>
+      <div class="row"><button id="cnRandom" type="button"><svg class="i" aria-hidden="true"><use href="#i-dice"/></svg>สุ่มชุดยอดนิยม</button></div>
+      <div id="cnSummary" class="cnSummary" role="status" aria-live="polite"></div>
+      <div class="muted">ระบบแนบคลังข้อมูลจีนโบราณให้เองทุกขั้น: คำเรียกขาน ยศ ลำดับสนม เงินอีแปะ/ตำลึง เวลาแบบยาม ระยะทางเป็นลี้ ชื่อจีน สถานที่ และของที่ห้ามหลุดยุค · ภาพปกและภาพในเล่มใช้สไตล์ชุดจีนโบราณ</div>
+    </div>
+    <!-- สูตรของแนวอื่น (core/genre-recipes.js) — ตัวเลือกเปลี่ยนตามแนวที่เลือก ค่าเริ่มต้น "ให้ AI เลือก" ทุกช่อง -->
+    <div class="cnOpts" id="genreOpts" hidden>
+      <div class="authorRefHead" id="gsTitle"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>สูตรนิยาย</div>
+      <div class="grid" id="gsSelects"></div>
+      <fieldset class="cnGroup">
+        <legend><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg>ไม้เด็ด <span class="muted">เลือกได้ไม่เกิน 3 · ไม่เลือกก็ได้</span></legend>
+        <div id="gsTropes" class="cnChips"></div>
+      </fieldset>
+      <div class="row">
+        <button id="gsRandom" type="button"><svg class="i" aria-hidden="true"><use href="#i-dice"/></svg>สุ่มชุดยอดนิยม</button>
+        <button id="gsClear" type="button" class="inline">ล้างทั้งหมด</button>
+      </div>
+      <div id="gsSummary" class="cnSummary" role="status" aria-live="polite"></div>
+      <div class="muted">ไม่เลือกเลยก็ได้ — ระบบคิดให้เองตามแนว · ตัวเลือกที่เลือกจะถูกล็อกลงโครงเรื่องและใช้ทุกฉากทั้งเล่ม</div>
+    </div>
     <div class="castSeeds">
-      <div class="authorRefHead"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>ตัวละครหลัก — ใส่หรือไม่ใส่ก็ได้ ช่องที่ว่าง ChatGPT กรอกให้</div>
+      <div class="authorRefHead" data-brand="writer"><svg class="i" aria-hidden="true"><use href="#i-users"/></svg>ตัวละครหลัก — ใส่หรือไม่ใส่ก็ได้ ช่องที่ว่าง ChatGPT กรอกให้</div>
       <div id="castSeeds"></div>
-      <div class="muted">แนบรูป = Google Flow วาดตัวละครจากรูปนั้นเป็นภาพต้นแบบก่อน แล้วใช้คุมหน้าตาทุกภาพในเล่ม · ไม่แนบ = ChatGPT คิดตัวละครให้ แล้ว Flow วาดภาพต้นแบบให้ · ภาพต้นแบบทุกตัวถูกเก็บเข้า "คลัง" ใช้ซ้ำในเล่มต่อไปได้</div>
+      <div class="muted" data-brand="writer">แนบรูป = Google Flow วาดตัวละครจากรูปนั้นเป็นภาพต้นแบบก่อน แล้วใช้คุมหน้าตาทุกภาพในเล่ม · ไม่แนบ = ChatGPT คิดตัวละครให้ แล้ว Flow วาดภาพต้นแบบให้ · ภาพต้นแบบทุกตัวถูกเก็บเข้า "คลัง" ใช้ซ้ำในเล่มต่อไปได้</div>
     </div>
     <div class="muted">ระบบจะสร้าง Story Bible เก็บตัวละคร ความสัมพันธ์ กฎของโลก ไทม์ไลน์ และปมที่ยังไม่คลี่คลาย เพื่อกันเรื่องหลุดระหว่างบท</div>
   </details>
@@ -543,7 +592,7 @@
   <!-- เปิดค้างไว้ เพราะทั้งขั้น "รูปเล่มและภาพ" มีของอยู่ในกล่องนี้กล่องเดียว
        ถ้าปิดไว้ ขั้นนี้จะว่างเปล่าจนดูเหมือนไม่มีอะไรให้ตั้ง -->
   <details class="more" id="proseOpts" data-step="look" open>
-    <summary><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>รูปเล่ม ภาพ และวิธีคุยกับ ChatGPT</summary>
+    <summary data-brand="writer"><svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg>รูปเล่ม ภาพ และวิธีคุยกับ ChatGPT</summary>
     <div class="grid">
       <div class="field proseOnly nonfictionOnly">
         <label class="settingLabel" for="genre"><svg class="i" aria-hidden="true"><use href="#i-book-cover"/></svg>แนวหนังสือ</label>
@@ -591,7 +640,7 @@
         </select>
       </div>
       <div class="field">
-        <label class="settingLabel" for="threadMode"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg>วิธีคุยกับ ChatGPT</label>
+        <label class="settingLabel" for="threadMode" data-brand="writer"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg>วิธีคุยกับ ChatGPT</label>
         <select id="threadMode">
           <option value="single" selected>แชทเดียวทั้งเล่ม (ทำต่อได้ง่าย)</option>
           <option value="reuse">ใช้แชทที่เปิดค้างอยู่ ไม่เปิดใหม่</option>
@@ -611,6 +660,13 @@
           <option value="IBM Plex Sans Thai" selected>IBM Plex Sans Thai</option>
           <option value="Sarabun">Sarabun</option>
         </select>
+      </div>
+      <div class="field">
+        <label class="settingLabel" for="coverFont"><svg class="i" aria-hidden="true"><use href="#i-type"/></svg>ฟอนต์ชื่อเรื่องบนปกภาษาไทย</label>
+        <select id="coverFont"><option value="auto">อัตโนมัติตามหมวดหนังสือ</option></select>
+        <div id="coverFontSample" class="coverFontSample" aria-label="ตัวอย่างฟอนต์หน้าปก">ชื่อเรื่องภาษาไทย</div>
+        <output id="coverFontName" class="coverFontName" aria-live="polite"></output>
+        <div class="muted" id="coverFontLicense">ใช้ทำปกเชิงพาณิชย์ได้ตามเงื่อนไขของแต่ละฟอนต์ · แบบพิมพ์ทับใช้ฟอนต์จริง ส่วนข้อความที่ AI วาดในภาพจะอิงสไตล์นี้</div>
       </div>
       <div class="field proseOnly">
         <label class="settingLabel" for="sizePt"><svg class="i" aria-hidden="true"><use href="#i-text-size"/></svg>ขนาดตัวอักษร (pt)</label>
@@ -700,17 +756,17 @@
       <div class="field">
         <label class="settingLabel" for="authorVoice"><svg class="i" aria-hidden="true"><use href="#i-pen"/></svg>มุมของผู้เขียน</label>
         <select id="authorVoice">
-          <option value="auto" selected>ให้ ChatGPT คิดให้จากสารบัญจริง (แนะนำ)</option>
+          <option value="auto" selected data-brand="writer">ให้ ChatGPT คิดให้จากสารบัญจริง (แนะนำ)</option>
           <option value="off">ไม่ใช้ — เขียนแบบอธิบายกลาง ๆ</option>
         </select>
         <label class="settingLabel settingSubLabel" for="authorVoiceText"><svg class="i" aria-hidden="true"><use href="#i-pen"/></svg>กำหนดมุมผู้เขียนเอง (ไม่บังคับ)</label>
         <textarea id="authorVoiceText" rows="3" placeholder="อยากกำหนดเอง พิมพ์ตรงนี้ เช่น ครูปฐมวัยที่สอนมา 12 ปี เคยตะคอกเด็กว่าดื้อแล้วมารู้ทีหลังว่าเขาไม่ได้ยิน · ไม่เชื่อว่ารางวัลกับการลงโทษคือคำตอบหลัก"></textarea>
-        <div class="muted">เว้นว่าง = ให้ ChatGPT คิดให้ · ถ้าพิมพ์เอง ระบบจะใช้ของคุณและไม่เปลืองข้อความถาม ChatGPT</div>
+        <div class="muted" data-brand="writer">เว้นว่าง = ให้ ChatGPT คิดให้ · ถ้าพิมพ์เอง ระบบจะใช้ของคุณและไม่เปลืองข้อความถาม ChatGPT</div>
       </div>
       <div class="field">
         <label class="settingLabel" for="coverTextMode"><svg class="i" aria-hidden="true"><use href="#i-type"/></svg>ตัวหนังสือบนปก</label>
         <select id="coverTextMode">
-          <option value="baked" selected>ให้ ChatGPT วาดมาในภาพเลย — ปกกลมกลืนสวยกว่า</option>
+          <option value="baked" selected data-brand="image">ให้ ChatGPT วาดมาในภาพเลย — ปกกลมกลืนสวยกว่า</option>
           <option value="typeset">ให้ระบบพิมพ์ทับภาพ — ตัวอักษรคมและสะกดถูกเสมอ</option>
         </select>
         <div class="muted">แบบวาดในภาพได้ปกที่ดูเป็นหนังสือจริงมากกว่า แต่ภาษาไทยอาจสะกดเพี้ยนและแก้คำทีหลังไม่ได้ ต้องสร้างรูปใหม่</div>
@@ -801,7 +857,7 @@
       <button id="phase2Back" class="hidden"><svg class="i" aria-hidden="true"><use href="#i-left"/></svg>กลับหน้า Image Phase 2</button>
       <button id="chat"><svg class="i" aria-hidden="true"><use href="#i-chat"/></svg>เปิดหน้าต่าง ChatGPT</button>
       <button id="stop" class="danger"><svg class="i" aria-hidden="true"><use href="#i-stop"/></svg>หยุด</button>
-      <button id="unstickChat" title="โหลดหน้า ChatGPT ใหม่เพื่อล้างสถานะค้าง — ไม่ทิ้งงานที่บันทึกไว้">🔄 ปลดหน้า ChatGPT ที่ค้าง</button>
+      <button id="unstickChat" data-brand="writer" title="โหลดหน้า ChatGPT ใหม่เพื่อล้างสถานะค้าง — ไม่ทิ้งงานที่บันทึกไว้">🔄 ปลดหน้า ChatGPT ที่ค้าง</button>
     </div>
     <div id="steps" class="steps"></div>
   </div>
@@ -918,9 +974,9 @@
 
   <div id="phase2List" class="p2List"></div>
 
-  <details id="phase2Help" class="p2Help">
-    <summary>ก่อนเริ่ม: ใช้บัญชี ChatGPT ที่สร้างภาพได้</summary>
-    <p>เปิดหรือคลิกหน้าต่าง ChatGPT ของบัญชีที่สร้างภาพได้อย่างน้อย 1 ครั้ง แล้วกลับมากดเริ่มที่หน้านี้
+  <details id="phase2Help" class="p2Help" data-brand="image">
+    <summary data-brand="image">ก่อนเริ่ม: ใช้บัญชี ChatGPT ที่สร้างภาพได้</summary>
+    <p data-brand="image">เปิดหรือคลิกหน้าต่าง ChatGPT ของบัญชีที่สร้างภาพได้อย่างน้อย 1 ครั้ง แล้วกลับมากดเริ่มที่หน้านี้
        ระบบจะใช้หน้าต่าง ChatGPT ที่แตะล่าสุด สร้างเฉพาะรูปที่ยังขาด บันทึกทีละรูปทันทีที่ผ่านตรวจ
        แล้วแทรกกลับเข้าช่องเดิมให้เอง กดหยุดกลางทางได้ รูปที่บันทึกไปแล้วจะไม่ถูกสร้างซ้ำ</p>
     <div id="coverConsultSummary" class="muted"></div>
@@ -931,7 +987,7 @@
   <div id="coverPreviewWrap" class="coverPreviewWrap hidden">
     <div>
       <div class="slotHead">ตัวอย่างปกจริงหลังใส่ข้อความ</div>
-      <div class="muted">ภาพที่ ChatGPT สร้างเป็น artwork ชั้นล่างเท่านั้น ตัวอย่างนี้คือสิ่งที่ระบบจะประกอบใน PDF</div>
+      <div class="muted" data-brand="image">ภาพที่ ChatGPT สร้างเป็น artwork ชั้นล่างเท่านั้น ตัวอย่างนี้คือสิ่งที่ระบบจะประกอบใน PDF</div>
     </div>
     <div id="coverMock" class="coverMock">
       <img id="coverPreviewImg" alt="ตัวอย่างปกหน้า">

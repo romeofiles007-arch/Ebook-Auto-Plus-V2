@@ -27,17 +27,17 @@ test('เพดานยังอยู่ — รอบที่ได้ผล
 
 test('คนกดปุ่มเอง = ล้างตัวนับ ทั้งปุ่มอัตโนมัติและปุ่มทำต่อ', () => {
   assert.match(src, /async function clearImageGiveUp\(\)/);
-  const helper = src.slice(src.indexOf('async function clearImageGiveUp()'), src.indexOf('async function resumeGo()'));
+  const helper = src.slice(src.indexOf('async function clearImageGiveUp()'), src.indexOf('async function resumeGo('));
   assert.match(helper, /autoRounds: 0, autoRoundsLeft: null/);
 
   const full = src.slice(src.indexOf('async function runFullAuto()'), src.indexOf('\n}', src.indexOf('async function runFullAuto()')));
   assert.match(full, /await clearImageGiveUp\(\);/);
-  const resume = src.slice(src.indexOf('async function resumeGo()'), src.indexOf('\n}', src.indexOf('async function resumeGo()')));
+  const resume = src.slice(src.indexOf('async function resumeGo('), src.indexOf('\n}', src.indexOf('async function resumeGo(')));
   assert.match(resume, /await clearImageGiveUp\(\);/);
 });
 
 test('ไม่มีอะไรให้ล้าง ต้องไม่ไปเขียนฐานข้อมูลเปล่า ๆ', () => {
-  const helper = src.slice(src.indexOf('async function clearImageGiveUp()'), src.indexOf('async function resumeGo()'));
+  const helper = src.slice(src.indexOf('async function clearImageGiveUp()'), src.indexOf('async function resumeGo('));
   assert.match(helper, /if \(!book\?\.id \|\| !book\.imagePhase\) return;/);
   assert.match(helper, /autoRoundsLeft == null\) return;/);
 });

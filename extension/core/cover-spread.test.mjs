@@ -6,7 +6,8 @@ import vm from 'node:vm';
 const source = await readFile(new URL('./export.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function coverTypst(');
 const end = source.indexOf('\n/**', start + 1);
-const scope = { frontCoverTextInImage: () => true, backCoverTextInImage: () => true };
+const { resolveCoverTypography } = await import('./cover-fonts.js');
+const scope = { frontCoverTextInImage: () => true, backCoverTextInImage: () => true, resolveCoverTypography };
 vm.createContext(scope);
 vm.runInContext(source.slice(start, end).replace('export function', 'function'), scope);
 const book = { trim: { widthMm: 148, heightMm: 210, bleedMm: 3 }, typography: { sizePt: 16, headFont: 'Sarabun' },
@@ -27,4 +28,16 @@ test('เล่มไม่มี ISBN ไม่วางสี่เหลี�
   assert.doesNotMatch(scope.coverTypst(book, geo, paths), /rect\(width: 50mm, height: 30mm/);
   assert.match(scope.coverTypst({ ...book, isbn: '9780000000000' }, geo, paths), /rect\(width: 50mm, height: 30mm/);
   assert.doesNotMatch(scope.coverTypst(book, { ...geo, spineTextAllowed: false }, paths), /rotate\(-90deg/);
+});
+
+test('print-spread Thai title uses the selected real cover face only for overlay covers', () => {
+  scope.frontCoverTextInImage = () => false;
+  try {
+    const coverBook = { ...book, language:'th', contentMode:'fiction', fictionGenre:'chinese', typography:{...book.typography, coverFont:'Chonburi'} };
+    assert.match(scope.coverTypst(coverBook, geo, paths), /text\(font: "Chonburi", size: .*?weight: 400/);
+    scope.frontCoverTextInImage = () => true;
+    assert.doesNotMatch(scope.coverTypst(coverBook, geo, paths), /text\(font: "Chonburi"/);
+  } finally {
+    scope.frontCoverTextInImage = () => true;
+  }
 });

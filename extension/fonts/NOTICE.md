@@ -1,12 +1,16 @@
 # ฟอนต์ที่แจกมาพร้อมโปรเจกต์นี้
 
-ทั้งสองชุดเป็นฟอนต์เปิดภายใต้ **SIL Open Font License 1.1 (OFL-1.1)**
+ฟอนต์ทั้งสองชุดด้านล่างและฟอนต์หน้าปกจาก Google Fonts 10 ชุดใน `cover/` เป็นฟอนต์เปิดภายใต้ **SIL Open Font License 1.1 (OFL-1.1)**
 ใช้เชิงพาณิชย์ แจกจ่ายซ้ำ และฝังลงไฟล์ PDF ได้ตามเงื่อนไขของสัญญาอนุญาต
 
 | ฟอนต์ | ที่มา | สัญญาอนุญาต | ข้อความเต็ม |
 |---|---|---|---|
 | Sarabun | https://github.com/cadsondemak/Sarabun | OFL-1.1 | [OFL-Sarabun.txt](OFL-Sarabun.txt) |
 | IBM Plex Sans Thai | https://github.com/IBM/plex | OFL-1.1 (ชื่อสงวน "Plex") | [OFL-IBMPlexSansThai.txt](OFL-IBMPlexSansThai.txt) |
+
+ฟอนต์หน้าปกทั้งหมด 11 ชุด พร้อมตารางหมวดและสัญญาอนุญาตของแต่ละชุดอยู่ที่ [cover/README.md](cover/README.md) แหล่งต้นทางแบบตรึง revision และ SHA-256 ของชุด OFL อยู่ที่ [cover/SOURCES.json](cover/SOURCES.json)
+
+**SP-Kangfu ใช้เงื่อนไขฟอนต์.คอม ไม่ใช่ OFL** เก็บไฟล์ต้นฉบับพร้อมเครดิต ใช้ทำปกเชิงพาณิชย์และแนบกับโปรแกรมเพื่อใช้งานได้ตามเงื่อนไข ดู [เงื่อนไขและที่มา](cover/LICENSE-SP-Kangfu.txt) และ [SHA-256](cover/SOURCES-SP-Kangfu.json)
 
 ไฟล์สัญญาอนุญาตทั้งสองคัดมาจากคลังต้นทางของแต่ละฟอนต์โดยไม่แก้ไข
 OFL กำหนดให้ข้อความลิขสิทธิ์และตัวสัญญาอนุญาตต้องแจกไปพร้อมฟอนต์ทุกชุด จึงต้องเก็บไว้คู่กับไฟล์ฟอนต์เสมอ

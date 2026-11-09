@@ -21,6 +21,55 @@ export function siteLabel(text, book) {
 export const chatSiteName = (book) => (book?.textSource === 'gemini' ? 'Gemini' : 'ChatGPT');
 
 /**
+ * ป้ายและคำอธิบายที่เขียนไว้ตายตัวในหน้าตั้งค่า (ผู้ใช้แจ้ง: เลือก Gemini แล้วหลายตัวเลือกยังเขียน ChatGPT จนสับสน)
+ *
+ * siteLabel ข้างบนคุมข้อความสถานะ ซึ่งอาจพูดถึงแท็บวาดภาพของ ChatGPT ได้ด้วย จึงเปลี่ยนเฉพาะเมื่อภาพไม่ได้วาดที่ ChatGPT
+ * ป้ายบนหน้าตั้งค่ารู้อยู่แล้วว่าพูดถึงงานไหน จึงแยกเป็นสองชนิด
+ *   writer — งานเขียน (คิดชื่อ วางสารบัญ เรียบเรียง กรอกตัวละคร) → ตามเว็บที่ใช้เขียน
+ *   image  — งานวาด (ปก ลายพื้นหลัง บัญชีที่สร้างภาพได้)        → ตามเครื่องมือวาดภาพ
+ * ป้ายที่บรรยายตัวเลือก ChatGPT เอง (การ์ดโหมด ตัวเลือกใน dropdown) ไม่ติดป้าย จึงคงคำว่า ChatGPT ไว้
+ */
+export const imageToolName = (imageSource) => ({ flow: 'Google Flow', api: 'OpenAI API' })[imageSource] || 'ChatGPT';
+
+export function writerLabel(text, book) {
+  if (text == null || book?.textSource !== 'gemini') return text;
+  return String(text).replace(/ChatGPT/g, 'Gemini');
+}
+
+export function imageLabel(text, book) {
+  const name = imageToolName(book?.imageSource || 'web');
+  if (text == null || name === 'ChatGPT') return text;
+  return String(text).replace(/ChatGPT/g, name);
+}
+
+// ข้อความต้นฉบับของแต่ละจุด — เปลี่ยนกลับเป็น ChatGPT ได้เมื่อผู้ใช้สลับเว็บกลับ
+const ORIGINAL_TEXT = new WeakMap();
+const ORIGINAL_ATTRS = new WeakMap();
+const BRAND_ATTRS = ['title', 'placeholder', 'aria-label'];
+
+/** ทาป้ายทุกจุดที่ติด data-brand="writer|image" ใหม่ตามเล่ม/ตัวเลือกปัจจุบัน — เรียกซ้ำได้ ไม่สะสมผล */
+export function paintBrandLabels(root, book) {
+  if (!root?.querySelectorAll) return;
+  // เรียงตามลำดับในหน้า ตัวในสุดถูกทาทีหลังจึงชนะ (เช่น ปุ่มภาพที่อยู่ในกล่องงานเขียน)
+  for (const el of root.querySelectorAll('[data-brand]')) {
+    const swap = el.dataset.brand === 'image' ? (t) => imageLabel(t, book) : (t) => writerLabel(t, book);
+    const walker = el.ownerDocument.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!ORIGINAL_TEXT.has(n)) ORIGINAL_TEXT.set(n, n.data);
+      const next = swap(ORIGINAL_TEXT.get(n));
+      if (n.data !== next) n.data = next;
+    }
+    if (!ORIGINAL_ATTRS.has(el)) {
+      ORIGINAL_ATTRS.set(el, Object.fromEntries(BRAND_ATTRS.filter((a) => el.hasAttribute(a)).map((a) => [a, el.getAttribute(a)])));
+    }
+    for (const [attr, value] of Object.entries(ORIGINAL_ATTRS.get(el))) {
+      const next = swap(value);
+      if (el.getAttribute(attr) !== next) el.setAttribute(attr, next);
+    }
+  }
+}
+
+/**
  * ตัวเลือก "2 Phase" ของปกและภาพในเล่มต้องบอกเครื่องมือที่จะวาดจริง
  * ลูกค้าเลือกการ์ด Flow แล้วเห็นเมนูปกเขียนว่า "เปลี่ยนบัญชีให้ ChatGPT สร้างให้" — เข้าใจว่าจะไปวาดที่ ChatGPT
  */

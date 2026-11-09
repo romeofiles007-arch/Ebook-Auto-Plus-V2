@@ -23,6 +23,7 @@ function fixture({ supervisor = null, total = 0 } = {}) {
     addEvent: (kind, title, detail) => events.push(`${title} :: ${detail || ''}`),
     status: () => {},
     resumeGo: () => events.push('RESUME'),
+    say: (s) => s,
     // ท่ากดปุ่มบนหน้า Studio ที่ผู้คุมเลือกได้เมื่อถูกเรียกจากหน้านี้
     ALL_SUPERVISOR_ACTIONS: { retry: '', new_thread: '', stop: '', press_continue: '', press_images: '', open_chat: '' },
     hasPendingTurn: () => false,

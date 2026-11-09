@@ -36,7 +36,8 @@ import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, e
 import { saveToLibrary } from './cast-library.js';
 import { findRepeats, repeatInstruction, removeNearDuplicates } from './repetition.js';
 import { checkKlon } from './thai-rhyme.js';
-import { flowCall, flowRatioFor, flowPrompt, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText, castPhotoName } from './flow.js';
+import { flowAccount, flowProjectId } from './flow-account.js';
+import { flowCall, flowStatus, flowRatioFor, flowPrompt, flowPolicySafe, isFlowPolicy, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText, castPhotoName } from './flow.js';
 
 export const STEPS = [
   'health',
@@ -190,6 +191,9 @@ const NO_COST_ERRORS = new Set([
 const MAX_FREE_RETRIES = 4;
 /** พักหลัง Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" ก่อนให้ตัวกดทำต่อให้เองปลุกงาน */
 const FLOW_UNUSUAL_COOLDOWN_MS = 45 * 60000;
+/** โหมดสร้างปกติของ Flow โดน "กิจกรรมที่ผิดปกติ" แล้ว ใช้ Agent แทนนานเท่านี้ (flowMake) */
+const FLOW_PLAIN_BLOCK_MS = 12 * 3600000;
+const isFlowUnusual = (res) => !res?.ok && (res?.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(res?.error || ''));
 /** จังหวะการสั่ง Google Flow (flowPace) */
 const FLOW_GAP_MS = [20000, 45000];
 const FLOW_RETRY_WAIT_MS = [60000, 180000];
@@ -3911,6 +3915,18 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
        * เจอจริง: วาดจากรูปไม่ผ่าน → เดิมแนบรูปถ่ายดิบไปกับทุกฉากและปก ได้ภาพถ่ายปนภาพวาด และ Flow ปัดตกปกหน้า
        * ตอนนี้: จากรูป (คงหน้า) → จากรูป (เป็นแรงบันดาลใจ คำขอเบากว่า) → จากคำบรรยายล้วน · ไม่ส่งรูปถ่ายดิบไปกับฉากอีก
        */
+      /**
+       * วาดไม่ผ่านไปแล้วในรอบก่อน (เช่น Flow ปัดตกว่าอาจละเมิดนโยบาย) — ไม่ลองซ้ำทุกรอบ รอบละหลายนาทีและนับเป็นคำขอผิดนโยบายเพิ่ม
+       * ผู้ใช้: "มันไม่คืบหน้าเลย อยู่ที่เดิม" (ทุกรอบเริ่มด้วยวาดเสี่ยวเถาใหม่) · ภาพที่มีตัวละครนี้ยังวาดได้จากคำบรรยาย
+       * ลองใหม่ได้หลัง 12 ชั่วโมง หรือเมื่อแก้คำบรรยายตัวละครแล้ว
+       */
+      const castFail = this.book.imagePhase?.castFailed?.[c.name];
+      if (!asset?.blob && castFail && Date.now() - castFail.at < FLOW_PLAIN_BLOCK_MS && castFail.appearance === (c.appearance || '')) {
+        this.log('warn', `ข้ามภาพต้นแบบของ ${c.name} — รอบก่อน Flow ไม่รับ (${castFail.why || 'วาดไม่ผ่าน'}) · ภาพที่มีตัวละครนี้จะวาดจากคำบรรยายแทน`);
+        out.push({ ...c, ref: null });
+        continue;
+      }
+      let lastCastError = '';
       const tries = photoRef ? [photoRef, photoRef, null] : [null];
       for (let t = 0; !asset?.blob && t < tries.length; t++) {
         const from = tries[t];
@@ -3923,27 +3939,24 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
             : `วาดภาพต้นแบบตัวละคร ${i + 1}/${cast.length}: ${c.name}${from ? (inspired ? ' (ใช้รูปที่แนบเป็นแรงบันดาลใจ)' : ' (จากรูปที่แนบ)') : ''}${t ? ` · ครั้งที่ ${t + 1}` : ''}`,
         );
         await this.flowPace({ name, what: `ภาพต้นแบบตัวละคร ${c.name}` }, i, cast.length, { retryWait: t ? FLOW_RETRY_WAIT_MS[0] : 0 });
-        const res = await flowCall(
-          'generate',
-          {
-            name,
-            prompt: flowPrompt({ kind: 'character', prompt: P.characterSheetPrompt(this.book, c, { styleKey, color: P.figureColorOn(this.book), fromPhoto: !!from, photoAsInspiration: inspired }) }, { label: '3:4', loss: 0 }),
-            ratio: '3:4',
-            refs: from ? [from] : [],
-            models: FLOW_MODELS,
-            hires: false,
-            reuse: t === 0,
-            collection: FLOW_CAST_COLLECTION,
-            refCollection: FLOW_REF_COLLECTION,
-          },
-          { timeoutMs: 9 * 60000 },
-        );
+        const res = await this.flowMake({
+          name,
+          prompt: flowPrompt({ kind: 'character', prompt: P.characterSheetPrompt(this.book, c, { styleKey, color: P.figureColorOn(this.book), fromPhoto: !!from, photoAsInspiration: inspired }) }, { label: '3:4', loss: 0 }),
+          ratio: '3:4',
+          refs: from ? [from] : [],
+          models: FLOW_MODELS,
+          hires: false,
+          reuse: t === 0,
+          collection: FLOW_CAST_COLLECTION,
+          refCollection: FLOW_REF_COLLECTION,
+        }, `ภาพต้นแบบตัวละคร ${c.name}`, { peopleOptional: false });
         if (!res.ok) {
           if (res.code === 'not_free') throw new Halt(res.error);
           // "พบกิจกรรมที่ผิดปกติ" ตั้งแต่ขั้นวาดตัวละคร = หยุดทั้งงานภาพ ไม่ลองแบบถัดไป (stopFlowUnusual)
           if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(res.error || ''))
             throw new Halt('Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" ตอนวาดภาพต้นแบบตัวละคร — หยุดสร้างภาพไว้ก่อน ไม่ลองซ้ำ · พักสัก 30–60 นาที แล้วกดทำต่อ');
           this.log('warn', `วาดภาพต้นแบบของ ${c.name} ไม่สำเร็จ (${res.error})`);
+          lastCastError = res.error || 'วาดไม่ผ่าน';
           continue; // รอก่อนลองแบบถัดไปอยู่ใน flowPace
         }
         const blob = await db.dataUrlToBlob(res.dataUrl);
@@ -3953,6 +3966,11 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
         asset = { blob, meta };
       }
       if (!asset?.blob) {
+        if (lastCastError) {
+          const castFailed = { ...(this.book.imagePhase?.castFailed || {}), [c.name]: { at: Date.now(), why: lastCastError.slice(0, 160), appearance: c.appearance || '' } };
+          this.book.imagePhase = { ...(this.book.imagePhase || {}), castFailed };
+          await this.save();
+        }
         this.log('warn', `วาดภาพต้นแบบของ ${c.name} ไม่สำเร็จ — ภาพที่มีตัวละครนี้จะไม่มีตัวอ้างอิงหน้าตา (ไม่แนบรูปถ่ายดิบไปกับฉาก)`);
         out.push({ ...c, ref: null });
         continue;
@@ -4001,24 +4019,20 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
       this.log('ok', `วาดภาพต้นแบบผู้เขียน (${who}) จากรูปที่แนบ ในสไตล์ภาพของเล่ม${t ? ' · ครั้งที่ 2 ใช้รูปเป็นแรงบันดาลใจ' : ''} — ภาพประกอบทุกรูปจะเป็นหน้านี้`);
       await this.flowPace({ name, what: 'ภาพต้นแบบผู้เขียน' }, 0, 1, { retryWait: t ? FLOW_RETRY_WAIT_MS[0] : 0 });
-      const res = await flowCall(
-        'generate',
-        {
-          name,
-          prompt: flowPrompt(
-            { kind: 'character', prompt: P.characterSheetPrompt(this.book, { name: who }, { styleKey, styleText, color: P.figureColorOn(this.book), fromPhoto: true, photoAsInspiration: tries[t], author: true }) },
-            { label: '3:4', loss: 0 },
-          ),
-          ratio: '3:4',
-          refs: [{ name: photo.name, dataUrl: photo.dataUrl }],
-          models: FLOW_MODELS,
-          hires: false,
-          reuse: t === 0,
-          collection: FLOW_CAST_COLLECTION,
-          refCollection: FLOW_REF_COLLECTION,
-        },
-        { timeoutMs: 9 * 60000 },
-      );
+      const res = await this.flowMake({
+        name,
+        prompt: flowPrompt(
+          { kind: 'character', prompt: P.characterSheetPrompt(this.book, { name: who }, { styleKey, styleText, color: P.figureColorOn(this.book), fromPhoto: true, photoAsInspiration: tries[t], author: true }) },
+          { label: '3:4', loss: 0 },
+        ),
+        ratio: '3:4',
+        refs: [{ name: photo.name, dataUrl: photo.dataUrl }],
+        models: FLOW_MODELS,
+        hires: false,
+        reuse: t === 0,
+        collection: FLOW_CAST_COLLECTION,
+        refCollection: FLOW_REF_COLLECTION,
+      }, 'ภาพต้นแบบผู้เขียน', { peopleOptional: false });
       if (!res.ok) {
         if (res.code === 'not_free') throw new Halt(res.error);
         if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(res.error || ''))
@@ -4045,8 +4059,102 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
    * เจอจริง: ภาพล้มแบบนี้เต็มจอหลายใบ เพราะเดิมลองซ้ำภาพละสามครั้งแล้วเดินไปภาพถัดไปต่อ ยิ่งสั่งยิ่งถี่ ยิ่งโดน
    * ไม่ลองซ้ำ ไม่เดินต่อ ไม่ย้อนรอบสอง · งานรอให้ผู้ใช้กดทำต่อหลังพักสักพัก แล้วเริ่มจากภาพนี้
    */
+  /**
+   * สร้างภาพใหม่หนึ่งภาพใน Flow (ภาพต้นแบบตัวละคร/ผู้เขียน · ปก · ลายพื้นหลัง)
+   *
+   * ผู้ใช้: "คือเปิดโหมด agent จะสร้างได้" — เจอจริง พ.ย. 2026: โหมดสร้างปกติขึ้น "พบกิจกรรมที่ผิดปกติ" ทุกภาพ
+   * แม้สลับไปบัญชีใหม่ แต่ Flow Agent ยังสร้างได้ · โหมดปกติโดนเมื่อไร ภาพนี้และภาพหลังจากนั้นไปทาง Agent
+   * (จำไว้ในเล่ม FLOW_PLAIN_BLOCK_MS ไม่กลับไปยิงโหมดปกติให้โดนซ้ำ) · Agent ก็โดนด้วย = คืนผลนั้น ผู้เรียกหยุดงานเหมือนเดิม
+   */
+  /**
+   * Flow ตอบ "การสร้างนี้อาจละเมิดนโยบายของเรา" — ส่งคำขอเดิมซ้ำก็ตกแบบเดิม
+   * ผู้ใช้: "สร้างภาพละเมิดหรือเปล่า ไม่ลองทำให้ไม่ละเมิดหละ" · ไล่บันไดคำขอที่ปลอดภัยขึ้น (core/flow.js flowPolicySafe)
+   * ขั้น 1 ไม่แนบรูปคน + ภาพวาดแทนภาพถ่าย + ผู้ใหญ่ · ขั้น 2 ไม่มีคนในภาพ (เฉพาะงานที่ไม่ต้องมีคน — ไม่ใช่ภาพต้นแบบตัวละคร)
+   */
+  async flowMake(args, what, { peopleOptional = true } = {}) {
+    let res = await this.flowMakeOnce(args, what);
+    if (!isFlowPolicy(res)) return res;
+    for (const level of peopleOptional ? [1, 2] : [1]) {
+      if (this.stopRequested) return res;
+      this.log(
+        'warn',
+        `${what}: Flow ไม่รับคำขอ (อาจละเมิดนโยบาย) — ลองแบบปลอดภัยขึ้น ขั้น ${level}: ` +
+          (level === 1 ? 'ไม่แนบรูปคน · เป็นภาพวาดแทนภาพถ่าย · ตัวละครเป็นผู้ใหญ่' : 'ไม่มีคนในภาพ ใช้ฉากและสิ่งของของเรื่อง'),
+      );
+      res = await this.flowMakeOnce({ ...args, prompt: flowPolicySafe(args.prompt, level), refs: [], reuse: false }, what);
+      if (res.ok) {
+        this.log('ok', `${what}: ได้ภาพจากคำขอแบบปลอดภัยขั้น ${level}`);
+        return res;
+      }
+      if (!isFlowPolicy(res)) return res;
+    }
+    return res;
+  }
+
+  async flowMakeOnce(args, what) {
+    const blockedAt = Number(this.book.imagePhase?.flowPlainBlockedAt) || 0;
+    if (Date.now() - blockedAt > FLOW_PLAIN_BLOCK_MS) {
+      const res = await flowCall('generate', args, { timeoutMs: 9 * 60000 });
+      if (!isFlowUnusual(res)) return res;
+      this.book.imagePhase = { ...(this.book.imagePhase || {}), flowPlainBlockedAt: Date.now() };
+      await this.save();
+      this.log('warn', `${what}: Flow โหมดสร้างปกติแจ้ง "พบกิจกรรมที่ผิดปกติ" — เปลี่ยนไปสร้างผ่าน Flow Agent แทน (ภาพที่เหลือของเล่มนี้ใช้ Agent ด้วย)`);
+    }
+    return this.flowViaAgent(args, what);
+  }
+
+  async flowViaAgent(args, what) {
+    // ภาพที่ตั้งชื่อนี้ไว้แล้วใน project (รอบก่อนวาดเสร็จแต่ขั้นหลังพลาด) — ใช้ภาพเดิม ไม่สั่งวาดซ้ำ
+    if (args.reuse !== false || args.reuseNamed) {
+      const old = await flowCall('generate', { ...args, onlyExisting: true, mediaId: '' }, { timeoutMs: 3 * 60000 });
+      if (old.ok && old.dataUrl) return old;
+    }
+    this.log('ok', `${what}: สร้างผ่าน Flow Agent`);
+    const refs = args.refs || [];
+    const res = await flowCall(
+      'agentBatch',
+      {
+        shots: [{ name: args.name, key: P.flowAgentShotKey(0), line: P.flowAgentSingleLine(args.prompt) }],
+        brief: P.flowAgentSingleBrief({ prompt: args.prompt, ratio: args.ratio, refs: refs.length }),
+        ratio: args.ratio,
+        models: args.models,
+        refs,
+        refCollection: args.refCollection,
+        requireRefs: refs.length > 0,
+      },
+      { timeoutMs: 25 * 60000 },
+    );
+    if (isFlowUnusual(res)) return { ok: false, code: 'unusual_activity', error: res.error || 'Flow Agent แจ้งว่า: เราพบกิจกรรมที่ผิดปกติบางอย่าง' };
+    const mediaId = res.ok ? res.mediaIds?.[args.name] : '';
+    if (!mediaId) return { ok: false, code: res.code || 'agent_missing', error: res.error || `Flow Agent วาด${what}ไม่ได้` };
+    return flowCall('generate', { ...args, refs: [], onlyExisting: true, mediaId, collection: '' }, { timeoutMs: 9 * 60000 });
+  }
+
+  /**
+   * ผู้ใช้: "พักอยู่นั่น ไม่สร้างสักที" — เจอจริง พ.ย. 2026: รอบที่ถูกหยุดยังสั่ง Agent วาดลายพื้นหลังค้างอยู่ในแท็บ Flow
+   * รอบใหม่ส่งงานเข้าไปก็ได้ "Flow กำลังทำงานของรูปก่อนหน้าอยู่" → พัก 60 วินาที → ชนซ้ำ วนไปเรื่อย ๆ
+   * รอจนตัวขับว่าง (สูงสุด 30 นาที) แล้วค่อยเริ่ม — ภาพที่งานเดิมวาดเสร็จถูกตั้งชื่อไว้แล้ว รอบนี้หยิบไปใช้ (flowViaAgent)
+   */
+  async waitFlowIdle(maxMs = 30 * 60000) {
+    const until = Date.now() + maxMs;
+    let told = false;
+    for (;;) {
+      const st = await flowStatus();
+      if (!st?.busy) return true;
+      if (!told) {
+        told = true;
+        this.log('ok', `แท็บ Flow ยังทำงานที่สั่งไว้ก่อนหน้าอยู่${st.stage ? ` (ขั้น: ${st.stage})` : ''} — รอให้เสร็จก่อน แล้วหยิบภาพที่ได้มาใช้ ไม่สั่งวาดซ้ำ`);
+      }
+      if (Date.now() > until) return false;
+      for (let i = 0; i < 15; i++) {
+        if (this.stopRequested) throw new Halt('หยุดโดยผู้ใช้');
+        await sleep(1000);
+      }
+    }
+  }
+
   async stopFlowUnusual(j, reason, jobs, index, genErrors) {
-    const why = 'Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" — หยุดสร้างภาพทั้งหมดไว้ก่อน ไม่ลองซ้ำ (ยิ่งสั่งถี่ยิ่งโดน) · พักสัก 30–60 นาที แล้วกดทำต่อ ระบบจะเริ่มจากภาพนี้';
+    const why = 'Google Flow แจ้ง "พบกิจกรรมที่ผิดปกติ" — หยุดสร้างภาพทั้งหมดไว้ก่อน ไม่ลองซ้ำ (ยิ่งสั่งถี่ยิ่งโดน) · พักสัก 30–60 นาที แล้วกดทำต่อ หรือสลับบัญชี Google ในแท็บ Flow (รูปโปรไฟล์มุมขวาบน → สลับบัญชี) แล้วกดทำต่อได้ทันที ระบบจะใช้บัญชีที่แท็บแสดงอยู่ และเริ่มจากภาพนี้';
     genErrors?.set(j.name, reason);
     noteTrouble({ step: 'images', symptom: 'flow_unusual_activity', move: 'stop', detail: `${j.what}: ${reason}`, by: 'Google Flow' });
     this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${why}`);
@@ -4358,11 +4466,20 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
     delete this.job.cooldownUntil; // เริ่มสร้างภาพรอบใหม่แล้ว ช่วงพักของรอบก่อนหมดหน้าที่
     this.log('ok', `สร้างภาพด้วย Google Flow (โหมดฟรี 0 เครดิต) ${jobs.length} รูป — ปก/ลายพื้นหลังสร้างปกติ ภาพประกอบใช้ Flow Agent`);
 
-    const prep = await flowCall(
-      'prepare',
-      { title: this.book.title, ratio: '3:4', models: FLOW_MODELS, projectUrl: this.book.imagePhase?.flowProjectUrl || '' },
-      { timeoutMs: 3 * 60000 },
-    );
+    // รอบก่อนถูกหยุดกลางทาง แต่แท็บ Flow ยังวาดงานนั้นอยู่ — รอให้จบก่อน ไม่ชน "กำลังทำงานของรูปก่อนหน้าอยู่" แล้ววนพัก 60 วินาที
+    const prepare = () =>
+      flowCall(
+        'prepare',
+        { title: this.book.title, ratio: '3:4', models: FLOW_MODELS, projectUrl: this.book.imagePhase?.flowProjectUrl || '' },
+        { timeoutMs: 3 * 60000 },
+      );
+    await this.waitFlowIdle();
+    let prep = await prepare();
+    // ตัวขับเพิ่งรับงานเดิมต่อระหว่างที่เราถาม — รออีกรอบแล้วเตรียมใหม่ แทนการหยุดรอคน
+    if (!prep.ok && prep.code === 'busy') {
+      await this.waitFlowIdle();
+      prep = await prepare();
+    }
     if (!prep.ok) {
       if (prep.code === 'tab_busy') return this.stopFlowTabBusy(jobs[0], prep.error, jobs, 0, genErrors);
       const reason = prep.code === 'not_free'
@@ -4376,8 +4493,11 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       return true;
     }
     this.log('ok', `Google Flow พร้อม · ${prep.model} · ${prep.credits} เครดิต · ${prep.projectUrl}`);
-    const projectId = (url) => /flow\.google\.com\/project\/([^/?#]+)/i.exec(String(url || ''))?.[1] || String(url || '');
-    if (this.book.imagePhase?.flowProjectUrl && projectId(this.book.imagePhase.flowProjectUrl) !== projectId(prep.projectUrl)) {
+    const oldProject = this.book.imagePhase?.flowProjectUrl || '';
+    if (oldProject && flowAccount(oldProject) !== flowAccount(prep.projectUrl)) {
+      this.log('ok', `ใช้บัญชี Google ที่สลับไปในแท็บ Flow (บัญชีที่ ${Number(flowAccount(prep.projectUrl)) + 1}) — เปิด project ใหม่ในบัญชีนี้ ภาพที่ทำเสร็จแล้วยังอยู่ในเล่มครบ`);
+    }
+    if (oldProject && flowProjectId(oldProject) !== flowProjectId(prep.projectUrl)) {
       this.log('warn', 'Flow เปลี่ยน project — ล้างรหัสภาพ Agent จาก project เดิมก่อนจับคู่ภาพตอน');
       delete this.book.imagePhase.agentMediaIds;
     }
@@ -4622,23 +4742,22 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
             (attempt > 1 ? ` · ครั้งที่ ${attempt}` : ''),
         );
 
-        const res = await flowCall(
-          'generate',
-          {
-            name: j.name,
-            prompt: sendPrompt,
-            ratio: ratio.label,
-            refs: fromAgent ? [] : sendRefs,
-            models: FLOW_MODELS,
-            hires: true,
-            reuse: !rejected && attempt > 1 && !plain,
-            onlyExisting: fromAgent,
-            mediaId: fromAgent ? this.book.imagePhase?.agentMediaIds?.[j.name] || '' : '',
-            collection: fromAgent ? '' : flowCollectionFor(this.book, j),
-            refCollection: FLOW_REF_COLLECTION,
-          },
-          { timeoutMs: 9 * 60000 },
-        );
+        const genArgs = {
+          name: j.name,
+          prompt: sendPrompt,
+          ratio: ratio.label,
+          refs: fromAgent ? [] : sendRefs,
+          models: FLOW_MODELS,
+          hires: true,
+          reuse: !rejected && attempt > 1 && !plain,
+          // ทาง Agent: ภาพชื่อนี้ใน project มาจากคำสั่งของเล่มนี้เอง (รอบที่ถูกหยุดกลางทาง) — ใช้ได้ ไม่สั่งวาดซ้ำ
+          reuseNamed: !rejected && !plain,
+          onlyExisting: fromAgent,
+          mediaId: fromAgent ? this.book.imagePhase?.agentMediaIds?.[j.name] || '' : '',
+          collection: fromAgent ? '' : flowCollectionFor(this.book, j),
+          refCollection: FLOW_REF_COLLECTION,
+        };
+        const res = await (fromAgent ? flowCall('generate', genArgs, { timeoutMs: 9 * 60000 }) : this.flowMake(genArgs, j.what));
         if (!res.ok) {
           flowError = res.error || 'Flow ไม่ส่งภาพกลับมา';
           this.log('warn', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: ${flowError}`);
@@ -4657,6 +4776,11 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
           // "พบกิจกรรมที่ผิดปกติ" = หยุดทั้งคิวทันที ลองซ้ำคือยิ่งโดน
           if (res.code === 'unusual_activity' || /กิจกรรมที่ผิดปกติ|unusual activity/i.test(flowError)) {
             return await this.stopFlowUnusual(j, flowError, jobs, index, genErrors);
+          }
+          // ไล่บันไดคำขอปลอดภัยใน flowMake ครบแล้วยังตก "อาจละเมิดนโยบาย" — ส่งซ้ำก็ตกเหมือนเดิม ข้ามไปภาพถัดไป
+          if (!fromAgent && isFlowPolicy(res)) {
+            genErrors.set(j.name, `Flow ไม่รับคำขอภาพนี้แม้ปรับให้ปลอดภัยแล้ว (${flowError}) — กด "สร้างใหม่" หรืออัปโหลดภาพเองได้`);
+            break;
           }
           // ใช้เครดิตไม่ใช่ 0 = หยุดทั้งคิวทันที ห้ามลองซ้ำ
           if (res.code === 'not_free') {

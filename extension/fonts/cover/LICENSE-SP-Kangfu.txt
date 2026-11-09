@@ -1,0 +1,29 @@
+SP-Kangfu — original, unmodified font by SP-Font
+
+แหล่งเผยแพร่: https://www.f0nt.com/release/sp-kangfu/
+ผู้ออกแบบ: https://forum.f0nt.com/index.php/topic,24076.0.html
+เงื่อนไขต้นฉบับ: https://www.f0nt.com/about/license/
+ตรวจสอบเมื่อ 2026-11-09
+
+ข้อความนี้เป็นสรุปเงื่อนไขที่เผยแพร่เพื่ออ้างอิง ไม่ใช่สัญญา OFL
+ให้ยึดสัญญาต้นฉบับและเงื่อนไขเฉพาะจากเจ้าของฟอนต์หากมี
+ไฟล์ดาวน์โหลดที่ตรวจมีเพียง SP-Kangfu.ttf ไม่มีเอกสารเงื่อนไขเพิ่มเติม
+
+สรุปขอบเขตการใช้งานตามเงื่อนไขบนเว็บ:
+- ใช้ออกแบบเชิงพาณิชย์ ผลิตสื่อสิ่งพิมพ์ และผลิตหนังสือขายได้
+- แนบไฟล์ฟอนต์กับสื่อหรือโปรแกรมเพื่อให้แสดงผลถูกต้องหรือเพื่อความสะดวกในการใช้งานได้
+- ห้ามขายไฟล์ฟอนต์แยก และห้ามนำไปเปิดเป็นแหล่งดาวน์โหลดฟอนต์อีกแห่ง
+- ดัดแปลงเพื่อขายหรือรับจ้างผลิต และแจกจ่ายฟอนต์ที่ดัดแปลง ต้องได้รับอนุญาตจากเจ้าของก่อน
+
+ไฟล์ฟอนต์ในโปรแกรมนี้เป็นต้นฉบับที่ไม่ได้ดัดแปลง ใช้สำหรับชื่อเรื่องบนปก
+ไม่ได้เสนอขายหรือแจกเป็นบริการดาวน์โหลดฟอนต์แยกเดี่ยว
+
+Copyright and credits retained from the original font's name table:
+Copyright (c) Pol Udomwittayanukul and Chayanon Ruamcharoen 2006. All rights reserved.
+This font used : NP NaipolTemplate : Version 3.001
+Special Thanks : B513DS!GN : Ekaluck Peanpanawate
+Staff : Chayanon Ruamcharoen; Jesadavut Saengsawang; Pol Udomwittayanukul;
+Prachya Singhto; Sampan Sittiwantana; And All members at www.f0nt.com
+
+Family: SP-Kangfu; Regular; Version 3.001; March 14, 2020
+Original TTF SHA-256: 5581c13dbabfacfcfda95fec07c0b1427fa4dcee971dda0ff07ddb508a53a790

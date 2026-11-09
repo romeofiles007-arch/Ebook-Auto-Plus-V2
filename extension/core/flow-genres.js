@@ -21,6 +21,17 @@
 
 export const FLOW_GENRES = [
   // ---------- นิยาย ----------
+  // ผู้ใช้ขอ: นิยายจีนโบราณ (core/chinese-ancient.js) — อยู่ก่อนสูตรอื่น เพราะ "มังกร" "โบราณ" "ผี" ของสูตรอื่นจะคว้าเรื่องจีนไปก่อน
+  {
+    key: 'chinese',
+    fiction: true,
+    match: /จีนโบราณ|ฮ่องเต้|ฮองเฮา|ท่านอ๋อง|ชายา|ฮูหยิน|ยุทธภพ|กำลังภายใน|บำเพ็ญ|เซียน|จอหงวน|wuxia|xianxia|guzhuang|hanfu|ancient china/i,
+    style: 'elegant Chinese historical costume-drama illustration (guzhuang), refined painterly style with fine detail; accurate layered silk hanfu, embroidered sashes, jade ornaments and hairpins; Chinese architecture with curved tiled roofs, lattice windows, red pillars and lanterns',
+    cover: 'the main character (or the couple) in hanfu, waist-up and close, in a place that tells the story\'s world — a palace corridor, a mansion courtyard with plum blossoms, a village field, a misty mountain sect — caught in a fateful glance or gesture',
+    light: 'rich vermilion, jade green, gold and ivory with soft diffuse light; drifting petals, mist or lantern glow',
+    titleSpace: 'misty sky, mountains or a painted wall across the top third for a vertical-feeling elegant title',
+    back: 'a quiet object or place from the same world (a jade pendant on silk, an empty pavilion, falling blossoms); calm middle area',
+  },
   {
     key: 'horror',
     fiction: true,
@@ -196,12 +207,12 @@ export const FLOW_GENRES = [
 ];
 
 /** ค่าในช่อง "ประเภท" ของหน้าตั้งค่า (studio.html #fictionGenre / #genre) → สูตร */
-const FICTION_SELECT = { romance: 'romance', fantasy: 'fantasy', scifi: 'scifi', mystery: 'thriller', thriller: 'thriller', horror: 'horror', drama: 'drama', adventure: 'adventure', comingofage: 'drama', literary: 'drama', senior: 'senior' };
+const FICTION_SELECT = { romance: 'romance', fantasy: 'fantasy', scifi: 'scifi', mystery: 'thriller', thriller: 'thriller', horror: 'horror', drama: 'drama', adventure: 'adventure', comingofage: 'drama', literary: 'drama', senior: 'senior', chinese: 'chinese' };
 const NONFICTION_SELECT = { 'how-to': 'howto', workbook: 'howto', self: 'selfhelp', business: 'business', explainer: 'explainer', textbook: 'explainer', case: 'explainer' };
 // หัวเรื่องบอกชัดกว่าช่องประเภทกว้าง ๆ (หนังสือทำอาหารที่เลือก "How-to" ควรได้ปกแบบหนังสืออาหาร)
 const SUBJECT_FIRST = ['food', 'spiritual'];
 // ประเภทย่อยที่ละเอียดกว่าช่องที่เลือก (โรแมนติก → โรมคอม/ย้อนยุค)
-const REFINES = { romance: ['romcom', 'historical'], drama: ['historical', 'children'] };
+const REFINES = { romance: ['romcom', 'historical', 'chinese'], drama: ['historical', 'children', 'chinese'] };
 
 /**
  * สูตรของเล่มนี้ · ไม่เข้าสูตรไหน = null

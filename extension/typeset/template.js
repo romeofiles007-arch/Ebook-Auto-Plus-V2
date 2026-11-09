@@ -13,6 +13,7 @@ import { stripEchoedHeading, cleanEpigraph } from '../core/extract.js';
 import { itemTypeSize, ITEM_BLOCK_KINDS } from '../core/items.js';
 import { readTable } from '../core/md-table.js';
 import { withFigureMarkers, FIG_RE } from '../core/figure-markers.js';
+import { resolveCoverTypography } from '../core/cover-fonts.js';
 
 const mm = (v) => `${round(v)}mm`;
 const pt = (v) => `${round(v)}pt`;
@@ -1105,6 +1106,7 @@ function frontMatter(book, outline, opts = {}) {
   const coverName = opts.coverFrontName || 'cover-front.png';
   const haveCover = !!opts.includeFrontCover && (opts.assetNames || []).includes(coverName);
   if (haveCover) {
+    const coverFace = resolveCoverTypography(book);
     const coverPalette = book.style?.palette || [];
     const coverText = coverPalette?.[2]?.hex || '#F6F1E7';
     const coverLayout = book.coverLayout || book.style?.typography || {};
@@ -1151,7 +1153,7 @@ function frontMatter(book, outline, opts = {}) {
   #place(top + left, dx: ${round(coverW * czTitle.x / 100)}mm, dy: ${round(coverH * Math.min(czTitle.y, 14) / 100)}mm)[
     #box(width: ${round(coverW * czTitle.width / 100)}mm)[
       #align(${czTitle.align})[
-        #text(font: ${str(book.typography.headFont || book.typography.bodyFont)}, size: ${pt(book.typography.sizePt * titleScale)}, weight: 700, fill: rgb("${light}"))[${T(outline.title)}]
+        #text(font: ${str(coverFace.family)}, size: ${pt(book.typography.sizePt * titleScale * coverFace.sizeScale)}, weight: ${coverFace.weight}, fill: rgb("${light}"))[${T(outline.title)}]
         ${outline.subtitle ? `#v(0.5em)
         #text(size: ${pt(book.typography.sizePt * czSubtitle.size)}, fill: rgb("${light}"))[${T(outline.subtitle)}]` : ''}
       ]

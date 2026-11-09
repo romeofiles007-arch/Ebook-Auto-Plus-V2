@@ -5,6 +5,7 @@
  */
 
 import { updateTabWhenReady } from './core/tab-update.js';
+import { flowPrepareTarget } from './core/flow-account.js';
 
 const STUDIO_URL = chrome.runtime.getURL('ui/studio.html');
 const CHAT_MATCH = ['https://chatgpt.com/*', 'https://chat.openai.com/*'];
@@ -77,6 +78,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
     const tab = await chrome.tabs.get(tabId);
     if (isChatUrl(tab?.url)) await S.set('chatTabId', tab.id);
     else if (isGeminiUrl(tab?.url)) await S.set('geminiTabId', tab.id);
+    else if (isFlowUrl(tab?.url)) await S.set('flowTouchedTabId', tab.id);
   } catch {}
 });
 
@@ -86,6 +88,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       await S.set('chatTabId', tabId);
     } else if ((changeInfo.status === 'complete' || changeInfo.url) && tab?.active && isGeminiUrl(tab?.url || changeInfo.url)) {
       await S.set('geminiTabId', tabId);
+    } else if (changeInfo.url && tab?.active && isFlowUrl(changeInfo.url)) {
+      await S.set('flowTouchedTabId', tabId); // สลับบัญชีในแท็บ = URL เปลี่ยน (/u/1/)
     }
   } catch {}
 });
@@ -273,12 +277,18 @@ const isFlowUrl = (url = '') => /^https:\/\/flow\.google\.com\//.test(url);
  * แท็บ Flow ที่ใช้สร้างภาพ — ใช้แท็บเดิมของงานนี้ก่อน เพราะ project ของเล่มเปิดค้างอยู่ในแท็บนั้น
  * ถ้าไม่มีเลยค่อยเปิดหน้าต่างใหม่ที่ไม่ย่อ (แท็บที่มองไม่เห็นถูก Chrome ชะลอจนงานช้าลงหลายเท่า)
  */
-async function ensureFlowTab(homeUrl = 'https://flow.google.com/') {
+async function ensureFlowTab(homeUrl = 'https://flow.google.com/', { preferTouched = false } = {}) {
   let tab = null;
-  const rememberedId = await S.get('flowTabId');
-  if (rememberedId != null) {
+  /**
+   * ตอนเริ่มรอบสร้างภาพ ใช้แท็บ Flow ที่ผู้ใช้แตะล่าสุดก่อน (แบบเดียวกับแท็บ ChatGPT)
+   * ผู้ใช้สลับบัญชีในแท็บใหม่ แล้วกดทำต่อ — เดิมระบบยังใช้แท็บเก่าของบัญชีเดิมที่จำไว้
+   * ระหว่างรอบไม่เปลี่ยน: งานที่วิ่งอยู่ต้องอยู่แท็บเดิม
+   */
+  const touchedId = preferTouched ? await S.get('flowTouchedTabId') : null;
+  for (const id of [touchedId, await S.get('flowTabId')]) {
+    if (tab || id == null) continue;
     try {
-      const t = await chrome.tabs.get(rememberedId);
+      const t = await chrome.tabs.get(id);
       if (isFlowUrl(t.url)) tab = t;
     } catch {}
   }
@@ -318,7 +328,7 @@ async function ensureFlowTab(homeUrl = 'https://flow.google.com/') {
 }
 
 /** รุ่นของตัวขับในหน้า Flow ที่ service worker นี้คาดหวัง — ต้องตรงกับ ADAPTER_REV ใน adapter/flow.js */
-const FLOW_ADAPTER_REV = 10;
+const FLOW_ADAPTER_REV = 17;
 
 async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
   const until = Date.now() + timeoutMs;
@@ -356,6 +366,20 @@ async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
   };
   for (;;) {
     if (await ping()) return true;
+    /**
+     * ไม่มีตัวขับตอบ = หน้านี้ไม่มีตัวขับ หรือมีแต่ตัวเก่าที่ถูกตัดขาดหลังกดโหลดส่วนขยายใหม่ (ยังวิ่งงานค้างอยู่ในหน้า)
+     * ฉีดตัวใหม่ทับ = สองตัวขับหน้าเดียวกัน (เจอจริง พ.ย. 2026: หน้า Flow ค้างที่ซูม 6% แล้วหยุดที่ "ชี้แล้วโดน Agent")
+     * รอสั้น ๆ เผื่อหน้ากำลังโหลด แล้วโหลดแท็บใหม่ครั้งเดียว — ตัวเก่าตายไปกับหน้า Chrome ใส่ตัวขับตาม manifest
+     */
+    if (!reloaded) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (await ping()) return true;
+      reloaded = true;
+      await chrome.tabs.reload(tabId).catch(() => {});
+      await new Promise((r) => setTimeout(r, 1500));
+      await waitForComplete(tabId, Math.max(0, until - Date.now())).catch(() => {});
+      continue;
+    }
     try {
       // ตัวดักไฟล์ 2K ต้องอยู่ใน MAIN world ส่วนตัวขับอยู่ใน isolated world ตามปกติ
       await chrome.scripting.executeScript({ target: { tabId }, files: ['adapter/flow-main.js'], world: 'MAIN' });
@@ -425,7 +449,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
        */
       case 'sw.flow': {
         await S.set('studioTabId', sender.tab?.id ?? (await S.get('studioTabId')));
-        let flow = await ensureFlowTab();
+        const want = msg.op === 'prepare' ? String(msg.args?.projectUrl || '') : '';
+        let flow = msg.op === 'prepare' ? await ensureFlowTab(want || undefined, { preferTouched: true }) : await ensureFlowTab();
         /**
          * หนึ่งเล่ม = หนึ่ง project ใน Flow
          * แท็บที่ค้างอยู่ใน project ของเล่มก่อน จะทำให้ภาพของเล่มใหม่ไปปนกับของเก่า
@@ -434,9 +459,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
          * ต้องทำที่นี่ ไม่ใช่ใน content script เพราะการเปลี่ยนหน้าฆ่าสคริปต์ที่กำลังทำงานอยู่
          */
         if (msg.op === 'prepare') {
-          const want = String(msg.args?.projectUrl || '');
-          const here = String(flow.url || '');
-          const go = want ? (here.startsWith(want) ? '' : want) : /\/project\//.test(here) ? 'https://flow.google.com/' : '';
+          // บัญชีที่แท็บแสดงอยู่ชนะ: สลับบัญชีแล้ว = เปิด project ใหม่ในบัญชีนั้น ไม่พากลับ project ของบัญชีเก่า (core/flow-account.js)
+          const { go } = flowPrepareTarget(String(flow.url || ''), want);
           if (go) {
             const changed = await updateTabWhenReady(flow.id, { url: go });
             if (!changed.ok) return sendResponse(changed);

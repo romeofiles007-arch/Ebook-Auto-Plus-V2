@@ -104,6 +104,7 @@ function pickScope(seed) {
     trendSeed: seed,
     $: () => title,
     esc: (s) => String(s),
+    chatNameOf: () => 'ChatGPT',
     status: (s) => calls.push(`status:${s}`),
     resetOutlineDirection: () => calls.push('reset'),
     renderTopicChoices: () => calls.push('back'),

@@ -23,7 +23,7 @@ function setup(responses, decision, book = {}) {
     // ขาดตัวนี้ไป การ์ด "ห้ามส่งซ้ำ" จะ throw แทนที่จะ return null แล้วเทสต์จะเลิกพิสูจน์กติกานั้น
     ceoModeOn: () => !!decision,
     addEvent() {}, recentLogLines: () => [], answerEvidence: () => '',
-    citationGutted, NO_CITATION_RULE, noteTrouble,
+    citationGutted, NO_CITATION_RULE, noteTrouble, say: (s) => s,
     parseJson: s => { try { return JSON.parse(s); } catch { return null; } },
     setTimeout: fn => fn() };
   vm.runInNewContext(`${parsers}\n${block}\nglobalThis.run = sendTurn;`, scope);
@@ -117,7 +117,7 @@ test('หมุดอ้างอิงล้วน: รอบถัดไปต
   const scope = { book: {}, RETRYABLE_TURN_STATUS: new Set(['error','timeout','empty']),
     turnErrorMessage: r => r.status, makeSupervisor: () => null,
     addEvent() {}, recentLogLines: () => [], answerEvidence: () => '',
-    citationGutted, NO_CITATION_RULE, noteTrouble,
+    citationGutted, NO_CITATION_RULE, noteTrouble, say: (s) => s,
     parseJson: s => { try { return JSON.parse(s); } catch { return null; } },
     setTimeout: fn => fn() };
   vm.runInNewContext(`${parsers}

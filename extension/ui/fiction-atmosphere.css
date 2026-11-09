@@ -1,0 +1,151 @@
+/* Above the scrim and workspace so particles are visible; never intercept a control. */
+#fictionAtmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  overflow: hidden;
+  contain: strict;
+}
+.fictionParticle {
+  position: absolute;
+  z-index: 1;
+  top: -40px;
+  left: var(--float-x);
+  opacity: 0;
+  animation: fictionFloat var(--float-time) linear var(--float-delay) infinite;
+}
+.fictionParticle--leaf {
+  width: var(--float-size);
+  height: calc(var(--float-size) * .48);
+  border-radius: 85% 5% 85% 5%;
+  background: #b8d88b;
+}
+.fictionParticle--leaf::after {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 10%;
+  top: 50%;
+  height: 1px;
+  background: #537e51;
+  transform: rotate(-18deg);
+}
+html[data-fiction-theme="adventure"] .fictionParticle--leaf { background: #c7cd77; }
+html[data-fiction-theme="senior"] .fictionParticle--leaf { background: #c5ddb2; }
+.fictionParticle--firefly, .fictionParticle--star, .fictionParticle--dust {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffe4a0;
+  animation-name: fictionRise;
+}
+.fictionParticle--firefly { box-shadow: 0 0 8px #ffe4a080; }
+.fictionParticle--star { width: 5px; height: 5px; background: #c5eeff; box-shadow: 0 0 7px #c5eeff90; }
+.fictionParticle--dust { width: 4px; height: 4px; background: #e8cea0; }
+.fictionParticle--rain {
+  width: 2px;
+  height: calc(var(--float-size) * 2);
+  background: linear-gradient(transparent, #b7e0f4bf);
+  animation-name: fictionRain;
+}
+.fictionParticle--mist {
+  top: var(--float-y);
+  left: -25vw;
+  width: clamp(100px, 18vw, 250px);
+  height: 42px;
+  border-radius: 50%;
+  background: #c9ccd9;
+  filter: blur(22px);
+  animation-name: fictionMist;
+}
+.fictionParticle--seed {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff7df;
+  box-shadow: 0 0 5px #fff7df80;
+}
+.fictionParticle--seed::after { content: ''; position: absolute; width: 1px; height: 13px; background: #fff7dfaa; left: 2px; top: 3px; }
+.fictionParticle--paper {
+  width: 15px;
+  height: 21px;
+  border-radius: 1px;
+  background: #eddfc4;
+  border-bottom: 2px solid #bda986;
+}
+@keyframes fictionFloat {
+  0% { transform: translate3d(0, -30px, 0) rotate(0); opacity: 0; }
+  12% { opacity: .9; }
+  50% { transform: translate3d(calc(var(--float-drift) * -.3), 50vh, 0) rotate(140deg); }
+  88% { opacity: .8; }
+  100% { transform: translate3d(var(--float-drift), calc(100vh + 80px), 0) rotate(var(--float-turn)); opacity: 0; }
+}
+@keyframes fictionRise {
+  0% { transform: translate3d(0, calc(100vh + 80px), 0); opacity: 0; }
+  20%, 70% { opacity: .95; }
+  50% { transform: translate3d(var(--float-drift), 45vh, 0); }
+  100% { transform: translate3d(0, -30px, 0); opacity: 0; }
+}
+@keyframes fictionRain {
+  0% { transform: translate3d(0, -30px, 0) rotate(12deg); opacity: 0; }
+  12%, 85% { opacity: .8; }
+  100% { transform: translate3d(var(--float-drift), calc(100vh + 80px), 0) rotate(12deg); opacity: 0; }
+}
+@keyframes fictionMist {
+  0% { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
+  20%, 75% { opacity: .22; }
+  100% { transform: translate3d(130vw, 30px, 0) scale(1.7); opacity: 0; }
+}
+@media (max-width: 900px) {
+  /* Two portraits precede the particles: retain 36 visible particles on narrow screens. */
+  #fictionAtmosphere .fictionParticle:nth-child(n+39) { display: none; }
+}
+@media (prefers-reduced-motion: reduce), (prefers-reduced-transparency: reduce) {
+  #fictionAtmosphere { display: none; }
+  .fictionParticle { animation: none; }
+}
+
+/* Both genre portraits now have a readable hold and explicit entrance / exit phases. */
+.fictionCharacter {
+  --character-opacity: .72;
+  --character-enter: -80px;
+  position: absolute;
+  z-index: 0;
+  bottom: -20px;
+  left: -55px;
+  width: min(34vw, 460px);
+  aspect-ratio: 3 / 4;
+  background: var(--fiction-characters) left bottom / 200% 100% no-repeat;
+  opacity: 0;
+  animation: fictionCharacterVisit 28s cubic-bezier(.2,.65,.25,1) -4s infinite;
+}
+.fictionCharacter--second {
+  --character-enter: 80px;
+  left: auto;
+  right: -55px;
+  background-position: right bottom;
+  animation-delay: -18s;
+}
+@keyframes fictionCharacterVisit {
+  0%, 50%, 100% { opacity: 0; transform: translate3d(var(--character-enter), 12px, 0) scale(.98); filter: blur(4px); }
+  12%, 40% { opacity: var(--character-opacity); transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+@media (max-width: 900px) {
+  .fictionCharacter { --character-opacity: .56; width: 260px; left: -75px; }
+  .fictionCharacter--second { left: auto; right: -75px; }
+}
+@media (max-width: 520px) {
+  .fictionCharacter, .fictionCharacter--second {
+    --character-opacity: .42;
+    left: auto;
+    right: -65px;
+    bottom: 148px;
+    width: 180px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fictionCharacter { animation: none; transform: none; filter: none; }
+  .fictionCharacter--first { opacity: .6; }
+  .fictionCharacter--second { display: none; }
+}

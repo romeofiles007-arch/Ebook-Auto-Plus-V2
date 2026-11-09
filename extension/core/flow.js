@@ -52,6 +52,46 @@ function parseRatio(value) {
  * บอก Flow ตรง ๆ ว่ากรอบภาพคืออะไร และขอบภาพส่วนไหนอาจถูกตัด
  * ปกต้องเผื่อตัดตกขอบ (bleed) และครอปเล็กน้อยเพื่อลงหน้ากระดาษ ของสำคัญจึงต้องอยู่ห่างขอบ
  */
+/**
+ * คำขอฉบับปลอดภัยขึ้น เมื่อ Flow ตอบ "การสร้างนี้อาจละเมิดนโยบายของเรา"
+ * ผู้ใช้: "สร้างภาพละเมิดหรือเปล่า ไม่ลองทำให้ไม่ละเมิดหละ" — เจอจริง พ.ย. 2026 ปกนิยายจีนโบราณ (แนบภาพตัวละคร 2 คน + สั่งภาพถ่ายเหมือนจริง)
+ * ขั้น 1: ตัดบรรทัดที่อ้างถึงรูปแนบ (ผู้เรียกไม่แนบรูปคนแล้ว) · ภาพถ่ายเหมือนจริง → ภาพวาดแนวภาพยนตร์ ·
+ *         อายุวัยรุ่น → ผู้ใหญ่ · ย้ำว่าเป็นตัวละครสมมติวัยผู้ใหญ่ แต่งกายมิดชิด
+ * ขั้น 2: ขั้น 1 + ไม่มีคนในภาพเลย ใช้ฉากและสิ่งของของเรื่องแทน (ปก · ลายพื้นหลัง — ไม่ใช้กับภาพต้นแบบตัวละคร)
+ */
+export function flowPolicySafe(prompt = '', level = 1) {
+  let s = String(prompt || '')
+    .split('\n')
+    .filter((line) => !/attached (?:image|reference|photo)|reference sheets?\b.*attached|^\s*-\s*attached image/i.test(line))
+    .join('\n');
+  s = s
+    .replace(/\b1\d[- ]?(?:year[- ]old|yo)\b/gi, 'adult')
+    .replace(/อายุ\s*(?:สิบ\S*?|1\d)\s*ปี/g, 'วัยผู้ใหญ่')
+    // "เด็กสาวอายุสิบเจ็ดปี … รูปร่างเล็กกะทัดรัด" (เจอจริง: ภาพต้นแบบเต็มตัวถูกปัดตกทุกรอบ) — ตัวกรองอ่านว่าเป็นผู้เยาว์
+    .replace(/เด็กสาว/g, 'หญิงสาว')
+    .replace(/เด็กหนุ่ม/g, 'ชายหนุ่ม')
+    .replace(/รูปร่าง\S*/g, '')
+    .replace(/\b(?:teen(?:age(?:d)?)?|young) girl\b/gi, 'young woman')
+    .replace(/\b(?:teen(?:age(?:d)?)?|young) boy\b/gi, 'young man')
+    .replace(/\b(?:petite|slender|curvy|small) (?:body|build|figure|frame)\b/gi, '')
+    .replace(/premium photorealistic editorial photograph[^,.;]*/gi, 'premium cinematic digital illustration')
+    .replace(/photographic realism/gi, 'painterly cinematic illustration')
+    .replace(/photo-?realistic|hyper-?realistic/gi, 'cinematic illustrated')
+    .replace(/believable real photographed humans?/gi, 'illustrated fictional characters')
+    .replace(/real (?:people|humans?)\b/gi, 'illustrated fictional characters')
+    .replace(/professionally photographed/gi, 'professionally illustrated');
+  const rules = [
+    'SAFE-CONTENT RULES (override anything below): every person is an invented fictional ADULT character (clearly over 20), never a real or identifiable person; fully and modestly dressed; no kissing, embracing or intimate touching; no violence, blood, weapons aimed at anyone or injuries. A respectful, wholesome book cover suitable for all ages, drawn as an illustration rather than a photograph.',
+  ];
+  if (level >= 2)
+    rules.push(
+      'NO PEOPLE AT ALL: show only the story\'s place and its symbolic objects (from the concept and story above) arranged as one striking key image — no human figures, faces, hands or silhouettes anywhere, even if the prompt below describes people. The typography rules below still apply.',
+    );
+  return `${rules.join('\n')}\n\n${s.trim()}`;
+}
+
+export const isFlowPolicy = (res) => !res?.ok && res?.code !== 'unusual_activity' && (res?.code === 'policy_blocked' || /ละเมิดนโยบาย|นโยบาย|violat|polic/i.test(res?.error || ''));
+
 export function flowPrompt(job, ratio) {
   const parts = [String(job?.prompt || '').trim()];
   const lossPct = Math.round((ratio?.loss || 0) * 100);
@@ -196,6 +236,15 @@ function listen() {
  * สั่งงานหนึ่งชิ้นให้แท็บ Flow แล้วรอผล
  * คืน { ok:true, ... } หรือ { ok:false, error, code } เสมอ ไม่โยน — ผู้เรียกตัดสินใจเองว่าจะลองใหม่ไหม
  */
+/** สถานะตัวขับในแท็บ Flow ตอนนี้ ({ busy, stage, ... }) — null ถ้าถามไม่ได้ */
+export async function flowStatus() {
+  try {
+    return (await chrome.runtime.sendMessage({ type: 'sw.flowPing' })) || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function flowCall(op, args = {}, { timeoutMs = 8 * 60000 } = {}) {
   listen();
   const jobId = `flow-${Date.now()}-${++seq}`;

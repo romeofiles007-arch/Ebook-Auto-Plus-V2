@@ -7,8 +7,11 @@
 import * as db from '../core/db.js';
 import { planFlowImageRepair } from '../core/image-repair.js';
 import { mountRunStatus } from './run-status.js';
+import { FICTION_THEMES, syncFictionTheme } from './fiction-themes.js';
+import { resolveCoverTypography } from '../core/cover-fonts.js';
+import { mountCoverFontPicker, paintCoverFontPicker } from './cover-fonts-ui.js';
 import { mountRunTimer, nextClock } from './run-timer.js';
-import { siteLabel, chatSiteName, autoImageLabels } from './site-label.js';
+import { siteLabel, chatSiteName, autoImageLabels, writerLabel, imageLabel, paintBrandLabels } from './site-label.js';
 
 /**
  * ข้อความบนจอใช้ชื่อเว็บที่เขียนจริง (Gemini) แทน "ChatGPT" ที่เขียนตายตัวไว้ทั่วทั้งหน้า — ดู site-label.js
@@ -26,13 +29,16 @@ const labelBook = () => {
   };
 };
 const brand = (s) => siteLabel(s, labelBook());
+// ข้อความที่ระบบเขียนเองซึ่งรู้ว่าพูดถึงงานเขียน / งานวาด (ห้ามใช้กับข้อความที่โมเดลตอบหรือเนื้อหาเล่มของผู้ใช้)
+const say = (s) => writerLabel(s, labelBook());
+const sayImage = (s) => imageLabel(s, labelBook());
 // ค่าล่าสุดที่ฝากให้แผงข้าง (syncChatSiteLabel) — ประกาศไว้บนสุด เพราะ renderSteps ถูกเรียกได้ตั้งแต่หน้ากำลังโหลด
 let lastChatSite = '';
 let lastFlowInfo = '';
 
 const paintRunStatus = mountRunStatus(document.querySelector('main'), async (state) => {
-  if (state.action === 'resume') return resumeGo();
-  if (state.action === 'resolveContent') return resumeGo();
+  if (state.action === 'resume') return resumeGo({ byHuman: true });
+  if (state.action === 'resolveContent') return resumeGo({ byHuman: true });
   const target = document.getElementById(state.action || 'start');
   target?.scrollIntoView({behavior:'smooth', block:'start'});
 });
@@ -114,6 +120,8 @@ import { docxPlainText } from '../core/docx.js';
 import { pdfPlainText } from '../core/pdf-text.js';
 import * as W from '../core/workspace.js';
 import { listLibrary, removeFromLibrary } from '../core/cast-library.js';
+import { CN_WORLDS, CN_ENTRIES, CN_ARENAS, CN_TROPES, CN_MOODS, CN_MAX_ARENAS, CN_MAX_TROPES, normalizeChineseStory, randomPopular, chineseRecipeText, chineseClashes } from '../core/chinese-ancient.js';
+import { GENRE_RECIPES, GENRE_LAYERS, GENRE_MAX_TROPES, hasGenreRecipe, normalizeGenreStory, genreStoryPicked, randomGenrePopular, genreRecipeText } from '../core/genre-recipes.js';
 import { testKey as testImageApiKey, DEFAULT_IMAGE_MODEL } from '../core/imageApi.js';
 
 // บอกยามเฝ้าการบูตว่าโมดูลนี้รันถึงบรรทัดนี้จริง (ดู ui/boot-guard.js)
@@ -571,7 +579,10 @@ function syncStudioScene() {
   const second = ceoSceneActive ? null : DEPARTMENTS[[...activeDepts].find((i) => i !== activeDept)];
   syncStudioDuo(second && crewBusy() ? second.id : '');
   const label = $('sceneLabel');
-  if (label) label.textContent = ceoSceneActive
+  const fictionTheme = FICTION_THEMES[document.documentElement.dataset.fictionTheme];
+  if (label) label.textContent = fictionTheme
+    ? fictionTheme.sceneLabel
+    : ceoSceneActive
     ? 'แมว CEO · หมู่บ้านยามค่ำ'
     : department
       ? `${department.name} · หมู่บ้านยาม${STUDIO_SCENES[id]}`
@@ -653,6 +664,8 @@ function syncChatSiteLabel() {
   const btn = $('chat');
   const label = btn && [...btn.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
   if (label) label.textContent = `เปิดหน้าต่าง ${name}`;
+  // ป้ายตายตัวในหน้า (data-brand) — ตามเล่มที่เปิดอยู่ หรือตัวเลือกบนฟอร์มถ้ายังไม่มีเล่ม
+  paintBrandLabels(document, labelBook());
   if (name !== lastChatSite) {
     lastChatSite = name;
     chrome.storage.local.set({ chatSite: name === 'Gemini' ? 'gemini' : 'chatgpt' }).catch(() => {});
@@ -1075,7 +1088,12 @@ function handleGptMessage(m) {
  */
 const RETRYABLE_TURN_STATUS = new Set(['error', 'empty', 'no_response']);
 
+// ข้อความผิดพลาดของเทิร์นเขียน — บอกชื่อเว็บที่ใช้เขียนจริง (Gemini ไม่ใช่ ChatGPT)
 function turnErrorMessage(res) {
+  return say(turnErrorText(res));
+}
+
+function turnErrorText(res) {
   /**
    * ทาง API ต้องไม่ขึ้นว่า "ChatGPT ตอบกลับสถานะ error"
    * ผู้ใช้จะไปไล่ดูแท็บ ChatGPT ที่ไม่ได้ใช้เลย ทั้งที่ต้องไปแก้คีย์หรือชื่อโมเดล
@@ -1085,7 +1103,7 @@ function turnErrorMessage(res) {
   if (res?.meta?.error === 'outcome_unknown') return res.meta.detail;
   const why = res?.meta?.error ? ` (${res.meta.error})` : '';
   if (res?.meta?.error === 'chat_page_not_ready' || res?.meta?.error === 'adapter_unavailable')
-    return 'หน้า ChatGPT ยังเปิดไม่พร้อม — เปิดแท็บ chatgpt.com ค้างไว้แล้วลองใหม่อีกครั้ง';
+    return `หน้า ChatGPT ยังเปิดไม่พร้อม — เปิดแท็บ ${chatSiteOf(labelBook()) ? 'gemini.google.com' : 'chatgpt.com'} ค้างไว้แล้วลองใหม่อีกครั้ง`;
   /**
    * "สถานะ empty" อย่างเดียวบอกผู้ใช้ไม่ได้ว่าต้องทำอะไรต่อ
    * ตัวอ่านหน้าเว็บรู้อยู่แล้วว่าเห็นอะไรบนจอ (ช่องว่างเปล่า หรือป้ายอย่าง "Searching websites")
@@ -1147,7 +1165,7 @@ async function sendTurn(transport, prompt, opts = {}, { attempts = 3, onRetry, p
       addEvent(
         'system',
         'คำตอบเหลือแต่หมุดอ้างอิง — สั่งใหม่แบบห้ามค้นเว็บ',
-        `ขั้น ${opts.label || '-'} · ChatGPT แทนเนื้อหาจริงด้วย contentReference/oaicite ยิงซ้ำคำสั่งเดิมจะได้ผลเดิม`,
+        say(`ขั้น ${opts.label || '-'} · ChatGPT แทนเนื้อหาจริงด้วย contentReference/oaicite ยิงซ้ำคำสั่งเดิมจะได้ผลเดิม`),
       );
     }
     /**
@@ -1530,7 +1548,7 @@ let titlePool = [];
 async function nameFromTopic({ box = $('trendIdeas'), fresh = false } = {}) {
   if (fresh) titlePool = [];
   if (!titlePool.length) {
-    box.textContent = 'กำลังให้ ChatGPT ตั้งชื่อเล่มจากหัวข้อนี้...';
+    box.textContent = say('กำลังให้ ChatGPT ตั้งชื่อเล่มจากหัวข้อนี้...');
     status('กำลังตั้งชื่อหนังสือ');
     const res = await sendTurn(
       makeTransport(transportKind(), transportOpts()),
@@ -1541,6 +1559,8 @@ async function nameFromTopic({ box = $('trendIdeas'), fresh = false } = {}) {
         language: val('lang', 'th'),
         contentMode: val('contentMode', 'prose'),
         fictionGenre: val('fictionGenre', 'fantasy'),
+        chineseStory: formChineseStory(),
+        genreStory: formGenreStory(),
         trendSeed,
         today: new Date().toISOString().slice(0, 10),
         avoidTitles: await previousTitles(),
@@ -1577,9 +1597,9 @@ function renderTopicPicked(box = $('trendIdeas')) {
     <div class="trendPick">
       <h3>${esc(trendSeed.trend)}</h3>
       ${trendSeed.why_now ? `<p class="muted">${esc(trendSeed.why_now)}</p>` : ''}
-      <p class="muted">ใช้หัวข้อนี้เป็นชื่อเรื่องแล้ว แก้ในช่องด้านบนได้ หรือให้ ChatGPT ช่วยตั้งชื่อที่ขายกว่านี้ก็ได้</p>
+      <p class="muted">ใช้หัวข้อนี้เป็นชื่อเรื่องแล้ว แก้ในช่องด้านบนได้ หรือให้ ${chatNameOf()} ช่วยตั้งชื่อที่ขายกว่านี้ก็ได้</p>
       <div class="trendActions">
-        <button type="button" data-name-it class="primary inline">✨ ให้ ChatGPT คิดชื่อจากหัวข้อนี้</button>
+        <button type="button" data-name-it class="primary inline">✨ ให้ ${chatNameOf()} คิดชื่อจากหัวข้อนี้</button>
         <button type="button" data-back-topics>เลือกหัวข้ออื่น</button>
       </div>
     </div>`;
@@ -1625,7 +1645,7 @@ function renderTopicNamed(namePick, box) {
 function renderTopicChoices(short = '') {
   const box = $('trendIdeas');
   if (!trendPool.length) {
-    box.innerHTML = '<b>ยังไม่มีหัวข้อ</b><div class="muted">กดปุ่มสุ่มอีกครั้งเพื่อให้ ChatGPT เสนอหัวข้อใหม่</div>';
+    box.innerHTML = say('<b>ยังไม่มีหัวข้อ</b><div class="muted">กดปุ่มสุ่มอีกครั้งเพื่อให้ ChatGPT เสนอหัวข้อใหม่</div>');
     return;
   }
   box.innerHTML =
@@ -1704,7 +1724,7 @@ async function generateTrendIdeas() {
   setMode('สุ่มข่าว · ดูกระแส', { busy: true });
   resetOutlineDirection();
   box.classList.remove('hidden');
-  box.textContent = 'กำลังถาม ChatGPT ว่าตอนนี้มีอะไรน่าสนใจบ้าง...';
+  box.textContent = say('กำลังถาม ChatGPT ว่าตอนนี้มีอะไรน่าสนใจบ้าง...');
   status('กำลังถามหัวข้อที่น่าสนใจ');
   await saveCreatorDefaults();
   await focusChat();
@@ -1718,6 +1738,8 @@ async function generateTrendIdeas() {
         language: val('lang', 'th'),
         contentMode: val('contentMode', 'prose'),
         fictionGenre: val('fictionGenre', 'fantasy'),
+        chineseStory: formChineseStory(),
+        genreStory: formGenreStory(),
         today: new Date().toISOString().slice(0, 10),
       }),
       { label: 'ถามหัวข้อที่น่าสนใจ' },
@@ -1749,7 +1771,7 @@ async function generateOutlineDirections() {
   box.classList.remove('hidden');
   box.dataset.ready = '0';
   setMode('เสนอสารบัญ', { busy: true });
-  box.textContent = 'กำลังให้ ChatGPT วางสารบัญหลายทาง เพื่อให้เลือกทิศทางก่อนเขียนจริง...';
+  box.textContent = say('กำลังให้ ChatGPT วางสารบัญหลายทาง เพื่อให้เลือกทิศทางก่อนเขียนจริง...');
   status('กำลังเสนอสารบัญ 3 ทาง');
   await focusChat();
   try {
@@ -1765,8 +1787,10 @@ async function generateOutlineDirections() {
         language: val('lang', 'th'),
         contentMode,
         fictionGenre,
+        chineseStory: formChineseStory(),
+        genreStory: formGenreStory(),
         targetPages: Math.max(5, Number($('pages').value) || 120),
-        genreBrief: contentMode === 'fiction' ? FICTION_GENRE_LABEL[fictionGenre] : GENRE_LABEL[genre],
+        genreBrief: contentMode === 'fiction' ? fictionBrief(fictionGenre) : GENRE_LABEL[genre],
         trendSeed,
         source: formSource(),
       }),
@@ -1813,7 +1837,7 @@ function renderOutlineChoices(directions, { title, origin = 'auto' }) {
   outlineOrigin = origin;
   const head =
     origin === 'inspire'
-      ? `<b>ChatGPT ตกแต่งสารบัญของคุณมาให้ ${directions.length} ทาง</b><div class="muted">ทาง A คือโครงเดิมของคุณ แก้แค่ถ้อยคำ · ถ้ายังไม่พอใจ กด “ตกแต่งใหม่อีกรอบ” ได้เรื่อย ๆ หรือกลับไปแก้สารบัญของคุณเองแล้วส่งใหม่</div>`
+      ? `<b>${chatNameOf()} ตกแต่งสารบัญของคุณมาให้ ${directions.length} ทาง</b><div class="muted">ทาง A คือโครงเดิมของคุณ แก้แค่ถ้อยคำ · ถ้ายังไม่พอใจ กด “ตกแต่งใหม่อีกรอบ” ได้เรื่อย ๆ หรือกลับไปแก้สารบัญของคุณเองแล้วส่งใหม่</div>`
       : '<b>เลือกว่าหนังสือจะไปทางไหน</b><div class="muted">กดเลือกทางเดียว แล้วระบบเริ่มเขียนต่อให้เลย · ไม่ถูกใจทั้งสามทาง กด “คิดใหม่ 3 ทาง” ได้</div>';
 
   box.innerHTML = head + '<div class="outlineChoiceList">' +
@@ -1913,7 +1937,7 @@ async function polishUserOutline() {
   box.dataset.ready = '0';
   inspirePolishRound += 1;
   setMode('ตกแต่งสารบัญของผู้ใช้', { busy: true });
-  box.textContent = `กำลังให้ ChatGPT ตกแต่งสารบัญ ${userOutline.length} บทของคุณ (รอบที่ ${inspirePolishRound})...`;
+  box.textContent = say(`กำลังให้ ChatGPT ตกแต่งสารบัญ ${userOutline.length} บทของคุณ (รอบที่ ${inspirePolishRound})...`);
   status('กำลังตกแต่งสารบัญที่คุณเขียนเอง');
   await saveCreatorDefaults();
   await focusChat();
@@ -1932,8 +1956,10 @@ async function polishUserOutline() {
         language: val('lang', 'th'),
         contentMode,
         fictionGenre,
+        chineseStory: formChineseStory(),
+        genreStory: formGenreStory(),
         targetPages: Math.max(5, Number($('pages').value) || 120),
-        genreBrief: contentMode === 'fiction' ? FICTION_GENRE_LABEL[fictionGenre] : GENRE_LABEL[genre],
+        genreBrief: contentMode === 'fiction' ? fictionBrief(fictionGenre) : GENRE_LABEL[genre],
         round: inspirePolishRound,
         source: formSource(),
       }),
@@ -1998,7 +2024,7 @@ async function generateTitleIdeas() {
   button.disabled = true;
   box.classList.remove('hidden');
   setMode('ให้ ChatGPT คิดชื่อ', { busy: true });
-  box.textContent = 'กำลังให้ ChatGPT คิดชื่อหนังสือ...';
+  box.textContent = say('กำลังให้ ChatGPT คิดชื่อหนังสือ...');
   status('กำลังคิดชื่อหนังสือ');
   await saveCreatorDefaults();
   await focusChat();
@@ -2013,6 +2039,8 @@ async function generateTitleIdeas() {
         language: val('lang', 'th'),
         contentMode: val('contentMode', 'prose'),
         fictionGenre: val('fictionGenre', 'fantasy'),
+        chineseStory: formChineseStory(),
+        genreStory: formGenreStory(),
         trendSeed,
         today: new Date().toISOString().slice(0, 10),
         avoidTitles: await previousTitles(),
@@ -2089,7 +2117,223 @@ const FICTION_GENRE_LABEL = {
   literary: 'วรรณกรรมร่วมสมัย เน้นภาษา ชั้นเชิง ตัวละคร และธีมโดยไม่เสียแรงขับของเรื่อง',
   // ผู้ใช้ขอ: นิยายสำหรับผู้สูงอายุ — ตัวละครวัยเดียวกับผู้อ่าน อ่านสบาย ไม่ซับซ้อนเกินจำ
   senior: 'นิยายสำหรับผู้อ่านสูงวัย ตัวละครหลักวัยเกษียณหรือใกล้เคียง เรื่องอบอุ่นมีความหมาย เช่น ความทรงจำ ครอบครัว มิตรภาพ รักครั้งใหม่ การเริ่มต้นชีวิตช่วงใหม่ ภาษาเรียบง่าย ประโยคไม่ยาว เล่าตามลำดับเวลาเป็นหลัก ตัวละครไม่มากจนจำยาก ย้ำชื่อตัวละครให้จำได้ง่าย มีอารมณ์ขันอ่อนโยน ไม่ใช้ศัพท์วัยรุ่นหรือคำแสลง และไม่มีความรุนแรงโจ่งแจ้ง',
+  // ผู้ใช้ขอ: นิยายจีนโบราณ — สูตรละเอียดอยู่ใน #cnOpts และ core/chinese-ancient.js
+  chinese: 'นิยายจีนโบราณ ภาษาและธรรมเนียมแบบนิยายจีนแปล ยศ คำเรียกขาน เงิน และเวลาตามยุคสมัยสม่ำเสมอทั้งเล่ม',
 };
+
+// ---------- นิยายจีนโบราณ ----------
+const isChineseForm = () => val('contentMode', 'prose') === 'fiction' && val('fictionGenre', 'fantasy') === 'chinese';
+/** สูตรที่ส่งเข้า prompt/เล่ม — แนวอื่นได้ null เสมอ */
+const formChineseStory = () => (isChineseForm() ? readChineseStory() : null);
+const fictionBrief = (g) => {
+  if (g === 'chinese') return `${FICTION_GENRE_LABEL.chinese} · ${chineseRecipeText(readChineseStory())}`;
+  const recipe = genreRecipeText(g, formGenreStory());
+  return recipe ? `${FICTION_GENRE_LABEL[g]} · ${recipe}` : FICTION_GENRE_LABEL[g];
+};
+
+// ---------- สูตรของแนวอื่น (core/genre-recipes.js) ----------
+const isGenreForm = () => val('contentMode', 'prose') === 'fiction' && hasGenreRecipe(val('fictionGenre', 'fantasy'));
+/** ตัวเลือกที่ผู้ใช้กดไว้ในแต่ละแนว — สลับแนวไปมาแล้วกลับมา ของเดิมยังอยู่ */
+const genrePicks = new Map();
+/** สูตรที่ส่งเข้า prompt/เล่ม — ไม่ได้เลือกอะไร หรือไม่ใช่แนวที่มีสูตร = null (prompt เหมือนเดิม) */
+const formGenreStory = () => {
+  if (!isGenreForm()) return null;
+  const g = val('fictionGenre', 'fantasy');
+  const s = readGenreStory(g);
+  return genreStoryPicked(g, s) ? s : null;
+};
+
+function readGenreStory(genre) {
+  const box = $('genreOpts');
+  if (!box || box.dataset.genre !== genre) return normalizeGenreStory(genre, genrePicks.get(genre));
+  const pick = { tropes: [...$('gsTropes').querySelectorAll('input:checked')].map((i) => i.value) };
+  for (const { key } of GENRE_LAYERS) pick[key] = $(`gs_${key}`)?.value || '';
+  return normalizeGenreStory(genre, pick);
+}
+
+function writeGenreStory(genre, story) {
+  const s = normalizeGenreStory(genre, story);
+  genrePicks.set(genre, s);
+  for (const { key } of GENRE_LAYERS) if ($(`gs_${key}`)) $(`gs_${key}`).value = s[key];
+  $('gsTropes').querySelectorAll('input').forEach((i) => { i.checked = s.tropes.includes(i.value); });
+}
+
+/** สร้างช่องเลือกของแนวนั้นใหม่ (ทุกแนวมีรายการต่างกัน) */
+function buildGenreOpts(genre) {
+  const r = GENRE_RECIPES[genre];
+  const box = $('genreOpts');
+  box.dataset.genre = genre;
+  const head = $('gsTitle');
+  head.lastChild.textContent = `${r.title} — เลือกเอง กดสุ่มชุดยอดนิยม หรือปล่อยให้ระบบคิด`;
+  $('gsSelects').replaceChildren(...GENRE_LAYERS.map(({ key, label, icon }) => {
+    const field = document.createElement('div');
+    field.className = 'field';
+    const lab = document.createElement('label');
+    lab.className = 'settingLabel';
+    lab.htmlFor = `gs_${key}`;
+    lab.innerHTML = `<svg class="i" aria-hidden="true"><use href="#${icon}"/></svg>`;
+    lab.append(label);
+    const sel = document.createElement('select');
+    sel.id = `gs_${key}`;
+    sel.append(new Option('ให้ระบบเลือกให้เข้ากัน', ''), ...r[key].map((x) => {
+      const opt = new Option(x.label, x.key);
+      opt.title = x.rule;
+      return opt;
+    }));
+    field.append(lab, sel);
+    return field;
+  }));
+  $('gsTropes').replaceChildren(...r.tropes.map((x) => {
+    const lab = document.createElement('label');
+    const inp = document.createElement('input');
+    inp.type = 'checkbox';
+    inp.name = 'gsTrope';
+    inp.value = x.key;
+    lab.title = x.rule;
+    lab.append(inp, x.label);
+    return lab;
+  }));
+  writeGenreStory(genre, genrePicks.get(genre));
+}
+
+function paintGenre(pickName = '') {
+  const box = $('genreOpts');
+  if (!box) return;
+  box.hidden = !isGenreForm();
+  if (box.hidden) return;
+  const g = val('fictionGenre', 'fantasy');
+  if (box.dataset.genre !== g) buildGenreOpts(g);
+  const inputs = [...$('gsTropes').querySelectorAll('input')];
+  const full = inputs.filter((i) => i.checked).length >= GENRE_MAX_TROPES;
+  inputs.forEach((i) => { i.disabled = full && !i.checked; });
+  const s = readGenreStory(g);
+  genrePicks.set(g, s);
+  const out = $('gsSummary');
+  out.replaceChildren();
+  if (pickName) {
+    const b = document.createElement('span');
+    b.className = 'cnPick';
+    b.textContent = `ชุดยอดนิยม: ${pickName}`;
+    out.append(b, document.createElement('br'));
+  }
+  out.append(genreRecipeText(g, s) || 'ยังไม่ได้เลือก — ระบบจะคิดแนวย่อย ฉาก และไม้เด็ดให้เองตามแนวนิยาย');
+}
+
+function mountGenreOpts() {
+  if (!$('genreOpts')) return;
+  const changed = () => {
+    paintGenre();
+    markOutlineStale('สูตรนิยายเปลี่ยน');
+  };
+  $('gsSelects').addEventListener('change', changed);
+  $('gsTropes').addEventListener('change', changed);
+  $('gsRandom').addEventListener('click', () => {
+    const g = val('fictionGenre', 'fantasy');
+    const pick = randomGenrePopular(g);
+    if (!pick) return;
+    writeGenreStory(g, pick);
+    paintGenre(pick.name);
+    markOutlineStale('สูตรนิยายเปลี่ยน');
+  });
+  $('gsClear').addEventListener('click', () => {
+    writeGenreStory(val('fictionGenre', 'fantasy'), {});
+    changed();
+  });
+  paintGenre();
+}
+
+function readChineseStory() {
+  const picked = (id) => [...($(id)?.querySelectorAll('input:checked') || [])].map((i) => i.value);
+  return normalizeChineseStory({
+    world: val('cnWorld'), entry: val('cnEntry'), mood: val('cnMood'),
+    arenas: picked('cnArenas'), tropes: picked('cnTropes'),
+  });
+}
+
+function writeChineseStory(story) {
+  const s = normalizeChineseStory(story);
+  $('cnWorld').value = s.world;
+  $('cnEntry').value = s.entry;
+  $('cnMood').value = s.mood;
+  $('cnArenas').querySelectorAll('input').forEach((i) => { i.checked = s.arenas.includes(i.value); });
+  $('cnTropes').querySelectorAll('input').forEach((i) => { i.checked = s.tropes.includes(i.value); });
+}
+
+/** เปิด/ปิดกล่อง · ล็อกชิปเมื่อเลือกครบเพดาน · สรุปสูตรและคู่ที่ต้องคุม */
+function paintChinese(pickName = '') {
+  paintCoverFontPicker();
+  syncFictionTheme(val('contentMode', 'prose'), val('fictionGenre', 'fantasy'));
+  syncStudioScene();
+  paintGenre();
+  const box = $('cnOpts');
+  if (!box) return;
+  box.hidden = !isChineseForm();
+  if (box.hidden || !$('cnWorld').options.length) return;
+  for (const [id, max] of [['cnArenas', CN_MAX_ARENAS], ['cnTropes', CN_MAX_TROPES]]) {
+    const inputs = [...$(id).querySelectorAll('input')];
+    const full = inputs.filter((i) => i.checked).length >= max;
+    inputs.forEach((i) => { i.disabled = full && !i.checked; });
+  }
+  const s = readChineseStory();
+  const out = $('cnSummary');
+  out.replaceChildren();
+  if (pickName) {
+    const b = document.createElement('span');
+    b.className = 'cnPick';
+    b.textContent = `ชุดยอดนิยม: ${pickName}`;
+    out.append(b, document.createElement('br'));
+  }
+  out.append(chineseRecipeText(s));
+  const clashes = chineseClashes(s);
+  if (clashes.length) {
+    const ul = document.createElement('ul');
+    for (const c of clashes) {
+      const li = document.createElement('li');
+      li.textContent = c;
+      ul.append(li);
+    }
+    out.append(ul);
+  }
+}
+
+function mountChineseOpts() {
+  if (!$('cnOpts')) return;
+  const fill = (id, list) => {
+    $(id).replaceChildren(...list.map((x) => new Option(x.label, x.key)));
+  };
+  fill('cnWorld', CN_WORLDS);
+  fill('cnEntry', CN_ENTRIES);
+  fill('cnMood', CN_MOODS);
+  const chips = (id, list, name) => {
+    $(id).replaceChildren(...list.map((x) => {
+      const lab = document.createElement('label');
+      const inp = document.createElement('input');
+      inp.type = 'checkbox';
+      inp.name = name;
+      inp.value = x.key;
+      lab.title = x.rule;
+      lab.append(inp, x.label);
+      return lab;
+    }));
+  };
+  chips('cnArenas', CN_ARENAS, 'cnArena');
+  chips('cnTropes', CN_TROPES, 'cnTrope');
+  writeChineseStory({});
+  const changed = (e) => {
+    // สนามหลักต้องมีอย่างน้อยหนึ่ง — เอาอันสุดท้ายออกไม่ได้
+    if (e?.target?.name === 'cnArena' && !$('cnArenas').querySelector('input:checked')) e.target.checked = true;
+    paintChinese();
+    markOutlineStale('สูตรนิยายจีนโบราณเปลี่ยน');
+  };
+  ['cnWorld', 'cnEntry', 'cnMood', 'cnArenas', 'cnTropes'].forEach((id) => $(id).addEventListener('change', changed));
+  $('cnRandom').addEventListener('click', () => {
+    const pick = randomPopular();
+    writeChineseStory(pick);
+    paintChinese(pick.name);
+    markOutlineStale('สูตรนิยายจีนโบราณเปลี่ยน');
+  });
+  paintChinese();
+}
 
 const DEPTH_LABEL = {
   beginner: 'ผู้อ่านเริ่มจากศูนย์ อธิบายทุกศัพท์ ห้ามข้ามขั้น',
@@ -2244,9 +2488,13 @@ function readForm() {
     // ขั้นวางสารบัญจริงจะได้รู้ว่าบทไหนเป็นของผู้ใช้เอง และห้ามหายไประหว่างแตกตอนย่อย
     outlineSource: outlineDirection?.origin === 'inspire' ? 'user' : 'auto',
     userOutline: outlineDirection?.origin === 'inspire' ? parseUserOutline($('inspireOutline').value) : null,
-    genreBrief: contentMode === 'fiction' ? FICTION_GENRE_LABEL[fictionGenre] : GENRE_LABEL[genre],
+    genreBrief: contentMode === 'fiction' ? fictionBrief(fictionGenre) : GENRE_LABEL[genre],
     depthBrief: contentMode === 'fiction' ? '' : DEPTH_LABEL[val('depth', 'mixed')],
     fictionGenre,
+    // สูตรนิยายจีนโบราณ (core/chinese-ancient.js) — แนวอื่นเป็น null เสมอ prompt จึงไม่แนบคลังข้อมูลจีน
+    chineseStory: formChineseStory(),
+    // สูตรของแนวอื่น (core/genre-recipes.js) — ไม่ได้เลือกอะไร = null prompt จึงเหมือนเดิม
+    genreStory: formGenreStory(),
     fictionPov: val('fictionPov', 'third-limited'),
     fictionEnding: val('fictionEnding', 'auto'),
     fictionRomance: val('fictionRomance', 'subplot'),
@@ -2272,6 +2520,7 @@ function readForm() {
       standardVersion: 2,
       bodyFont: val('bodyFont', 'Sarabun'),
       headFont: val('headFont', 'IBM Plex Sans Thai'),
+      coverFont: val('coverFont', 'auto'),
       sizePt: Number(val('sizePt')) || (lang === 'th' ? 14 : 11),
       lineHeight: Number(val('lineHeight')) || (lang === 'th' ? 1.55 : 1.45),
       // ไทยไม่มียัติภังค์ การจัดชิดขอบสองข้างจะเกิดช่องว่างพาดกลางหน้า
@@ -2357,7 +2606,7 @@ function updateEstimate() {
 
   $('estimate').className = 'estimate';
   $('estimate').innerHTML =
-    `คาดว่าจะใช้ราว <span class="big">${e.likely}</span> ${viaApi ? 'เทิร์น API' : 'ข้อความ ChatGPT'} ` +
+    `คาดว่าจะใช้ราว <span class="big">${e.likely}</span> ${viaApi ? 'เทิร์น API' : `ข้อความ ${chatNameOf()}`} ` +
     `<b>(ช่วงประมาณ ${e.min}–${e.max} ไม่ใช่เพดาน)</b><br>` +
     `ราว ${e.chapters} บท · ${e.content ? `สร้างสาระ ${e.content} + เรียบเรียง ${e.batches}` : `เขียน ${e.batches}`} ${viaApi ? 'เทิร์น' : 'ข้อความ'}${perSection ? ' (ทีละตอน)' : ' (รวมหลายตอนต่อข้อความ)'} · เนื้อหา ${e.budget.toLocaleString()} อักษร<br>` +
     `ตัวอย่างเวลาเนื้อหาราว ${mins} นาที หากเฉลี่ย ${secPerTurn} วินาทีต่อข้อความ · เป็นสมมติฐาน ไม่ใช่เวลาที่วัดจริง และยังไม่รวมภาพหรือการลองซ้ำเพิ่มเติม` +
@@ -2690,7 +2939,7 @@ async function askResumeDecision() {
       return;
     }
     if (decision?.action === 'open_chat') {
-      await go('เปิดหน้าต่าง ChatGPT ให้พร้อมก่อนแล้วสั่งเดินต่อ', async () => {
+      await go(say('เปิดหน้าต่าง ChatGPT ให้พร้อมก่อนแล้วสั่งเดินต่อ'), async () => {
         await focusChat();
         await resumeGo();
       });
@@ -3125,7 +3374,7 @@ async function halted() {
     // "กดแล้วไม่มีอะไรเกิดขึ้น" กับ "กดแล้วหยุดกลางทางเพราะเหตุนี้"
     const why =
       book.job.error ||
-      (book.job.status === 'rate_limited' ? 'ชนลิมิตข้อความของ ChatGPT' : 'หยุดกลางคัน');
+      (book.job.status === 'rate_limited' ? say('ชนลิมิตข้อความของ ChatGPT') : 'หยุดกลางคัน');
     book.job.step = 'gate_images';
     book.job.status = 'paused';
     book.job.imageThreadStarted = false;
@@ -3193,7 +3442,7 @@ function showResume(b) {
   $('resumeTitle').textContent = b.outline?.title || b.topic || '(ยังไม่มีชื่อ)';
   const why =
     b.job?.status === 'rate_limited'
-      ? 'หยุดเพราะชนลิมิตข้อความของ ChatGPT'
+      ? writerLabel('หยุดเพราะชนลิมิตข้อความของ ChatGPT', b)
       : explainJobError(b.job?.error) || (b.job?.status === 'paused' ? 'หยุดไว้' : '');
   const seen = Math.max(b.updatedAt || 0, b.imagePhase?.stoppedAt || 0, b.imagePhase?.lastAttemptAt || 0);
   /**
@@ -3221,7 +3470,7 @@ async function clearImageGiveUp() {
   await db.saveBook(book).catch(() => {});
 }
 
-async function resumeGo() {
+async function resumeGo({ byHuman = false } = {}) {
   /**
    * ห้ามเดินเครื่องซ้อนเครื่องที่เดินอยู่
    *
@@ -3287,6 +3536,13 @@ async function resumeGo() {
   if (fullAutoRunning) unattended = true;
   if (book.job.step === 'done') return finish();
   if (['gate_images', 'images'].includes(book?.job?.step)) {
+    /**
+     * คนกด "ทำต่อ" เอง (แผงข้าง · การ์ดสถานะ · ท่อคุม) = สั่งสร้างภาพที่เหลือ เหมือนปุ่ม "ทำต่อ — เหลือ n รูป" ใน Studio
+     * ผู้ใช้: "กดทำต่อแล้วไม่ทำ" — เดิมเล่มที่มีธง Flow ค้าง (blockedCode · flowUnusualAt) แค่เปิดหน้ารายการภาพ
+     * แล้วโชว์ข้อความ error เก่า ไม่ได้เริ่มงานเลย · startPhase2 ล้างธงเหล่านั้นให้
+     * ตัวกดทำต่อให้เองอัตโนมัติ (byHuman = false) ยังแค่เปิดประตูเหมือนเดิม ไม่วนชน Flow ซ้ำเอง
+     */
+    if (byHuman && !hasManualImages(book)) return startPhase2();
     if (book.imageSource === 'flow' && book.imagePhase?.blockedCode) {
       await openImagePhaseGate();
       return;
@@ -3742,7 +3998,19 @@ async function renameSavedProject(id) {
 
   saved.topic = title;
   if (saved.outline) saved.outline.title = title;
+  // ปก (Flow วาดชื่อเรื่องลงภาพ) และหน้าปกในอ่าน book.title — เดิมไม่แก้ตัวนี้ เปลี่ยนชื่อแล้วสร้างปกใหม่ยังได้ชื่อเก่า
+  if ('title' in saved) saved.title = title;
   await db.saveBook(saved);
+  /**
+   * งานของเล่มนี้วิ่งอยู่ = เครื่องถือสำเนาเล่มไว้ในหน่วยความจำ แล้วบันทึกทับทั้งเล่มทุกครั้ง
+   * ผู้ใช้: "กดแล้ว แต่สร้างภาพเดิม" — แก้ชื่อระหว่างงานวิ่ง ชื่อใหม่ถูกเขียนทับกลับเป็นชื่อเดิม ปกที่สร้างใหม่จึงได้ชื่อเดิม
+   */
+  for (const live of [machine?.book, book?.id === id ? book : null]) {
+    if (!live || live.id !== id) continue;
+    live.topic = title;
+    if ('title' in live) live.title = title;
+    if (live.outline) live.outline.title = title;
+  }
   await W.syncProject(id).catch(() => null);
   if (book?.id === id) book = await db.loadBook(id);
   await loadProjectHistory();
@@ -4364,7 +4632,7 @@ async function writeSectionWithAi(id, report = () => {}) {
   const next = flat[flat.findIndex((x) => x.id === id) + 1] || null;
 
   try {
-    report(`กำลังให้ ChatGPT เขียนตอน ${id}...`);
+    report(say(`กำลังให้ ChatGPT เขียนตอน ${id}...`));
     await focusChat(book);
     const transport = makeTransport(transportKind(book), transportOpts({}, book));
     const writingArgs = { book, outline, bible: book.bible || B.emptyBible(), chapter,
@@ -4567,7 +4835,7 @@ async function proceed() {
         'เล่มนี้ยังไม่มีแนวปกรุ่นปัจจุบัน',
         '',
         'ถ้าไปต่อตอนนี้ ระบบจะให้ GPT ย่อเนื้อหาทั้งเล่ม ออกแบบปกใหม่ 3 ทาง',
-        'แล้วตรวจให้คะแนนก่อนเลือก — ใช้ข้อความ ChatGPT ราว 3 ข้อความ ก่อนจะเริ่มวาดภาพ',
+        say('แล้วตรวจให้คะแนนก่อนเลือก — ใช้ข้อความ ChatGPT ราว 3 ข้อความ ก่อนจะเริ่มวาดภาพ'),
         '',
         'ถ้าตั้งใจจะเปลี่ยนแค่ปกหน้าหรือปกหลัง กดยกเลิกแล้วใช้ปุ่ม “สร้างใหม่”',
         'ที่ช่องปกในหน้านี้แทน — สร้างเฉพาะรูปนั้นรูปเดียว ไม่ต้องออกแบบใหม่ทั้งชุด',
@@ -5013,7 +5281,7 @@ async function renderPhase2() {
 
     $('phase2Live').classList.toggle('hidden', !phase2Running);
     if (phase2Running)
-      $('phase2Live').textContent = phase2Stage?.text || 'กำลังเชื่อมต่อหน้าต่าง ChatGPT...';
+      $('phase2Live').textContent = phase2Stage?.text || sayImage('กำลังเชื่อมต่อหน้าต่าง ChatGPT...');
 
     $('phase2List').innerHTML = rows
       .map((r) => {
@@ -5287,7 +5555,7 @@ async function renderCoverPreview() {
     wrap.querySelector('.muted').textContent =
       book.imageSource === 'flow'
         ? 'Google Flow สร้างชื่อเรื่องมาพร้อมภาพแบบโปสเตอร์ ระบบใช้ภาพนี้เป็นปกตรง ๆ ไม่พิมพ์อะไรทับ — ถ้าคำสะกดเพี้ยน ให้กดสร้างปกใหม่'
-        : 'ChatGPT วาดชื่อเรื่องมาในภาพแล้ว ระบบจะใช้ภาพนี้เป็นปกตรง ๆ ไม่พิมพ์อะไรทับอีก — ถ้าคำสะกดเพี้ยน ให้กดสร้างปกใหม่ หรือสลับไปโหมด “ให้ระบบพิมพ์ทับภาพ”';
+        : sayImage('ChatGPT') + ' วาดชื่อเรื่องมาในภาพแล้ว ระบบจะใช้ภาพนี้เป็นปกตรง ๆ ไม่พิมพ์อะไรทับอีก — ถ้าคำสะกดเพี้ยน ให้กดสร้างปกใหม่ หรือสลับไปโหมด “ให้ระบบพิมพ์ทับภาพ”';
     wrap.classList.remove('hidden');
     return;
   }
@@ -5297,6 +5565,10 @@ async function renderCoverPreview() {
   const title = $('coverPreviewTitle');
   const subtitle = $('coverPreviewSubtitle');
   const author = $('coverPreviewAuthor');
+  const coverFace = resolveCoverTypography(book);
+  await document.fonts.load(`${coverFace.weight} 32px ${JSON.stringify(coverFace.family)}`).catch(() => {});
+  title.style.fontFamily = `${JSON.stringify(coverFace.family)}, Sarabun, sans-serif`;
+  title.style.fontWeight = String(coverFace.weight);
   title.textContent = book.outline?.title || '';
   subtitle.textContent = book.outline?.subtitle || '';
   author.textContent = book.author || '';
@@ -5307,6 +5579,7 @@ async function renderCoverPreview() {
     size_scale: fittedCoverTitleScale(title.textContent, layout.title?.size_scale),
   };
   applyCoverPreviewZone(title, fittedTitle, { x_pct: 8, y_pct: 8, width_pct: 84, align: 'center', size_scale: 2.8, color_role: 'palette_3' });
+  title.style.fontSize = `${parseFloat(title.style.fontSize) * coverFace.sizeScale}px`;
   const requestedSubtitleY = Number(layout.subtitle?.y_pct ?? 24);
   const coverHeight = $('coverMock').clientHeight || 1;
   const titleEndPct = ((title.offsetTop + title.scrollHeight) / coverHeight) * 100;
@@ -5495,13 +5768,14 @@ async function openImagePhaseGate() {
 async function startPhase2() {
   book = await db.loadBook(book.id);
   // การกดเริ่มสร้างภาพใหม่คือคำสั่งจากคน ให้ลองจัดแท็บอีกครั้งหลังปล่อยแท็บที่ลากอยู่
-  if (book.imagePhase?.blockedCode) {
-    book.imagePhase = { ...book.imagePhase, blockedCode: null, failedReason: '', failedName: '', failedWhat: '' };
+  // "กิจกรรมที่ผิดปกติ" ก็เช่นกัน — คนกดเริ่มเอง (พักแล้ว หรือสลับบัญชีแล้ว) · เดิมไม่ล้าง ธงค้างจนโหมดอัตโนมัติหยุดเล่มนี้ตลอดไป
+  if (book.imagePhase?.blockedCode || book.imagePhase?.flowUnusualAt) {
+    book.imagePhase = { ...book.imagePhase, blockedCode: null, flowUnusualAt: null, failedReason: '', failedName: '', failedWhat: '' };
     await db.saveBook(book);
   }
   // อยู่หน้าเดิม แค่สลับเป็นโหมดกำลังทำงาน รายการรูปจะอัปเดตสดตรงนั้นเลย
   phase2Running = true;
-  phase2Stage = { name: null, text: 'กำลังเชื่อมต่อหน้าต่าง ChatGPT ที่เลือกไว้...' };
+  phase2Stage = { name: null, text: sayImage('กำลังเชื่อมต่อหน้าต่าง ChatGPT ที่เลือกไว้...') };
   $('imagePhase').classList.remove('hidden');
   $('progress').classList.remove('hidden');
   $('phase2Back').classList.remove('hidden');
@@ -6117,6 +6391,7 @@ function syncMode() {
     if (['box', 'sketch'].includes($('figureStyle').value)) $('figureStyle').value = 'novel';
     showStyleNote();
   }
+  paintChinese();
   updateEstimate();
 }
 
@@ -6138,7 +6413,7 @@ function updateItemPlan() {
   $('itemSizePt').placeholder = `อัตโนมัติ ${suggestItemSize(draft)}`;
   $('itemPlanNote').innerHTML =
     `ต้องใช้ <span class="big">${plan.total}</span> ชิ้น · ${plan.themes} หมวด หมวดละราว ${plan.perTheme}<br>` +
-    `คาดว่าใช้ราว <b>${plan.turns} ข้อความ ChatGPT</b> · จำนวนหน้าคำนวณตรง ๆ ไม่ต้องวนลูปปรับความยาว`;
+    `คาดว่าใช้ราว <b>${plan.turns} ข้อความ ${chatNameOf()}</b> · จำนวนหน้าคำนวณตรง ๆ ไม่ต้องวนลูปปรับความยาว`;
 }
 
 ['contentMode'].forEach((id) => $(id).addEventListener('change', () => {
@@ -6155,6 +6430,10 @@ function updateItemPlan() {
 ['genre', 'fictionGenre', 'fictionPov', 'fictionEnding', 'fictionRomance'].forEach((id) =>
   $(id).addEventListener('change', () => markOutlineStale('แนวหนังสือเปลี่ยน')),
 );
+mountChineseOpts();
+mountCoverFontPicker();
+mountGenreOpts();
+$('fictionGenre').addEventListener('change', () => paintChinese());
 ['itemKind', 'itemsPerPage', 'themeCount', 'pages', 'trim'].forEach((id) => {
   if ($(id)) $(id).addEventListener('input', updateItemPlan);
   if ($(id)) $(id).addEventListener('change', updateItemPlan);
@@ -6228,7 +6507,7 @@ $('unstickChat').onclick = async (ev) => {
       done?.ok ? 'ปลดหน้า ChatGPT ที่ค้างแล้ว' : 'ปลดหน้า ChatGPT ไม่สำเร็จ',
       done?.ok
         ? 'โหลดหน้าใหม่เรียบร้อย งานที่บันทึกไว้ยังอยู่ครบ — กด "ทำต่อ" ได้เลย'
-        : done?.error || 'ไม่ทราบสาเหตุ · เปิดแท็บ ChatGPT แล้วโหลดใหม่เองได้',
+        : done?.error || say('ไม่ทราบสาเหตุ · เปิดแท็บ ChatGPT แล้วโหลดใหม่เองได้'),
     );
     status(done?.ok ? 'โหลดหน้า ChatGPT ใหม่แล้ว — กดทำต่อได้' : 'โหลดหน้า ChatGPT ใหม่ไม่สำเร็จ');
   } finally {
@@ -6517,6 +6796,10 @@ function syncApiSources() {
       : 'ขับหน้าเว็บ ChatGPT ตามแพ็กเกจของบัญชีที่ล็อกอินอยู่ · ช้ากว่าทาง API และมีลิมิตข้อความ';
   renderModelOptions();
   renderTextPrice();
+  // ชื่อเว็บในป้ายทีมงาน ป้ายตายตัว (renderSteps → syncChatSiteLabel) และจำนวนข้อความของเล่มรายชิ้นต้องตามตัวเลือกใหม่ทันที
+  renderSteps();
+  updateItemPlan();
+  updateEstimate();
 }
 $('imageSource').addEventListener('change', async () => {
   syncApiSources();
@@ -7889,7 +8172,7 @@ chrome.runtime.onMessage.addListener((m, _sender, sendResponse) => {
     }
     // Acknowledge acceptance now; completion is reported by the persistent status card.
     // Holding this response open for the entire book made the side panel appear frozen.
-    resumeGo().catch(fail);
+    resumeGo({ byHuman: true }).catch(fail);
     sendResponse({ok:true});
     return true;
   }
@@ -7968,7 +8251,7 @@ startControlLink({
         book = picked;
         showResume(picked);
       }
-      resumeGo().catch(fail);
+      resumeGo({ byHuman: true }).catch(fail);
       return `สั่งทำต่อจากขั้น ${STEP_NAMES[book?.job?.step] || book?.job?.step || '-'}`;
     },
     images: async ({ unattended: runUnattended = false } = {}) => {
@@ -8066,7 +8349,7 @@ startControlLink({
     },
     focus: async () => {
       await focusChat();
-      return 'เปิดแท็บ ChatGPT ให้พร้อมแล้ว';
+      return say('เปิดแท็บ ChatGPT ให้พร้อมแล้ว');
     },
     /**
      * รีโหลดส่วนขยายจะฆ่าหน้านี้ทิ้งไปด้วย จึงต้องฝากไว้ก่อนว่า "ตั้งใจรีโหลด"

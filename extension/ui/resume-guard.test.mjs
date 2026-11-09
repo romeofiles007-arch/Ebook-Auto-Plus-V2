@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 
 const source = await readFile(new URL('./studio.js', import.meta.url), 'utf8');
-const start = source.indexOf('async function resumeGo()');
+const start = source.indexOf('async function resumeGo(');
 const fn = source.slice(start, source.indexOf('\n}', start) + 2);
 
 /**

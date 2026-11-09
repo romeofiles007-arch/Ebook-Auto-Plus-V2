@@ -471,6 +471,23 @@ button.reviewIssue:hover{border-color:#8bd7aa}
 .content-input-dialog textarea,.content-input-dialog select{display:block;width:100%;box-sizing:border-box;margin-top:6px}
 .content-input-dialog button{margin:8px 8px 0 0}
 
+/* สูตรนิยายจีนโบราณ (#cnOpts) */
+.cnOpts{margin-top:12px;padding:12px;border-radius:12px;border:1px solid #425e4a;background:#ffffff08;display:flex;flex-direction:column;gap:10px}
+.cnOpts[hidden]{display:none}
+.cnGroup{border:0;margin:0;padding:0;min-width:0}
+.cnGroup legend{font-size:13px;font-weight:600;color:#e3efe0;margin-bottom:6px;padding:0}
+.cnGroup legend .i{width:14px;height:14px;margin-right:6px;color:#9fcfb0}
+.cnGroup legend .muted{font-weight:400;margin-left:6px}
+.cnChips{display:flex;flex-wrap:wrap;gap:6px}
+.cnChips label{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid #ffffff2e;font-size:13px;cursor:pointer;user-select:none}
+.cnChips label:has(input:checked){border-color:#8bd7aa;background:#8bd7aa22;color:#e9f3e7}
+.cnChips label:has(input:disabled){opacity:.45;cursor:not-allowed}
+.cnChips input{width:auto;padding:0;margin:0;flex:none;accent-color:#8bd7aa}
+.cnSummary{font-size:13px;line-height:1.6;color:#e3efe0}
+.cnSummary:empty{display:none}
+.cnSummary .cnPick{color:#8bd7aa;font-weight:600}
+.cnSummary ul{margin:6px 0 0;padding-left:18px;color:#f3d38a}
+
 /* ตัวละครหลักของนิยาย */
 .castSeeds{margin-top:12px;display:flex;flex-direction:column;gap:6px}
 .castRow{display:grid;grid-template-columns:max-content minmax(110px,1fr) minmax(180px,2fr) auto auto 40px auto;gap:8px;align-items:center;padding:4px;border-radius:10px;border:1px solid transparent}

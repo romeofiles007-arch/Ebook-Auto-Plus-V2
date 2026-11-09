@@ -22,9 +22,23 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 10;
+  const ADAPTER_REV = 17;
 
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  /**
+   * ตัวขับที่ถูกตัดขาด (กดโหลดส่วนขยายใหม่ระหว่างงาน) ยังวิ่งงานค้างต่อในหน้าเดิมได้ แล้วชนกับตัวขับใหม่ในหน้าเดียวกัน
+   * เจอจริง พ.ย. 2026: สองตัวสแกนซ้อนกัน หน้า Flow ค้างที่ซูม 6% → "ชี้แล้วโดน Agent" · ตัวที่ขาดจากส่วนขยายแล้วต้องหยุดเอง
+   */
+  const extAlive = () => {
+    try {
+      return typeof chrome === 'undefined' || !chrome.runtime || !!chrome.runtime.id;
+    } catch {
+      return false;
+    }
+  };
+  const sleep = (ms) =>
+    new Promise((resolve, reject) =>
+      setTimeout(() => (extAlive() ? resolve() : reject(Object.assign(new Error('ตัวขับ Flow รุ่นเก่าถูกตัดขาดจากส่วนขยาย — หยุด'), { code: 'orphaned' }))), ms),
+    );
   const text = (el) => (el?.innerText ?? el?.textContent ?? '').replace(/\s+/g, ' ').trim();
   const visible = (el) => !!el && el.isConnected && el.getBoundingClientRect().width > 0;
   const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -234,6 +248,11 @@
     const esc = () => new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true });
     // หน้า Flow รุ่นใหม่ปิดเมนูเมื่อ Escape ส่งถึงตัวเมนูเอง ไม่ใช่ระดับเอกสาร (ตรวจกับหน้าจริง ต.ค. 2026)
     document.querySelector('[role="menu"]')?.dispatchEvent(esc());
+    /**
+     * แผงตั้งค่าโมเดล (รูปภาพ · สัดส่วน · รุ่น · x1–x4) ไม่มี backdrop และไม่ฟัง Escape ที่ document แล้ว
+     * ต้องส่งถึงตัวแผงเอง (ตรวจกับหน้าจริง พ.ย. 2026) — เดิมแผงค้างทับปุ่ม Agent จนหยุดที่ "ชี้แล้วโดน x1"
+     */
+    for (const pane of $$('.cdk-overlay-pane').filter(visible)) pane.dispatchEvent(esc());
     document.dispatchEvent(esc());
     document.querySelector('.cdk-overlay-backdrop')?.click();
   };
@@ -354,7 +373,8 @@
 
   async function closeAgentChat() {
     for (let i = 0; i < 3; i++) {
-      if (SEL.settingsTrigger() && SEL.agentChip()) return; // ช่องพิมพ์ปกติโผล่แล้ว
+      // แผงแชตเปิดอยู่ = ปิดเสมอ แม้ปุ่มของช่องพิมพ์ยังนับว่า "มองเห็น" — ช่องพิมพ์ที่ถูกบีบแคบทำให้ปุ่ม Agent ทับปุ่มข้าง ๆ (เจอจริง พ.ย. 2026: "ชี้แล้วโดน Agent")
+      if (SEL.settingsTrigger() && SEL.agentChip() && !chatPanel()) return; // ช่องพิมพ์ปกติโผล่แล้ว
       const panel = chatPanel();
       if (!panel) return;
       const close =
@@ -1221,6 +1241,8 @@
     videoDefault: /Video generation default|ค่าเริ่มต้นของการสร้างวิดีโอ/,
     never: /^(Never|ไม่เลย)/,
     highDemand: /experiencing high demand|มีผู้ใช้งานจำนวนมาก|มีความต้องการสูง/gi,
+    // "การสร้างนี้อาจละเมิดนโยบายของเรา โปรดลองใช้พรอมต์อื่นหรือส่งความคิดเห็น" (เจอจริง พ.ย. 2026 ตอนวาดภาพต้นแบบตัวละครจากรูปถ่าย)
+    policy: /ละเมิดนโยบาย|violates? (?:our|the) (?:content )?polic|against our polic/gi,
   };
   const byAria = (labels, root = document, tag = 'button') => $$(tag, root).filter((b) => labels.includes(b.getAttribute('aria-label')));
   const agentPanel = () => document.querySelector('flow-agent-panel');
@@ -1231,6 +1253,7 @@
   };
   const AGENT_GAP_MS = 2 * 60000; // เว้นอย่างน้อย 2 นาทีระหว่างข้อความที่ส่งให้ Agent (ค่าเดียวกับโปรเจกต์ Youtube)
   let lastAgentPromptAt = 0;
+  let agentReady = null; // { ratio, cfg } ที่ตั้งไว้แล้วในหน้านี้
 
   async function agentOn_() {
     await closeAgentChat();
@@ -1267,7 +1290,15 @@
     };
     if (!openPanel()) {
       const settings = await waitFor(agentSettingsTrigger, { label: 'ปุ่ม Settings ข้าง Agent' });
-      await trustedClick(settings);
+      /**
+       * คลิกที่ตัวปุ่มก่อน — ปุ่มนี้รับคลิกแบบสคริปต์ (ตรวจกับหน้าจริง พ.ย. 2026) และคลิกที่ตัว element ไม่มีทางโดนปุ่มอื่น
+       * เดิมคลิกด้วยพิกัดอย่างเดียว ช่องพิมพ์แคบเมื่อมีแผงข้าง ปุ่ม Agent ทับจุดกลางของปุ่มนี้ → "ชี้แล้วโดน Agent" แล้วหยุดทั้งงาน
+       * แผงไม่เปิดค่อยใช้คลิกด้วยพิกัด (ซึ่งตรวจว่าตำแหน่งไม่ถูกบังเหมือนเดิม)
+       */
+      realClick(settings);
+      if (!(await waitFor(openPanel, { timeout: 4000, label: 'Agent settings' }).catch(() => null))) {
+        await trustedClick(await waitFor(agentSettingsTrigger, { label: 'ปุ่ม Settings ข้าง Agent' }));
+      }
     }
     await waitFor(openPanel, { label: 'Agent settings' });
     await waitSettled(openPanel);
@@ -1364,23 +1395,55 @@
     return viewport;
   }
 
+  const SHRINK = '0.06';
+  function beginShrink() {
+    const html = document.documentElement;
+    const n = Number(html.dataset.ebookShrink || 0);
+    if (!n) html.dataset.ebookZoom = html.style.zoom === SHRINK ? '' : html.style.zoom || '';
+    html.dataset.ebookShrink = String(n + 1);
+    html.style.zoom = SHRINK;
+    window.dispatchEvent(new Event('resize'));
+  }
+  function endShrink() {
+    const html = document.documentElement;
+    const left = Math.max(0, Number(html.dataset.ebookShrink || 1) - 1);
+    html.dataset.ebookShrink = String(left);
+    if (left) return;
+    html.style.zoom = html.dataset.ebookZoom || '';
+    delete html.dataset.ebookZoom;
+    delete html.dataset.ebookShrink;
+    window.dispatchEvent(new Event('resize'));
+  }
+  /** หน้าที่ค้างซูม 6% จากตัวขับที่ตายกลางสแกน — คืนขนาดก่อนเริ่มงาน (ไม่มีใครสแกนอยู่จริงแล้ว) */
+  function unstickShrink() {
+    const html = document.documentElement;
+    if (html.style.zoom !== SHRINK && !html.dataset.ebookShrink) return;
+    html.style.zoom = html.dataset.ebookZoom || '';
+    delete html.dataset.ebookZoom;
+    delete html.dataset.ebookShrink;
+    window.dispatchEvent(new Event('resize'));
+  }
+
   /** ให้ tile ทุกใบถูกวาดอย่างน้อยหนึ่งครั้ง: ย่อหน้าจอชั่วคราว (วาดทุกใบพร้อมกัน) แล้วเลื่อนไล่อีกรอบเป็นทางสำรอง */
   async function scanAllTiles() {
     collectTiles();
-    const html = document.documentElement;
-    const old = html.style.zoom;
-    html.style.zoom = '0.06';
-    window.dispatchEvent(new Event('resize'));
-    let last = -1;
-    for (let i = 0; i < 20; i++) {
-      await sleep(700);
-      collectTiles();
-      const loaded = SEL.tiles().filter(tileId).length;
-      if (loaded === last && i >= 3) break;
-      last = loaded;
+    /**
+     * ซูมเดิมจำไว้ที่ <html> (ทุกตัวขับในหน้าเห็นร่วมกัน) และคืนใน finally เสมอ
+     * เดิมจำในตัวแปรของตัวเอง: สแกนสองชุดซ้อนกัน ชุดที่สองจำ "0.06" เป็นค่าเดิมแล้วคืนหน้าค้างไว้ที่ 6%
+     */
+    beginShrink();
+    try {
+      let last = -1;
+      for (let i = 0; i < 20; i++) {
+        await sleep(700);
+        collectTiles();
+        const loaded = SEL.tiles().filter(tileId).length;
+        if (loaded === last && i >= 3) break;
+        last = loaded;
+      }
+    } finally {
+      endShrink();
     }
-    html.style.zoom = old;
-    window.dispatchEvent(new Event('resize'));
     await sleep(500);
     const scroller = gridScroller();
     if (scroller) {
@@ -1480,7 +1543,13 @@
 
   async function sendAgentPrompt(prompt) {
     const wait = lastAgentPromptAt + AGENT_GAP_MS - Date.now();
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) {
+      // บอกให้เห็นว่ากำลังเว้นจังหวะ ไม่ใช่ค้าง — สั่ง Agent ถี่เกินคือทางที่โดน "กิจกรรมที่ผิดปกติ"
+      const was = stage;
+      at(`เว้นจังหวะก่อนส่งให้ Agent อีก ${Math.ceil(wait / 1000)} วินาที (กันถูกมองว่าสั่งถี่)`);
+      await sleep(wait);
+      at(was);
+    }
     if (agentBusy()) await waitFor(() => !agentBusy(), { timeout: 15 * 60000, interval: 2000, label: 'Agent ว่าง' });
     await typePrompt(prompt);
     const send = await waitFor(() => (SEL.send() && !SEL.send().disabled ? SEL.send() : null), { label: 'ปุ่มส่งของ Agent' });
@@ -1495,7 +1564,7 @@
   }
 
   /** agent นิ่ง = ไม่มีปุ่มหยุดนาน 75 วินาที (ระหว่างวาดปุ่มหยุดอาจหายแวบ ๆ) · เพดานรอบละ 45 นาที */
-  async function waitAgentIdle(maxMs = 45 * 60000) {
+  async function waitAgentIdle(maxMs = 45 * 60000, isDone = null) {
     const started = Date.now();
     let idleSince = null;
     for (;;) {
@@ -1505,15 +1574,29 @@
       if (agentBusy()) idleSince = null;
       else {
         idleSince ??= Date.now();
-        if (Date.now() - idleSince > 75000) return 'idle';
+        // ภาพครบตามที่สั่งแล้ว ไม่ต้องรอนิ่งครบ 75 วินาที — นิ่ง 10 วินาทีพอ
+        const quiet = Date.now() - idleSince;
+        if (quiet > 75000 || (quiet > 10000 && isDone?.())) return 'idle';
       }
       if (Date.now() - started > maxMs) return 'timeout';
     }
   }
 
-  const unusualShown = () =>
-    SEL.tiles().some((t) => !tileId(t) && UNUSUAL_TEXT.test(text(t))) || UNUSUAL_TEXT.test(text(agentPanel()));
+  /**
+   * "พบกิจกรรมที่ผิดปกติ" ที่เกิดหลังส่งคำสั่งรอบนี้เท่านั้น
+   * ผู้ใช้: "มันไม่คืบหน้าเลย อยู่ที่เดิม แค่กระพริบ" — project มีการ์ด "ล้มเหลว · พบกิจกรรมที่ผิดปกติ" เก่าค้างจากรอบก่อน
+   * และแชต Agent มีข้อความเดิม · เดิมนับของเก่าด้วย ทุกชุด Agent จึงหยุดทันทีว่าโดนใหม่ แล้วงานวนเริ่มใหม่ไม่จบ
+   */
+  const UNUSUAL_ALL = new RegExp(UNUSUAL_TEXT.source, 'gi');
+  const unusualCount = () => (text(agentPanel()).match(UNUSUAL_ALL) || []).length;
+  const unusualTiles = () => SEL.tiles().filter((t) => !tileId(t) && UNUSUAL_TEXT.test(text(t))).map((t) => norm(text(t)));
+  let unusualBase = { tiles: new Set(), panel: 0 };
+  const markUnusualBase = () => {
+    unusualBase = { tiles: new Set(unusualTiles()), panel: unusualCount() };
+  };
+  const unusualShown = () => unusualTiles().some((k) => !unusualBase.tiles.has(k)) || unusualCount() > unusualBase.panel;
   const highDemandCount = () => (text(agentPanel()).match(AL.highDemand) || []).length;
+  const policyCount = () => (text(agentPanel()).match(AL.policy) || []).length;
 
   const shotList = (shots) => shots.map((s) => s.line).join('\n\n');
   const goInstruction = (shots) =>
@@ -1553,10 +1636,22 @@
       }
       await goRoot();
     }
-    at(`ตรวจ 0 เครดิต ${args.ratio}`);
-    const cfg = await configure({ ratio: args.ratio, models: args.models, agentOnly: true }); // Agent ตั้งสัดส่วนเอง; ตรวจว่าโมเดลที่ใช้เป็น 0 เครดิต
-    at('ตั้งค่า Agent');
-    await configureAgent(cfg.model, args.ratio);
+    /**
+     * ผู้ใช้: "ทำไมถึงกดไปกดมา ไม่เห็นสร้างอะไร และทำช้ามาก" — เดิมทุกชุด (รวมภาพเดี่ยว) ปิด Agent → เปิดแผงโมเดลตรวจ 0 เครดิต →
+     * เปิด Agent → เปิดแผงตั้งค่า Agent → บันทึก ใหม่ทุกครั้ง · หน้านี้ตั้งไว้แล้วด้วยสัดส่วนเดียวกันและ Agent ยังเปิดอยู่ = ใช้ต่อเลย
+     * (รุ่นที่ตรวจแล้วว่า 0 เครดิตไม่เปลี่ยนระหว่างหน้าเดิม · ช่องพิมพ์ปกติปิด Agent ไปเมื่อไร agentOn() เป็นเท็จ จึงตั้งใหม่เอง)
+     */
+    let cfg;
+    if (agentReady && agentReady.ratio === args.ratio && (agentOn() || chatPanel())) {
+      at('ใช้การตั้งค่า Agent เดิม (0 เครดิต)');
+      cfg = agentReady.cfg;
+    } else {
+      at(`ตรวจ 0 เครดิต ${args.ratio}`);
+      cfg = await configure({ ratio: args.ratio, models: args.models, agentOnly: true }); // Agent ตั้งสัดส่วนเอง; ตรวจว่าโมเดลที่ใช้เป็น 0 เครดิต
+      at('ตั้งค่า Agent');
+      await configureAgent(cfg.model, args.ratio);
+      agentReady = { ratio: args.ratio, cfg };
+    }
     at('ภาพต้นแบบตัวละคร');
     await clearRefs();
     let attachError = '';
@@ -1583,6 +1678,8 @@
     }
     const base = await agentBaseline();
     const seenDemandAtStart = highDemandCount();
+    const seenPolicyAtStart = policyCount();
+    markUnusualBase();
     at('ส่ง brief ให้ Agent');
     await sendAgentPrompt(args.brief);
 
@@ -1595,7 +1692,7 @@
     for (let round = 1; round <= (shots.length === 1 ? 3 : 4); round++) {
       at(`Agent กำลังวาด (รอบ ${round})`);
       const before = collectTiles().size;
-      const how = await waitAgentIdle();
+      const how = await waitAgentIdle(undefined, () => [...collectTiles().keys()].filter((id) => !base.has(id)).length >= shots.length);
       if (how === 'unusual') {
         const e = new Error('Flow แจ้งว่า: เราพบกิจกรรมที่ผิดปกติบางอย่าง');
         e.code = 'unusual_activity';
@@ -1609,6 +1706,15 @@
       await scanAllTiles();
       const made = [...collectTiles().keys()].filter((id) => !base.has(id));
       picks = await findAgentShots(shots, made);
+      /**
+       * Agent ตอบ "อาจละเมิดนโยบาย" และไม่มีภาพใหม่เลย = คำขอนี้ไม่ผ่าน สั่งซ้ำก็ได้คำตอบเดิม (และนับเป็นคำขอที่ผิดนโยบายเพิ่ม)
+       * คืนให้ Studio ไปทางสำรองถัดไปทันที (เช่น ภาพต้นแบบตัวละคร: รูปถ่าย → แรงบันดาลใจ → คำบรรยายล้วน)
+       */
+      if (!made.length && !picks.size && policyCount() > seenPolicyAtStart) {
+        const e = new Error('Flow Agent ไม่รับคำขอนี้: "การสร้างนี้อาจละเมิดนโยบายของเรา"');
+        e.code = 'policy_blocked';
+        throw e;
+      }
       // ยังไม่มีภาพใหม่เลย = agent ถามยืนยัน/สรุปแผนแทนการวาด → สั่งให้เริ่ม
       if (!made.length && !picks.size && nudges < 3) {
         nudges++;
@@ -1877,6 +1983,7 @@
     }
     busy = true;
     at('');
+    unstickShrink();
     try {
       return await OPS[op](args);
     } catch (e) {

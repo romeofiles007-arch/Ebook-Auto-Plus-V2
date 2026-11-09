@@ -11,6 +11,19 @@ import { referenceContext } from './references.js';
 import { OUTLINE_RULES, proseRules, proseBatch, proseContentDraft, proseCompose, narrationRules, safeVoicePrompt, safeVoiceBlock, proseReview, proseRepair, editContext } from './editorial.js';
 import { flowGenreFor } from './flow-genres.js';
 import { sourceBlock as userSource, sourceOnlyRule, sourceReviewNote, sourceFingerprint, sourceQuery } from './source-material.js';
+import { chineseOutlineKit, chineseSceneKit, chineseIdeaNote, chineseRecipeText, CHINESE_REVIEW_CHECK } from './chinese-ancient.js';
+import { coverTypographyRule } from './cover-fonts.js';
+import { genreSceneKit, genreOutlineKit, genreIdeaNote, genreRecipeText, genreReviewCheck } from './genre-recipes.js';
+
+// นิยายจีนโบราณ (core/chinese-ancient.js) — ทุกจุดที่แนบคลังข้อมูลต้องถามผ่านตัวนี้ แนวอื่นจึงได้ข้อความเดิมทุกตัวอักษร
+const isChinese = (book) => book?.fictionGenre === 'chinese';
+/** สูตรของแนวอื่น (core/genre-recipes.js) — ไม่ได้เลือกอะไร = '' prompt จึงเหมือนเดิมทุกตัวอักษร */
+const genreNote = (contentMode, fictionGenre, genreStory, after = '') => {
+  const note = contentMode === 'fiction' && genreStory ? genreIdeaNote(fictionGenre, genreStory) : '';
+  return note ? note + after : '';
+};
+const bookGenreStory = (book) => (book?.contentMode === 'fiction' ? book.genreStory : null);
+const lineIf = (text) => (text ? text + '\n' : '');
 
 // ขั้นคิดชื่อ/เสนอสารบัญยังไม่มีเล่ม — หน้าตั้งค่าส่ง { sourceMaterial, sourceOnly, sourceName } มาแทน
 const ideaSource = (source) => userSource(source, { stage: 'ideas' }) + sourceOnlyRule(source, 'outline');
@@ -43,6 +56,7 @@ const FICTION_GENRE_NAME = {
   horror: 'สยองขวัญ', drama: 'ดราม่า', adventure: 'ผจญภัย', comingofage: 'Coming of Age (เรื่องการเติบโต)',
   literary: 'วรรณกรรมร่วมสมัย',
   senior: 'นิยายสำหรับผู้สูงอายุ',
+  chinese: 'นิยายจีนโบราณ',
 };
 const fictionGenreName = (key) => FICTION_GENRE_NAME[key] || key || 'นิยาย';
 const FICTION_POV = {
@@ -63,7 +77,14 @@ const FICTION_ROMANCE = {
   main: 'ความสัมพันธ์โรแมนติกเป็นเส้นเรื่องหลัก ต้องมีแรงดึงดูด อุปสรรค การตัดสินใจ และผลลัพธ์ที่พัฒนาตลอดเล่ม',
 };
 
-export function titleIdeasPrompt({ topic, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', trendSeed = null, today = '', avoidTitles = [], source = null }) {
+/**
+ * ชื่อนิยายต้องเป็น "ชื่อบนปก" ไม่ใช่ประโยคบทพูด
+ * ผู้ใช้: "ชื่อประหลาดมาก" — ได้ชื่อ "ท่านเสนาบดี คำนวณข้าวสารผิดไปหนึ่งถังแล้วเจ้าค่ะ" (ประโยคพูดยาว ลงท้ายเจ้าค่ะ) แล้ว Flow วาดลงปกทั้งประโยค
+ */
+export const NOVEL_TITLE_RULE =
+  "รูปแบบชื่อ: สั้นแบบชื่อบนปกนิยาย 2–6 คำ (ไม่เกินราว 25 ตัวอักษร) อ่านแล้วเป็น \"ชื่อ\" ไม่ใช่ประโยค — ห้ามเป็นบทพูดของตัวละคร ห้ามลงท้ายด้วยคำพูดอย่าง เจ้าค่ะ ขอรับ นะ จ้ะ ค่ะ ครับ และห้ามเล่าเหตุการณ์ยาว ๆ ในชื่อ · มุกหรือประโยคเกี่ยวเบ็ดยาว ๆ ให้ใส่ใน subtitle แทน";
+
+export function titleIdeasPrompt({ topic, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, trendSeed = null, today = '', avoidTitles = [], source = null }) {
   const trend = (trendSeed?.trend
     ? `\nหัวข้อที่ผู้ใช้เลือกจากโหมดดูกระแส: ${trendSeed.trend}${trendSeed.why_now ? `\nทำไมน่าสนใจ: ${trendSeed.why_now}` : ''}\nชื่อที่เสนอทั้งหมดต้องเกาะหัวข้อนี้ แต่ห้ามพาดหัวเกินจริง\n`
     : '') + ideaSource(source);
@@ -75,8 +96,9 @@ export function titleIdeasPrompt({ topic, audience, tone, language = 'th', conte
 กลุ่มผู้อ่าน: ${audience || 'ผู้อ่านทั่วไป'}
 โทน: ${tone || 'มีภาพชัด มีอารมณ์ และไม่เล่าตรงเกินไป'}
 ภาษา: ${language === 'th' ? 'ไทย' : 'อังกฤษ'}
-${trend}
+${trend}${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) + '\n' : ''}${genreNote(contentMode, fictionGenre, genreStory, '\n')}
 เสนอชื่อนิยาย 8 ตัวเลือก ชื่อแต่ละอันต้องให้ภาพหรือความรู้สึก ไม่สปอยล์จุดหักมุม ไม่ใช้ชื่อแนวคู่มือ และไม่ใส่คำโปรยขายของเกินจริง
+${NOVEL_TITLE_RULE}
 ตอบเป็น JSON ในบล็อกโค้ดเดียวชนิด json ห้ามมีข้อความนอกบล็อก:
 {"titles":[{"title":"ชื่อนิยาย","subtitle":"คำโปรยสั้น ๆ หรือเว้นว่าง","angle":"อารมณ์หรือภาพจำของชื่อนี้"}]}${NO_CITATION_RULE}`;
   }
@@ -111,9 +133,9 @@ angle ต้องบอกผู้อ่านที่เจาะจง ป�
  * "รายการหัวข้อให้เลือก" แล้วเอาไปตั้งชื่อต่อ ตอนนี้จึงเหลือคำถามเดียว คำตอบเดียว
  * หัวข้อที่ได้เป็นแค่จุดตั้งต้นของชื่อเล่ม ไม่ได้ถูกอ้างเป็นข้อเท็จจริงในเนื้อหนังสือ
  */
-export function trendIdeasPrompt({ seed = '', audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', today = '' }) {
+export function trendIdeasPrompt({ seed = '', audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, today = '' }) {
   const mode = contentMode === 'fiction'
-    ? `นิยายแนว ${fictionGenreName(fictionGenre)}`
+    ? fictionGenre === 'chinese' ? `นิยายจีนโบราณ — ${chineseRecipeText(chineseStory)}` : `นิยายแนว ${fictionGenreName(fictionGenre)}${genreStory && genreRecipeText(fictionGenre, genreStory) ? ` — ${genreRecipeText(fictionGenre, genreStory)}` : ''}`
     : contentMode === 'items'
       ? 'หนังสือรายชิ้น (แตกเป็นหลายหมวดได้)'
       : 'หนังสือ non-fiction';
@@ -137,7 +159,7 @@ ${seed ? `ผู้ใช้สนใจแนวนี้เป็นพิเ�
 }
 
 /** เสนอ "ทางเดินของสารบัญ" หลายแบบ ก่อนสร้าง outline รายละเอียดจริง */
-export function outlineDirectionsPrompt({ title, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', targetPages = 120, genreBrief = '', trendSeed = null, source = null }) {
+export function outlineDirectionsPrompt({ title, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, targetPages = 120, genreBrief = '', trendSeed = null, source = null }) {
   const sourceBlock = (trendSeed?.trend
     ? `\nหัวข้อตั้งต้นที่ต้องยึดเป็นบริบท:\n- ${trendSeed.trend}${trendSeed.why_now ? `\n- ทำไมน่าสนใจ: ${trendSeed.why_now}` : ''}\nหัวข้อนี้ยังไม่ได้ผ่านการตรวจแหล่งข้อมูล ถ้าสารบัญต้องพึ่งตัวเลขหรือเหตุการณ์ปัจจุบัน ให้ระบุว่าเป็น "สิ่งที่จะต้องค้นเพิ่ม"\n`
     : '') + ideaSource(source);
@@ -148,7 +170,7 @@ export function outlineDirectionsPrompt({ title, audience, tone, language = 'th'
 ผู้อ่าน: ${audience || 'ผู้อ่านทั่วไป'}
 โทน: ${tone || '-'}
 ความยาวประมาณ: ${targetPages} หน้า
-${sourceBlock}
+${sourceBlock}${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) + '\n' : ''}${genreNote(contentMode, fictionGenre, genreStory, '\n')}
 แต่ละทางต้องต่างกันที่แกนความขัดแย้ง การเปลี่ยนแปลงตัวละคร และชนิดของแรงส่ง ไม่ใช่แค่เปลี่ยนชื่อบท
 ให้เห็นสารบัญระดับบท 6-14 บทตามความยาว แต่ยังไม่ต้องแตกฉากละเอียด
 ตอบเป็น JSON ในบล็อกโค้ดเดียวชนิด json ห้ามมีข้อความนอกบล็อก:
@@ -193,6 +215,8 @@ export function outlinePolishPrompt({
   language = 'th',
   contentMode = 'prose',
   fictionGenre = 'fantasy',
+  chineseStory = null,
+  genreStory = null,
   targetPages = 120,
   genreBrief = '',
   round = 1,
@@ -204,7 +228,7 @@ export function outlinePolishPrompt({
 
   const kindNote =
     contentMode === 'fiction'
-      ? `เป็นนิยายแนว ${fictionGenreName(fictionGenre)} — chapters คือบท และ purpose คือสิ่งที่เปลี่ยนในบทนั้น`
+      ? `เป็นนิยายแนว ${fictionGenreName(fictionGenre)} — chapters คือบท และ purpose คือสิ่งที่เปลี่ยนในบทนั้น${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) : ''}${genreNote(contentMode, fictionGenre, genreStory)}`
       : contentMode === 'items'
         ? 'เป็นหนังสือรายชิ้น — chapters คือหมวด และ purpose คือมุมของหมวดนั้น'
         : `แนวหนังสือ: ${genreBrief || 'non-fiction'}`;
@@ -521,7 +545,7 @@ function fictionOutlinePrompt(book, retryErrors = null) {
 ความยาวประมาณ: ${book.targetPages} หน้า
 มุมมอง: ${pov}
 ตอนจบ: ${ending}
-เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}${userSource(book, { stage: 'outline' })}${sourceOnlyRule(book, 'fiction')}
+เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}${userSource(book, { stage: 'outline' })}${sourceOnlyRule(book, 'fiction')}${isChinese(book) ? chineseOutlineKit(book.chineseStory) : ''}${genreOutlineKit(book.fictionGenre, bookGenreStory(book))}
 
 หลักการวางเรื่อง
 1. สร้าง dramatic premise และ theme ชัด แต่ห้ามให้ตัวละครพูดธีมตรง ๆ
@@ -748,7 +772,7 @@ function fictionBookContext(book, outline, bible, chapter) {
 ตอนจบที่ผู้ใช้เลือก: ${FICTION_ENDING[book.fictionEnding] || FICTION_ENDING.auto}
 เส้นเรื่องความรัก: ${FICTION_ROMANCE[book.fictionRomance] || FICTION_ROMANCE.subplot}
 โทนภาษา: ${outline.voice_card || book.tone}
-${book.trendSeed?.trend ? `แรงบันดาลใจจากกระแสที่เลือก: ${book.trendSeed.trend} — ใช้เฉพาะแกน/คำถามร่วมสมัย ห้ามคัดลอกบุคคลจริง เหตุการณ์จริง หรือเปลี่ยนนิยายให้เป็นข่าว` : ''}
+${book.trendSeed?.trend ? `แรงบันดาลใจจากกระแสที่เลือก: ${book.trendSeed.trend} — ใช้เฉพาะแกน/คำถามร่วมสมัย ห้ามคัดลอกบุคคลจริง เหตุการณ์จริง หรือเปลี่ยนนิยายให้เป็นข่าว` : ''}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}
 
 ${cast ? `ตัวละคร canon\n${cast}\n\n` : ''}${world.length ? `กฎของโลก/ข้อเท็จจริง canon\n${world.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${timeline.length ? `ไทม์ไลน์ที่เกิดแล้ว\n${timeline.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${relationships.length ? `สถานะความสัมพันธ์\n${relationships.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${threads.length ? `ปมที่ยังเปิดอยู่ ห้ามลืม\n${threads.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${done ? `สิ่งที่เกิดในบทก่อนหน้า\n${done}\n\n` : ''}บทที่ ${chapter.n}: ${chapter.title}
 หน้าที่ของบทนี้: ${chapter.objective || '-'}
@@ -1047,7 +1071,7 @@ function fictionRewritePrompt({ book, section, currentText, targetChars, instruc
 ${instruction ? `คำสั่งจาก editor: ${instruction}\n` : ''}ความยาวเป้าหมาย ${targetChars.toLocaleString()} ${u} (เดิม ${(section.chars || 0).toLocaleString()} ${u})
 POV: ${section.povCharacter || section.pov_character || book.fictionPov || 'ตาม Story Bible'}
 สถานที่: ${section.location || '-'} · เวลา: ${section.time || '-'}
-สิ่งที่ห้ามหาย: ${(section.takeaways || []).join(' · ') || 'เหตุการณ์และผลลัพธ์เดิมทั้งหมด'}
+สิ่งที่ห้ามหาย: ${(section.takeaways || []).join(' · ') || 'เหตุการณ์และผลลัพธ์เดิมทั้งหมด'}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}
 
 ${grow ? `ขยายด้วยการเพิ่มรายละเอียดเชิงฉากเท่านั้น: ปฏิกิริยาตัวละคร การกระทำย่อย tension ประสาทสัมผัส subtext หรือผลของการตัดสินใจ ห้ามสร้าง subplot/ตัวละคร/พลัง/ข้อมูลใหม่เพื่อเติมความยาว` : `ย่อโดยตัดคำอธิบายซ้ำ การบอกอารมณ์ที่การกระทำแสดงอยู่แล้ว และจังหวะที่ไม่เปลี่ยนสถานะฉาก ห้ามตัดเหตุการณ์ เบาะแส setup/payoff หรือการเปลี่ยนความสัมพันธ์`}
 
@@ -1173,7 +1197,7 @@ ${bible.chapterSummaries?.length ? `บทก่อนหน้า\n${bible.chap
 5. setup, clue, secret, promise หรือปมเปิดถูกลืม ปิดเร็วเกิน หรือ payoff โดยไม่ได้ปูหรือไม่
 6. ความสัมพันธ์เปลี่ยนเร็วเกินเหตุ หรือปฏิกิริยาทางอารมณ์ไม่ต่อเนื่องหรือไม่
 7. ฉากใดซ้ำหน้าที่เดิมหรือไม่มีการเปลี่ยนสถานะของเรื่องหรือไม่
-
+${isChinese(book) ? CHINESE_REVIEW_CHECK + '\n' : ''}${lineIf(genreReviewCheck(book.fictionGenre, bookGenreStory(book)))}
 ตอบเป็น JSON ในบล็อกโค้ดเดียว
 \`\`\`json
 {
@@ -2161,6 +2185,7 @@ function flowNovelCoverText(book, outline, back, { authorPhotoSpot = false } = {
       author ? `- AUTHOR (small, like a film poster's billing line, at the top or bottom edge): ${q(author)}` : '',
       exact,
       'Design the title like a theatrical film poster: big, bold and cinematic, integrated with the image (lit by the same light, with a glow, texture or shadow that fits the genre), sitting in the calm area so it reads instantly even as a small thumbnail. Clear hierarchy: the title dominates, subtitle and author are much smaller.',
+      coverTypographyRule(book),
       'No other words anywhere: no invented tagline, no credits block, no release date, no publisher, no logo, no watermark. Signs, papers and screens in the scene stay blank.',
     ].filter(Boolean).join('\n');
   }
@@ -2299,6 +2324,7 @@ export function flowPosterCoverPrompt({ book = {}, outline = {}, style = {}, peo
             author ? `- AUTHOR (small, like a film credit, ONCE only — at the bottom edge): ${q(author)}` : '',
             'Each text item appears exactly once — never repeat the title or the author name anywhere else in the image.',
             exact,
+            coverTypographyRule(book),
             'No other words: no invented tagline, no credits block, no release date, no logo, no watermark. Signs, papers and screens in the scene stay blank.',
           ].filter(Boolean).join('\n')
         : 'Keep calm space in the top third for the title (it is typeset later); no text in the image.',
@@ -2404,6 +2430,22 @@ ${lang === 'Thai'
 
 /** รหัสชั่วคราวที่ใช้จับคู่ภาพ Agent ในชุดนี้ โดยไม่เปิดเผยชื่อไฟล์จริงในคำสั่งวาด */
 export const flowAgentShotKey = (i) => `SHOT-${String(i + 1).padStart(2, '0')}`;
+
+/**
+ * ภาพเดี่ยวผ่าน Flow Agent (ภาพต้นแบบตัวละคร · ปก · ลายพื้นหลัง) — ใช้เมื่อโหมดสร้างปกติของ Flow ขึ้น "พบกิจกรรมที่ผิดปกติ"
+ * ผู้ใช้: "คือเปิดโหมด agent จะสร้างได้" · ส่ง prompt เดิมทั้งก้อน ให้ Agent วาดภาพเดียวตรงตามนั้น
+ */
+export function flowAgentSingleBrief({ prompt = '', ratio = '3:4', refs = 0 } = {}) {
+  const key = flowAgentShotKey(0);
+  return `Create exactly ONE image — no more, no variations, no questions, no plan summary.
+Title the generated image in the Flow project "${key}" (project metadata only — never draw the code, a title, caption or footer into the picture).
+Aspect ratio ${ratio}.${refs ? ` Use the ${refs} attached image${refs > 1 ? 's' : ''} as reference exactly as the prompt below says.` : ''}
+Follow the prompt below exactly — it is the drawing instruction, not text to copy into the image:
+
+${String(prompt || '').trim()}`;
+}
+
+export const flowAgentSingleLine = (prompt = '') => `${flowAgentShotKey(0)} | Scene: ${String(prompt || '').replace(/\s+/g, ' ').trim().slice(0, 300)}`;
 
 /** หนึ่งบรรทัดของ shot list — ใช้ทั้งใน brief และในคำสั่งสั่งช็อตที่ขาดของ adapter */
 export function flowAgentShotLine(s, i) {
@@ -2652,6 +2694,7 @@ Render the following text INSIDE the image as part of the design:
 ${thai ? '- The text is Thai. Reproduce every Thai character, tone mark and vowel exactly as given. Thai script must be typographically correct and fully legible — no invented glyphs, no Latin transliteration, no decorative distortion of the letterforms.' : '- Reproduce the text exactly as given.'}
 - Typeset it like a real published cover: clear hierarchy (title dominates), generous margins, text sitting in an area of the artwork with enough contrast to stay readable, and nothing important hidden behind it.
 - The title must still be readable when the cover is shrunk to a thumbnail.
+${coverTypographyRule(book)}
 - No other words anywhere: no publisher name, no tagline you invented, no watermark, no page furniture.`;
 }
 

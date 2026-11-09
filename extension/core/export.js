@@ -9,6 +9,7 @@ import { syncItemEdit, isItemBook } from './item-edit.js';
 import { backMatterSections, referenceProblem } from './references.js';
 import { stripZwsp } from './thai.js';
 import { frontCoverTextInImage, backCoverTextInImage } from './prompts.js';
+import { resolveCoverTypography } from './cover-fonts.js';
 import { authorRefSummary, authorRefFor } from './imageRef.js';
 import { coverGeometry } from './budget.js';
 import { packAssets, toPdf } from '../typeset/compiler.js';
@@ -238,6 +239,7 @@ export async function exportCover(book, { frontDataUrl, backDataUrl, authorDataU
 }
 
 export function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
+  const coverFace = resolveCoverTypography(book);
   const baked = frontCoverTextInImage(book);
   const bleed = book.trim.bleedMm || 3;
   const t = book.typography;
@@ -274,6 +276,8 @@ export function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
   const titleLength = Array.from(String(titleText).replace(/\s+/g, '')).length;
   const titleScaleCap = titleLength > 55 ? 1.7 : titleLength > 40 ? 1.95 : titleLength > 28 ? 2.25 : titleLength > 18 ? 2.6 : 3.2;
   titleZone.size = Math.min(titleZone.size, titleScaleCap);
+  // Optical sizing for faces whose glyphs occupy a smaller part of the em square.
+  titleZone.size *= coverFace.sizeScale;
   const titleWidthPt = ((Number(book.trim.widthMm) || 148) * titleZone.width / 100) / 25.4 * 72;
   const charsPerLine = Math.max(6, Math.floor(titleWidthPt / (t.sizePt * titleZone.size * 0.7)));
   const estimatedTitleLines = Math.max(1, Math.ceil(Math.max(1, titleLength) / charsPerLine));
@@ -341,7 +345,7 @@ export function coverTypst(book, geo, { frontPath, backPath, authorPath }) {
       ${baked ? '' : `#place(top + left, dx: ${panelW * titleZone.x / 100}mm, dy: ${bleed + panelH * titleZone.y / 100}mm)[
         #box(width: ${panelW * titleZone.width / 100}mm)[
           #align(${titleZone.align})[
-            #text(size: ${t.sizePt * titleZone.size}pt, weight: 700, fill: rgb("${titleZone.color}"))[${title}]
+            #text(font: ${JSON.stringify(coverFace.family)}, size: ${t.sizePt * titleZone.size}pt, weight: ${coverFace.weight}, fill: rgb("${titleZone.color}"))[${title}]
           ]
         ]
       ]`}

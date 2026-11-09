@@ -1,0 +1,348 @@
+/* Genre palettes override crew styling only while fiction is selected. */
+html[data-fiction-theme] {
+  --scene-image: var(--fiction-image) !important;
+  --scene-accent: var(--fiction-accent) !important;
+  --scene-accent-a: var(--fiction-accent-a, var(--fiction-accent)) !important;
+  --scene-accent-b: var(--fiction-accent2) !important;
+  background: var(--fiction-base);
+}
+html[data-fiction-theme="romance"] {
+  --fiction-characters: url('themes/characters/romance.webp');
+  --fiction-base: #0d2932;
+  --fiction-panel: #173c46;
+  --fiction-subpanel: #204954;
+  --fiction-input: #102e39;
+  --fiction-raised: #2c5660;
+  --fiction-selected: #356775;
+  --fiction-button: #3b6a76;
+  --fiction-line: #8ab8bd;
+  --fiction-border: #719da6;
+  --fiction-accent: #b4eaf0;
+  --fiction-accent2: #f5deb0;
+  --fiction-ink: #f3fcfb;
+  --fiction-muted: #d1e8e7;
+  --fiction-placeholder: #b2d0d2;
+  --fiction-shade: 13 41 50;
+  --fiction-image: url('themes/fiction/romance-seaside.jpg');
+}
+html[data-fiction-theme="fantasy"] {
+  --fiction-characters: url('themes/characters/fantasy.webp');
+  --fiction-base: #0c211e;
+  --fiction-panel: #14352e;
+  --fiction-subpanel: #1c4137;
+  --fiction-input: #102820;
+  --fiction-raised: #285247;
+  --fiction-selected: #356451;
+  --fiction-button: #365e4d;
+  --fiction-line: #77a58b;
+  --fiction-border: #628773;
+  --fiction-accent: #bce3ac;
+  --fiction-accent2: #f2dc98;
+  --fiction-ink: #eff9e9;
+  --fiction-muted: #cde2cc;
+  --fiction-placeholder: #b3cbb2;
+  --fiction-shade: 12 33 30;
+  --fiction-image: url('themes/fiction/fantasy.jpg');
+}
+html[data-fiction-theme="scifi"] {
+  --fiction-characters: url('themes/characters/scifi.webp');
+  --fiction-base: #091726;
+  --fiction-panel: #10283f;
+  --fiction-subpanel: #14344d;
+  --fiction-input: #0b2033;
+  --fiction-raised: #1b4260;
+  --fiction-selected: #245875;
+  --fiction-button: #28526d;
+  --fiction-line: #608daa;
+  --fiction-border: #4c738f;
+  --fiction-accent: #9de6fa;
+  --fiction-accent2: #aebcf7;
+  --fiction-ink: #eef8ff;
+  --fiction-muted: #c3dceb;
+  --fiction-placeholder: #a8c3d6;
+  --fiction-shade: 9 23 38;
+  --fiction-image: url('themes/fiction/scifi.jpg');
+}
+html[data-fiction-theme="mystery"] {
+  --fiction-characters: url('themes/characters/mystery.webp');
+  --fiction-base: #201712;
+  --fiction-panel: #34251b;
+  --fiction-subpanel: #423023;
+  --fiction-input: #271c15;
+  --fiction-raised: #523d2a;
+  --fiction-selected: #654b31;
+  --fiction-button: #705033;
+  --fiction-line: #a68a61;
+  --fiction-border: #8c714e;
+  --fiction-accent: #edcc91;
+  --fiction-accent2: #e4b579;
+  --fiction-ink: #fff4e3;
+  --fiction-muted: #e3cdb0;
+  --fiction-placeholder: #c9b394;
+  --fiction-shade: 32 23 18;
+  --fiction-image: url('themes/fiction/mystery.jpg');
+}
+html[data-fiction-theme="thriller"] {
+  --fiction-characters: url('themes/characters/thriller.webp');
+  --fiction-base: #0a1b20;
+  --fiction-panel: #112e35;
+  --fiction-subpanel: #173b42;
+  --fiction-input: #0c222a;
+  --fiction-raised: #204852;
+  --fiction-selected: #2c5961;
+  --fiction-button: #31565c;
+  --fiction-line: #688e94;
+  --fiction-border: #52777f;
+  --fiction-accent: #f0c18a;
+  --fiction-accent2: #9dd4db;
+  --fiction-ink: #edf7f7;
+  --fiction-muted: #c5dce0;
+  --fiction-placeholder: #a9c4ca;
+  --fiction-shade: 10 27 32;
+  --fiction-image: url('themes/fiction/thriller.jpg');
+}
+html[data-fiction-theme="horror"] {
+  --fiction-characters: url('themes/characters/horror.webp');
+  --fiction-base: #17151f;
+  --fiction-panel: #25212e;
+  --fiction-subpanel: #312936;
+  --fiction-input: #1c1825;
+  --fiction-raised: #42303e;
+  --fiction-selected: #563748;
+  --fiction-button: #603b4d;
+  --fiction-line: #988393;
+  --fiction-border: #7d697b;
+  --fiction-accent: #dfb0bf;
+  --fiction-accent2: #bec2df;
+  --fiction-ink: #f7edf4;
+  --fiction-muted: #d8c5d3;
+  --fiction-placeholder: #bda8bb;
+  --fiction-shade: 23 21 31;
+  --fiction-image: url('themes/fiction/horror.jpg');
+}
+html[data-fiction-theme="drama"] {
+  --fiction-characters: url('themes/characters/drama.webp');
+  --fiction-base: #181f29;
+  --fiction-panel: #26313e;
+  --fiction-subpanel: #303c49;
+  --fiction-input: #1d2633;
+  --fiction-raised: #3f4b58;
+  --fiction-selected: #515866;
+  --fiction-button: #5e5552;
+  --fiction-line: #9e9592;
+  --fiction-border: #817c7c;
+  --fiction-accent: #edbf9e;
+  --fiction-accent2: #b7cadb;
+  --fiction-ink: #f9f0e9;
+  --fiction-muted: #ddd0c6;
+  --fiction-placeholder: #c0b5af;
+  --fiction-shade: 24 31 41;
+  --fiction-image: url('themes/fiction/drama.jpg');
+}
+html[data-fiction-theme="adventure"] {
+  --fiction-characters: url('themes/characters/adventure.webp');
+  --fiction-base: #162419;
+  --fiction-panel: #243a28;
+  --fiction-subpanel: #304831;
+  --fiction-input: #1b2d1f;
+  --fiction-raised: #405735;
+  --fiction-selected: #54643b;
+  --fiction-button: #566039;
+  --fiction-line: #a39e67;
+  --fiction-border: #848451;
+  --fiction-accent: #e9d393;
+  --fiction-accent2: #b9d5a3;
+  --fiction-ink: #f5f5e5;
+  --fiction-muted: #d6dec3;
+  --fiction-placeholder: #b9c5a5;
+  --fiction-shade: 22 36 25;
+  --fiction-image: url('themes/fiction/adventure.jpg');
+}
+html[data-fiction-theme="comingofage"] {
+  --fiction-characters: url('themes/characters/comingofage.webp');
+  --fiction-base: #1a2332;
+  --fiction-panel: #29364c;
+  --fiction-subpanel: #35445a;
+  --fiction-input: #202c40;
+  --fiction-raised: #45516b;
+  --fiction-selected: #5e6078;
+  --fiction-button: #62617a;
+  --fiction-line: #9e9eb6;
+  --fiction-border: #81869f;
+  --fiction-accent: #f5c5a6;
+  --fiction-accent2: #b5dce1;
+  --fiction-ink: #fff3e9;
+  --fiction-muted: #dfd7dc;
+  --fiction-placeholder: #c0b9c7;
+  --fiction-shade: 26 35 50;
+  --fiction-image: url('themes/fiction/comingofage.jpg');
+}
+html[data-fiction-theme="literary"] {
+  --fiction-characters: url('themes/characters/literary.webp');
+  --fiction-base: #171e28;
+  --fiction-panel: #242f3e;
+  --fiction-subpanel: #303d4c;
+  --fiction-input: #1b2634;
+  --fiction-raised: #3e4b59;
+  --fiction-selected: #505b66;
+  --fiction-button: #555f68;
+  --fiction-line: #9b9b95;
+  --fiction-border: #7d8488;
+  --fiction-accent: #e4d6b4;
+  --fiction-accent2: #bed4db;
+  --fiction-ink: #f7f3e9;
+  --fiction-muted: #d6d7d0;
+  --fiction-placeholder: #b8bfb9;
+  --fiction-shade: 23 30 40;
+  --fiction-image: url('themes/fiction/literary.jpg');
+}
+html[data-fiction-theme="senior"] {
+  --fiction-characters: url('themes/characters/senior.webp');
+  --fiction-base: #1c281e;
+  --fiction-panel: #2d3d2e;
+  --fiction-subpanel: #394b35;
+  --fiction-input: #233225;
+  --fiction-raised: #4c5f41;
+  --fiction-selected: #5d6d48;
+  --fiction-button: #62734f;
+  --fiction-line: #a4b387;
+  --fiction-border: #879873;
+  --fiction-accent: #e7dbab;
+  --fiction-accent2: #c8e1b0;
+  --fiction-ink: #fff9e8;
+  --fiction-muted: #e0e5ca;
+  --fiction-placeholder: #c3cdb0;
+  --fiction-shade: 28 40 30;
+  --fiction-image: url('themes/fiction/senior.jpg');
+}
+html[data-fiction-theme="chinese"] {
+  --fiction-characters: url('themes/chinese/characters.webp');
+  --fiction-base: #152b2d;
+  --fiction-panel: #233d3f;
+  --fiction-subpanel: #2c494a;
+  --fiction-input: #1b3236;
+  --fiction-raised: #3d5552;
+  --fiction-selected: #486a61;
+  --fiction-button: #4b6b62;
+  --fiction-line: #aaac82;
+  --fiction-border: #858f73;
+  --fiction-accent: #ead5a0;
+  --fiction-accent2: #b6ddd2;
+  --fiction-ink: #faf5e9;
+  --fiction-muted: #d9e4d5;
+  --fiction-placeholder: #bbcbbb;
+  --fiction-shade: 21 43 45;
+  --fiction-image: url('themes/chinese/palace-balanced.jpg');
+  --fiction-accent-a: #d7bf89;
+}
+html[data-fiction-theme] body { background: var(--fiction-base); color: var(--fiction-ink); }
+html[data-fiction-theme] .app { background: transparent; backdrop-filter: none; }
+html[data-fiction-theme] body::after {
+  background: linear-gradient(90deg, rgb(var(--fiction-shade) / .28), rgb(var(--fiction-shade) / .50) 45%, rgb(var(--fiction-shade) / .28)),
+    linear-gradient(180deg, rgb(var(--fiction-shade) / .17), rgb(var(--fiction-shade) / .10) 45%, rgb(var(--fiction-shade) / .44));
+}
+html[data-fiction-theme] #sceneDuo { display: none; }
+html[data-fiction-theme] :is(header, .card, .macroSteps, .run-status, .run-timer) {
+  border-color: var(--fiction-line);
+  background: color-mix(in srgb, var(--fiction-panel) 91%, transparent);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--fiction-accent) 22%, transparent), 0 12px 28px #0006;
+}
+html[data-fiction-theme] :is(.brand, .cardTitle, .nowTitle, .card h2, .card h3, .run-status strong) {
+  color: var(--fiction-ink);
+}
+html[data-fiction-theme] :is(.run-status, .run-timer) { color: var(--fiction-ink); }
+html[data-fiction-theme] .run-status .run-status-toggle {
+  color: var(--fiction-ink);
+  border-color: var(--fiction-line);
+}
+html[data-fiction-theme] :is(.sub, .muted, .field label, .soundToggle, .run-status small,
+  .modeCard .modeWhat, .modeCard .modeNote, .dept .role, .dept .note, .cnGroup legend, .cnSummary) {
+  color: var(--fiction-muted);
+}
+html[data-fiction-theme] :is(.status, .mode, .sceneLabel) {
+  background: var(--fiction-raised);
+  border-color: var(--fiction-line);
+  color: var(--scene-accent);
+}
+html[data-fiction-theme] :is(.wizardStep, .modeCard, .more, .apiBar, .fullAutoBar,
+  .ceoBar, .stepGuide, .folderRow, .estimate, .resumeBar, .projectArchive, .historyPanel,
+  .event, .fig, .secItem, .pagestat, .projectItem, .dept, .pf, .trendPick, .outlineChoice,
+  .docxRow, .imgPanel, .p2Row, .p2Help, .p2Dir, .authorRef, .projectDetail, .cnOpts) {
+  border-color: var(--fiction-border);
+  background: color-mix(in srgb, var(--fiction-subpanel) 91%, transparent);
+  color: var(--fiction-ink);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--fiction-accent) 12%, transparent);
+}
+html[data-fiction-theme] :is(.modeCard.sel, .wizardStep.now, .secItem.sel,
+  .trendPick.sel, .outlineChoice.sel) {
+  border-color: var(--scene-accent);
+  background: var(--fiction-selected);
+  color: var(--fiction-ink);
+}
+html[data-fiction-theme] .modeCard[data-mode] {
+  --mode-c: var(--fiction-accent-a, var(--fiction-accent));
+  --mode-c2: var(--fiction-accent2);
+}
+html[data-fiction-theme] .modeCard[data-mode].sel::after { display: none; }
+html[data-fiction-theme] .wizardBar {
+  background: color-mix(in srgb, var(--fiction-panel) 96%, transparent);
+  border-color: var(--fiction-line);
+}
+html[data-fiction-theme] :is(.macroStep .dot, .wizardStep .n) {
+  background: var(--fiction-raised);
+  border-color: var(--fiction-line);
+  color: var(--fiction-ink);
+}
+html[data-fiction-theme] :is(.macroStep .label, .wizardStep) { color: var(--fiction-muted); }
+html[data-fiction-theme] .macroStep .track { background: var(--fiction-border); }
+html[data-fiction-theme] :is(.macroStep.current .dot, .macroStep.active .dot, .wizardStep.now .n) {
+  background: var(--scene-accent);
+  border-color: var(--scene-accent);
+  color: var(--fiction-panel);
+}
+html[data-fiction-theme] button {
+  background-color: var(--fiction-button);
+  color: var(--fiction-ink);
+}
+html[data-fiction-theme] :is(button.primary, #wizardNext) {
+  background: var(--fiction-accent);
+  color: var(--fiction-panel);
+}
+html[data-fiction-theme] button.danger { background: #842f3f; color: #fff0e5; }
+html[data-fiction-theme] :is(input:not([type=checkbox]), select, textarea) {
+  border-color: var(--fiction-line);
+  background: var(--fiction-input);
+  color: var(--fiction-ink);
+  caret-color: var(--scene-accent);
+}
+html[data-fiction-theme] :is(input, textarea)::placeholder { color: var(--fiction-placeholder); }
+html[data-fiction-theme] .cnChips label {
+  background: var(--fiction-panel);
+  border-color: var(--fiction-border);
+  color: var(--fiction-muted);
+}
+html[data-fiction-theme] .cnChips label:has(input:checked) {
+  background: var(--fiction-selected);
+  border-color: var(--scene-accent);
+  color: var(--fiction-ink);
+}
+html[data-fiction-theme] .cnPick { color: var(--scene-accent); }
+html[data-fiction-theme] :is(.field label .i, .more summary .i, .cnGroup legend .i) { color: var(--scene-accent); }
+html[data-fiction-theme] :is(.cnChips input, .cnGroup legend .i) { accent-color: var(--scene-accent); color: var(--scene-accent); }
+html[data-fiction-theme] .bar i { background: var(--scene-accent); }
+html[data-fiction-theme] ::selection { background: var(--fiction-accent); color: var(--fiction-panel); }
+html[data-fiction-theme] * { scrollbar-color: var(--fiction-line) var(--fiction-panel); }
+
+
+@media (max-width: 900px) {
+  html[data-fiction-theme] body::after { background: rgb(var(--fiction-shade) / .5); }
+}
+@media (max-width: 520px) {
+  html[data-fiction-theme] .wizardBar { flex-wrap: wrap; }
+  html[data-fiction-theme] .wizardBar #wizardWhere { order: -1; flex-basis: 100%; }
+  html[data-fiction-theme] .wizardBar button { flex: 1; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-fiction-theme] :is(header, .card, .macroSteps, .wizardBar,
+    .modeCard, .run-status, .run-timer) { background: var(--fiction-panel); backdrop-filter: none; }
+}

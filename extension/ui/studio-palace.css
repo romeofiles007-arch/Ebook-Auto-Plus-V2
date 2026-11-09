@@ -1,0 +1,37 @@
+/* Foreground decoration stays visible above the scrim and never intercepts a click. */
+#chineseAtmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  overflow: hidden;
+  contain: strict;
+}
+.palacePetal {
+  position: absolute;
+  z-index: 1;
+  top: -24px;
+  left: var(--petal-x);
+  width: var(--petal-size);
+  height: calc(var(--petal-size) * .65);
+  border-radius: 80% 15% 75% 25%;
+  background: linear-gradient(135deg, #ffe2eb, #ed97b3 65%, #cf6389);
+  opacity: 0;
+  animation: palacePetalFall var(--petal-time) linear var(--petal-delay) infinite;
+}
+@keyframes palacePetalFall {
+  0% { transform: translate3d(0, -20px, 0) rotate(0deg); opacity: 0; }
+  12% { opacity: .9; }
+  50% { transform: translate3d(calc(var(--petal-drift) * -.3), 50vh, 0) rotate(180deg); }
+  88% { opacity: .8; }
+  100% { transform: translate3d(var(--petal-drift), calc(100vh + 50px), 0) rotate(390deg); opacity: 0; }
+}
+@media (max-width: 900px) {
+  .palacePetal:nth-child(n+35) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .palacePetal { display: none; animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #chineseAtmosphere { display: none; }
+}

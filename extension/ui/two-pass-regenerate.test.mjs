@@ -29,7 +29,7 @@ function fixture(replies, contentMode = 'prose') {
     parseContentDraft, recoverContentDraft, contentInputRequests,
     sectionPrompt: P.sectionPrompt, contentDraftPrompt: P.contentDraftPrompt,
     contentDraftKey: P.contentDraftKey, composeBatchPrompt: P.composeBatchPrompt,
-    isItemBook: () => false, focusChat: async () => {},
+    isItemBook: () => false, focusChat: async () => {}, say: (s) => s,
     makeTransport: () => ({}), transportKind: () => 'mock', transportOpts: () => ({}),
     syncSharedProject: async () => {}, addEvent() {}, answerEvidence: () => '',
     db: { saveSection: async (_, value) => saved.push(structuredClone(value)), saveBook: async () => {} },

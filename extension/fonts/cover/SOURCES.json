@@ -1,0 +1,87 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "revision": "5bb28733cec313b63fbd415b574b5ae35c8aa8b8",
+  "downloaded": "2026-11-09",
+  "fonts": [
+    {
+      "family": "Charmonman",
+      "file": "Charmonman-Bold.ttf",
+      "weight": 700,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/charmonman/Charmonman-Bold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/charmonman/OFL.txt",
+      "sha256": "8bf4f82298997010662de35cec504c0504456e51d3d9a9a6b4f3788e4b04abee"
+    },
+    {
+      "family": "Chonburi",
+      "file": "Chonburi-Regular.ttf",
+      "weight": 400,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/chonburi/Chonburi-Regular.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/chonburi/OFL.txt",
+      "sha256": "aa0dac4df08af10785ba1dc10121492227f8e4288f0a23d11dd1d1f5a7f6ebfa"
+    },
+    {
+      "family": "Chakra Petch",
+      "file": "ChakraPetch-Bold.ttf",
+      "weight": 700,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/chakrapetch/ChakraPetch-Bold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/chakrapetch/OFL.txt",
+      "sha256": "65fbf76d95651697275e19db4d717c0e95a789ddd3476478b05292104db278a0"
+    },
+    {
+      "family": "Pridi",
+      "file": "Pridi-Bold.ttf",
+      "weight": 700,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/pridi/Pridi-Bold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/pridi/OFL.txt",
+      "sha256": "7ed16f946290c59f336c1cb031a80a5fd4ae60e6c261bffa9e06c92df6865ff4"
+    },
+    {
+      "family": "Kanit",
+      "file": "Kanit-Bold.ttf",
+      "weight": 700,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/kanit/Kanit-Bold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/kanit/OFL.txt",
+      "sha256": "5dec5b080dab13de9d2295437c0ff3ec05c9e75587dfc31358c005eb4efa5e70"
+    },
+    {
+      "family": "Pattaya",
+      "file": "Pattaya-Regular.ttf",
+      "weight": 400,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/pattaya/Pattaya-Regular.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/pattaya/OFL.txt",
+      "sha256": "02b77f7f5b52e718a91230c8ea153bfe746e1d748dabded4e41d7e6765fa9889"
+    },
+    {
+      "family": "Niramit",
+      "file": "Niramit-Bold.ttf",
+      "weight": 700,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/niramit/Niramit-Bold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/niramit/OFL.txt",
+      "sha256": "2ec7ae17137a0ba06017675e38280289a6716a6f6dc6ac210f0b54b2563eac64"
+    },
+    {
+      "family": "Sriracha",
+      "file": "Sriracha-Regular.ttf",
+      "weight": 400,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/sriracha/Sriracha-Regular.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/sriracha/OFL.txt",
+      "sha256": "c3128c30cb21e8724b792586c87059d1b5eceae10d9957ba2ab26c80bbed3669"
+    },
+    {
+      "family": "Mitr",
+      "file": "Mitr-SemiBold.ttf",
+      "weight": 600,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/mitr/Mitr-SemiBold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/mitr/OFL.txt",
+      "sha256": "257e8612923ed13838b2f0a0f9b25527aa83513c657df049a5ee608e6d4a059d"
+    },
+    {
+      "family": "Charm",
+      "file": "Charm-Bold.ttf",
+      "weight": 700,
+      "source": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/charm/Charm-Bold.ttf",
+      "license": "https://raw.githubusercontent.com/google/fonts/5bb28733cec313b63fbd415b574b5ae35c8aa8b8/ofl/charm/OFL.txt",
+      "sha256": "6e1fa92fda7ab74fcce8ed5d7a9de10a0fb43d777590e8ef9f6931da6e932481"
+    }
+  ]
+}

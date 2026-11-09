@@ -48,7 +48,7 @@ test('ทำต่อ: กู้ภาพ Agent ที่มีชื่ออ�
   assert.match(src, /lookupNamed: opLookupNamed/);
   assert.match(machine, /flowCall\('lookupNamed', \{ names: recoverable\.map\(\(j\) => j\.name\) \}/);
   assert.match(machine, /todo = todo\.filter\(\(j\) => !recovered\.mediaIds\[j\.name\]\);/);
-  assert.match(machine, /projectId\(this\.book\.imagePhase\.flowProjectUrl\) !== projectId\(prep\.projectUrl\)/);
+  assert.match(machine, /flowProjectId\(oldProject\) !== flowProjectId\(prep\.projectUrl\)/);
 });
 
 /** ผู้ใช้: "เงียบ" — prompt อยู่เต็มช่องแชต แต่ไม่ถูกส่ง ค้างที่ "พิมพ์ Prompt ลงช่อง" */
@@ -115,7 +115,7 @@ test('Flow Agent: เลือก Settings ข้างปุ่ม Agent แล
   assert.match(src, /!!scopedAgentSettings\(\)/);
   assert.doesNotMatch(src, /Math\.abs\(r\.top - c\.top\)/);
   assert.match(src, /const settings = await waitFor\(agentSettingsTrigger/);
-  assert.match(src, /await trustedClick\(settings\);/);
+  assert.match(src, /realClick\(settings\);[\s\S]{0,300}await trustedClick\(await waitFor\(agentSettingsTrigger/);
   assert.match(src, /const hit = document\.elementFromPoint\(x, y\);/);
   assert.match(src, /await trustedClick\(chip\);\s*if \(await waitFor\(agentOn, \{ timeout: 8000/);
   assert.match(src, /Agent settings\|การตั้งค่า Agent/);
