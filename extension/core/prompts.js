@@ -754,17 +754,113 @@ ${done ? `เรื่องที่ผ่านมาแล้ว\n${done}\n\n
 บทนี้ต้องเพิ่ม: ${chapter.adds || '—'}`;
 }
 
-function fictionBookContext(book, outline, bible, chapter) {
-  const cast = (bible.characters?.length ? bible.characters : outline.cast || [])
-    .map((c) => typeof c === 'string' ? `- ${c}` : `- ${c.name}: role=${c.role || '-'} · want=${c.want || '-'} · need=${c.need || '-'} · fear=${c.fear || '-'} · flaw=${c.flaw || '-'} · secret=${c.secret || '-'} · appearance=${c.appearance || '-'}`)
-    .join('\n');
-  const world = [...(outline.world_rules || []), ...(bible.worldFacts || [])].slice(-70);
-  const timeline = (bible.timeline || []).slice(-60);
-  const threads = (bible.openThreads || []).slice(-50);
-  const relationships = (bible.relationships || []).slice(-40);
-  const done = (bible.chapterSummaries || []).filter(Boolean).map((s, i) => `บทที่ ${i + 1}: ${s}`).join('\n');
+/**
+ * งบตัวอักษรของ Story Bible ต่อหนึ่งคำสั่ง
+ *
+ * เดิมจำกัดด้วยจำนวนรายการ (70 ข้อเท็จจริง · 60 ไทม์ไลน์ · 50 ปม · 40 ความสัมพันธ์) ไม่ใช่ความยาว
+ * ทุกฉากที่เขียนเสร็จส่งรายการกลับมาเพิ่ม คำสั่งจึงยาวขึ้นราว 1,500–1,900 อักษรต่อฉาก
+ * (เล่มจริง: 9 ฉากแรก Story Bible ยาว 15,000 อักษร ทั้งที่คำสั่งเปล่ายาว 7,000)
+ * ลูกค้าเจอที่ฉาก 5.1 ของนิยายจีนโบราณ: คำสั่งฉากเดียวยาว 37,205 อักษร ChatGPT ตอบ
+ * "The message you submitted was too long" แล้วทั้งเล่มหยุด — และไม่มีค่าตั้งไหนช่วยได้ เพราะตัวที่ยาวไม่ใช่ฉาก
+ *
+ * ของที่ห้ามตัด: โปรไฟล์ตัวละครหลักกับกฎตั้งต้นของโลกจากโครงเรื่อง (เดิมสองอย่างนี้คือของที่ถูกดันตกก่อน)
+ * ของที่ตัดได้: รายการที่จดเพิ่มระหว่างเขียน — เก็บใหม่สุดไว้ ของเก่าถูกเล่าไปในสรุปบทแล้ว
+ * งบที่หมวดหนึ่งใช้ไม่หมดยกให้หมวดถัดไป เรียงจากหมวดที่ขาดได้ไปหาหมวดที่ขาดไม่ได้
+ */
+const BIBLE_BUDGET = { done: 2400, relationships: 1200, notes: 1200, timeline: 2000, facts: 3000, threads: 2200 };
+const BIBLE_RULES_BUDGET = 2400;
+const BIBLE_ITEM_CAP = 320;
+const clip = (s, cap) => (s.length > cap ? s.slice(0, cap - 1).trimEnd() + '…' : s);
+const bibleLine = (x) => (typeof x === 'string' ? x : JSON.stringify(x));
+const castLine = (c) => typeof c === 'string' ? c : `${c.name}: role=${c.role || '-'} · want=${c.want || '-'} · need=${c.need || '-'} · fear=${c.fear || '-'} · flaw=${c.flaw || '-'} · secret=${c.secret || '-'} · appearance=${c.appearance || '-'}`;
 
-  return `Story Bible — ต้องถือเป็น canon ห้ามเปลี่ยนเอง
+/** รายการใหม่สุดเท่าที่งบรับได้ คืนตามลำดับเดิม — รายการล่าสุดอยู่เสมอแม้ตัวมันเองเกินงบ */
+function newestWithin(items, budget) {
+  const kept = [];
+  let used = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const line = clip(String(items[i]).trim(), BIBLE_ITEM_CAP);
+    if (!line) continue;
+    if (kept.length && used + line.length + 3 > budget) break;
+    kept.unshift(line);
+    used += line.length + 3;
+  }
+  return { kept, used };
+}
+
+export const STORY_BIBLE_HEAD = 'Story Bible — ต้องถือเป็น canon ห้ามเปลี่ยนเอง';
+const BIBLE_HEAD = STORY_BIBLE_HEAD;
+const H_FACTS = 'ข้อเท็จจริงที่เกิดขึ้นแล้วในเรื่อง canon';
+const H_TIMELINE = 'ไทม์ไลน์ที่เกิดแล้ว';
+const H_RELATIONS = 'สถานะความสัมพันธ์';
+const H_THREADS = 'ปมที่ยังเปิดอยู่ ห้ามลืม';
+const H_DONE = 'สิ่งที่เกิดในบทก่อนหน้า';
+
+/**
+ * ChatGPT ยังตอบ "ข้อความยาวเกิน" ทั้งที่คุมงบแล้ว (เพดานของแต่ละบัญชีไม่เท่ากันและไม่มีใครประกาศ)
+ * → ตัดรายการที่จดระหว่างเขียนลงครึ่งหนึ่งทุกหมวด เก็บครึ่งที่ใหม่กว่า แล้วให้ชั้นบนส่งใหม่
+ * ไม่แตะตัวละคร กฎตั้งต้น ใบสั่งฉาก กติกา และรูปแบบคำตอบ · คืน null เมื่อไม่ใช่คำสั่งนิยายหรือย่อต่อไม่ได้แล้ว
+ */
+export function shrinkStoryBibleInPrompt(prompt) {
+  const s = String(prompt || '');
+  if (!s.includes(BIBLE_HEAD)) return null;
+  let cut = 0;
+  const out = [H_FACTS, H_TIMELINE, H_RELATIONS, H_THREADS, H_DONE].reduce((text, head) => {
+    const at = text.indexOf(`\n${head}\n`);
+    if (at < 0) return text;
+    const from = at + head.length + 2;
+    const end = text.indexOf('\n\n', from);
+    if (end < 0) return text;
+    const lines = text.slice(from, end).split('\n');
+    // สรุปบทย่อทุกบทลงครึ่งหนึ่ง ไม่ทิ้งทั้งบท — หมวดอื่นทิ้งครึ่งที่เก่ากว่า
+    const keep = head === H_DONE
+      ? lines.map((l) => (l.length > 120 ? clip(l, Math.max(120, l.length >> 1)) : l))
+      : lines.slice(-Math.floor(lines.length / 2) || -1);
+    const saved = lines.join('\n').length - keep.join('\n').length;
+    if (!saved) return text;
+    cut += saved;
+    return text.slice(0, from) + keep.join('\n') + text.slice(end);
+  }, s);
+  return cut ? out : null;
+}
+
+function fictionBookContext(book, outline, bible, chapter) {
+  /**
+   * ตัวละครหลักจากโครงเรื่องอยู่ครบเสมอ ส่วนตัวประกอบที่โผล่ระหว่างเขียนกับโน้ตสั้น ๆ ใช้งบร่วมกัน
+   * เล่มเก่าที่ bible ไม่มีรายชื่อ ใช้ของโครงเรื่องทั้งชุดเหมือนเดิม
+   */
+  const people = bible.characters?.length ? bible.characters : outline.cast || [];
+  const leadNames = new Set((outline.cast || []).map((c) => String(c?.name || '').trim()).filter(Boolean));
+  const isLead = (c) => !bible.characters?.length || (c && typeof c === 'object' && leadNames.has(String(c.name || '').trim()));
+  const sums = (bible.chapterSummaries || []).filter(Boolean);
+  // สรุปบทคือเส้นเรื่องทั้งเล่ม ตัดทิ้งทั้งบทไม่ได้ — เล่มยาวจึงย่อทุกบทเท่า ๆ กันแทน
+  const perSum = Math.max(160, Math.floor(BIBLE_BUDGET.done / (sums.length || 1)));
+  const done = sums.map((s, i) => `บทที่ ${i + 1}: ${clip(String(s), perSum)}`).join('\n');
+  let spare = Math.max(0, BIBLE_BUDGET.done - done.length);
+  const take = (items, key) => {
+    const budget = BIBLE_BUDGET[key] + spare;
+    const got = newestWithin((items || []).map(bibleLine), budget);
+    spare = Math.max(0, budget - got.used);
+    return got.kept;
+  };
+  const relationships = take(bible.relationships, 'relationships');
+  const notes = take(people.filter((c) => !isLead(c)).map(castLine), 'notes');
+  const timeline = take(bible.timeline, 'timeline');
+  // เล่มจริงมีข้อเท็จจริงที่ซ้ำกฎตั้งต้นคำต่อคำ — กฎตั้งต้นอยู่ครบอยู่แล้ว ไม่ต้องเสียงบซ้ำ
+  const ruleSet = new Set((outline.world_rules || []).map((x) => bibleLine(x).trim()));
+  const facts = take((bible.worldFacts || []).filter((x) => !ruleSet.has(bibleLine(x).trim())), 'facts');
+  const threads = take(bible.openThreads, 'threads');
+  const cast = [...people.filter(isLead).map(castLine), ...notes].map((x) => `- ${x}`).join('\n');
+  // กฎตั้งต้นเรียงจากข้อที่เป็นฐานที่สุด ถ้าต้องตัดจึงตัดจากท้าย
+  const world = [];
+  for (const rule of (outline.world_rules || []).map((x) => clip(bibleLine(x).trim(), BIBLE_ITEM_CAP))) {
+    if (!rule) continue;
+    if (world.length && world.join('\n').length + rule.length > BIBLE_RULES_BUDGET) break;
+    world.push(rule);
+  }
+  const list = (head, lines) => (lines.length ? `${head}\n${lines.map((x) => `- ${x}`).join('\n')}\n\n` : '');
+
+  return `${BIBLE_HEAD}
 ชื่อเรื่อง: ${outline.title}
 แกนเรื่อง/ธีม: ${outline.thesis}
 แนว: ${book.genreBrief || book.fictionGenre || 'fiction'}
@@ -774,7 +870,7 @@ function fictionBookContext(book, outline, bible, chapter) {
 โทนภาษา: ${outline.voice_card || book.tone}
 ${book.trendSeed?.trend ? `แรงบันดาลใจจากกระแสที่เลือก: ${book.trendSeed.trend} — ใช้เฉพาะแกน/คำถามร่วมสมัย ห้ามคัดลอกบุคคลจริง เหตุการณ์จริง หรือเปลี่ยนนิยายให้เป็นข่าว` : ''}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}
 
-${cast ? `ตัวละคร canon\n${cast}\n\n` : ''}${world.length ? `กฎของโลก/ข้อเท็จจริง canon\n${world.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${timeline.length ? `ไทม์ไลน์ที่เกิดแล้ว\n${timeline.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${relationships.length ? `สถานะความสัมพันธ์\n${relationships.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${threads.length ? `ปมที่ยังเปิดอยู่ ห้ามลืม\n${threads.map((x) => `- ${typeof x === 'string' ? x : JSON.stringify(x)}`).join('\n')}\n\n` : ''}${done ? `สิ่งที่เกิดในบทก่อนหน้า\n${done}\n\n` : ''}บทที่ ${chapter.n}: ${chapter.title}
+${cast ? `ตัวละคร canon\n${cast}\n\n` : ''}${list('กฎของโลก/ข้อเท็จจริง canon', world)}${list(H_FACTS, facts)}${list(H_TIMELINE, timeline)}${list(H_RELATIONS, relationships)}${list(H_THREADS, threads)}${done ? `${H_DONE}\n${done}\n\n` : ''}บทที่ ${chapter.n}: ${chapter.title}
 หน้าที่ของบทนี้: ${chapter.objective || '-'}
 สิ่งใหม่ที่ต้องเกิด: ${chapter.adds || '-'}`;
 }

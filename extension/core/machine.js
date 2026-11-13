@@ -599,21 +599,29 @@ ${P.NO_CITATION_RULE}
        * ไม่มีต้นฉบับให้ตัด หรือตัดจนสุดแล้ว = หยุดพร้อมบอกว่าต้องปรับอะไร ไม่วนรอจนหมดเวลา
        */
       if (res.meta?.error === 'message_too_long') {
-        const shorter = shrinkSourceInPrompt(prompt);
+        /**
+         * นิยายไม่มีต้นฉบับแนบก็ยาวเกินได้ — ตัวที่ยาวคือ Story Bible ที่สะสมมาทุกฉาก
+         * (ลูกค้าเจอที่ฉาก 5.1: คำสั่งฉากเดียว 37,205 ตัวอักษร) จึงย่อ Story Bible เป็นทางที่สอง
+         */
+        const fromSource = shrinkSourceInPrompt(prompt);
+        const shorter = fromSource || P.shrinkStoryBibleInPrompt(prompt);
+        const what = fromSource ? 'ตัดต้นฉบับที่แนบให้สั้นลง' : 'ย่อ Story Bible ให้เหลือรายการล่าสุด';
         if (shorter && shrinks < 3) {
           shrinks++;
           i--;
-          noteTrouble({ step: this.job.step, symptom: 'message_too_long', move: 'shrink_source', by: 'เครื่องผลิต' });
-          this.log('warn', `ChatGPT ไม่รับข้อความยาว ${prompt.length.toLocaleString()} ตัวอักษร — ตัดต้นฉบับที่แนบให้สั้นลงเหลือ ${shorter.length.toLocaleString()} แล้วส่งใหม่`);
+          noteTrouble({ step: this.job.step, symptom: 'message_too_long', move: fromSource ? 'shrink_source' : 'shrink_bible', by: 'เครื่องผลิต' });
+          this.log('warn', `ChatGPT ไม่รับข้อความยาว ${prompt.length.toLocaleString()} ตัวอักษร — ${what}เหลือ ${shorter.length.toLocaleString()} แล้วส่งใหม่`);
           prompt = shorter;
           await sleep(2000);
           continue;
         }
         throw new Halt(
           `ChatGPT ไม่รับข้อความเพราะยาวเกิน (${prompt.length.toLocaleString()} ตัวอักษร) — ` +
-            (shorter === null && !prompt.includes('<<<ต้นฉบับผู้ใช้>>>')
-              ? 'ลองตั้ง "วิธีเขียน: ทีละตอน" หรือ "ความยาวตอน" ให้สั้นลง แล้วกดทำต่อ'
-              : 'ตัดต้นฉบับที่แนบจนสั้นที่สุดแล้วยังไม่พอ ลองตั้ง "วิธีเขียน: ทีละตอน" หรือ "ความยาวตอน" ให้สั้นลง แล้วกดทำต่อ'),
+            (prompt.includes(P.STORY_BIBLE_HEAD)
+              ? 'ย่อ Story Bible ของนิยายจนเหลือแต่ส่วนที่ตัดไม่ได้แล้ว (ตัวละครหลัก กฎของโลก ใบสั่งฉาก) ยังไม่พอ — ChatGPT บัญชีนี้รับข้อความได้สั้นกว่าที่เล่มนี้ต้องใช้'
+              : shorter === null && !prompt.includes('<<<ต้นฉบับผู้ใช้>>>')
+                ? 'ลองตั้ง "วิธีเขียน: ทีละตอน" หรือ "ความยาวตอน" ให้สั้นลง แล้วกดทำต่อ'
+                : 'ตัดต้นฉบับที่แนบจนสั้นที่สุดแล้วยังไม่พอ ลองตั้ง "วิธีเขียน: ทีละตอน" หรือ "ความยาวตอน" ให้สั้นลง แล้วกดทำต่อ'),
         );
       }
 
