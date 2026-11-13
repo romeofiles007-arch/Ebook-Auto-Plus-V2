@@ -12,7 +12,7 @@ import { OUTLINE_RULES, proseRules, proseBatch, proseContentDraft, proseCompose,
 import { flowGenreFor } from './flow-genres.js';
 import { sourceBlock as userSource, sourceOnlyRule, sourceReviewNote, sourceFingerprint, sourceQuery } from './source-material.js';
 import { chineseOutlineKit, chineseSceneKit, chineseIdeaNote, chineseRecipeText, CHINESE_REVIEW_CHECK } from './chinese-ancient.js';
-import { coverTypographyRule } from './cover-fonts.js';
+import { coverTypographyRule, resolveCoverTypography } from './cover-fonts.js';
 import { genreSceneKit, genreOutlineKit, genreIdeaNote, genreRecipeText, genreReviewCheck } from './genre-recipes.js';
 
 // นิยายจีนโบราณ (core/chinese-ancient.js) — ทุกจุดที่แนบคลังข้อมูลต้องถามผ่านตัวนี้ แนวอื่นจึงได้ข้อความเดิมทุกตัวอักษร
@@ -2728,8 +2728,18 @@ function coverArtworkSpec(book = {}) {
  * นิยายโหมด Flow ผู้ใช้สั่ง: ปกหน้า-หลังแนวโปสเตอร์หนัง ตัวหนังสือสร้างมาพร้อมภาพ ไม่วางทับทีหลัง
  */
 // โหมด Flow ทุกประเภทหนังสือ (ผู้ใช้สั่ง: "ภาพปก ให้สร้างพร้อมกับตัวหนังสือเลย") — เดิมเฉพาะนิยาย สารคดีได้ปกไม่มีตัวหนังสือ
-export const coverTextBaked = (book) =>
-  book?.imageSource === 'flow' ? true : (book?.coverTextMode || 'baked') === 'baked';
+/**
+ * ยกเว้นในโหมด Flow (ปกหน้า): ผู้ใช้เลือก "ให้ระบบพิมพ์ทับภาพ" เอง · หรือฟอนต์ปกเป็นแบบที่โมเดลภาพวาดตามไม่ได้
+ * ผู้ใช้: "ทำไมไม่ใช้ front พู่กันจีน" — Flow ได้แค่คำบรรยาย "ให้ดูเป็นพู่กันจีน" แล้ววาดฟอนต์ไทยธรรมดา
+ * ไฟล์ฟอนต์จริง (SP-Kangfu) ใช้ได้เฉพาะตอน Typst พิมพ์ชื่อทับภาพ (typeset/template.js frontMatter)
+ */
+const FLOW_TYPESET_FAMILIES = new Set(['SP-Kangfu']);
+export const coverTextBaked = (book) => {
+  if (book?.imageSource !== 'flow') return (book?.coverTextMode || 'baked') === 'baked';
+  if (book?.coverTextMode === 'typeset') return false;
+  if ((book?.language || 'th') === 'th' && FLOW_TYPESET_FAMILIES.has(resolveCoverTypography(book).family)) return false;
+  return true;
+};
 
 /**
  * ปกหน้าต้องน่าตื่นเต้น (ผู้ใช้: "เพิ่มให้น่าตื่นเต้นกว่านี้ด้วยกับปกหน้า")

@@ -22,7 +22,9 @@ test('baked native covers remain images with no duplicate title overlay',()=>{
 test('every cover prompt route sends the Thai genre lettering direction only when drawing text',()=>{
   const b={...book,imageSource:'flow'};
   const style={palette:[{name:'jade',hex:'#16453f'},{name:'gold',hex:'#ead5a0'},{name:'ivory',hex:'#fff4dc'}],typography:{},cover_front:'palace courtyard'};
-  const prompts=[frontCoverPrompt(style,b,outline),flowNovelCoverPrompt({book:b,outline,textBaked:true}),flowPosterCoverPrompt({book:b,outline,textBaked:true})];
+  // พู่กันจีน + Flow: ปกหน้าเป็นภาพเปล่า แล้วพิมพ์ชื่อด้วยไฟล์ SP-Kangfu จริง (prompts.js coverTextBaked) — ไม่ส่งคำบรรยายตัวอักษรให้ Flow
+  assert.doesNotMatch(frontCoverPrompt(style,b,outline),/THAI GENRE COVER LETTERING/);
+  const prompts=[frontCoverPrompt(style,{...b,imageSource:'web',coverTextMode:'baked'},outline),flowNovelCoverPrompt({book:b,outline,textBaked:true}),flowPosterCoverPrompt({book:b,outline,textBaked:true})];
   for(const prompt of prompts) {assert.match(prompt,/THAI GENRE COVER LETTERING/);assert.match(prompt,/Typeface reference: SP-Kangfu/);}
   const art=flowNovelCoverPrompt({book:b,outline,textBaked:false});
   assert.doesNotMatch(art,/THAI GENRE COVER LETTERING/);
