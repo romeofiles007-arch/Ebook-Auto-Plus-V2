@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 17;
+  const ADAPTER_REV = 18;
 
   /**
    * ตัวขับที่ถูกตัดขาด (กดโหลดส่วนขยายใหม่ระหว่างงาน) ยังวิ่งงานค้างต่อในหน้าเดิมได้ แล้วชนกับตัวขับใหม่ในหน้าเดียวกัน
@@ -267,7 +267,11 @@
     agentChip: () => $$('button.agent-mode-chip').find(visible),
     settingsTrigger: () =>
       $$('button.settings-trigger-button').find(visible) ||
-      $$('button[aria-label="Settings trigger"], button[aria-label="ทริกเกอร์การตั้งค่า"]').find(visible),
+      $$('button[aria-label="Settings trigger"], button[aria-label="ทริกเกอร์การตั้งค่า"]').find(visible) ||
+      // ทางสำรองเมื่อ Flow เปลี่ยนชื่อคลาส/aria: ปุ่มในช่องพิมพ์ที่แสดงรุ่นภาพ + สัดส่วน/จำนวน ("🍌 Nano Banana 2 Lite crop_portrait x1")
+      $$('flow-prompt-box button, flow-base-prompt-box button').find(
+        (b) => visible(b) && /nano\s*banana|นาโน\s*บานา|imagen|veo/i.test(text(b)) && /crop_|(^|\s)x\d(\s|$)/.test(text(b)),
+      ),
     editor: () =>
       $$('flow-prompt-box .ProseMirror, flow-base-prompt-box .ProseMirror').find(visible) ??
       $$('.ProseMirror[contenteditable="true"]').find(visible),
@@ -514,14 +518,34 @@
     await waitFor(() => !settingsPane(), { timeout: 3000, label: 'ปิดแผงตั้งค่า' });
   }
 
+  /** ปุ่มที่มองเห็นในช่องพิมพ์ — ใส่ในข้อความ error ให้รู้ว่า Flow แสดงอะไรอยู่ตอนหาปุ่มไม่เจอ (แก้ต่อได้จากบันทึกเลย) */
+  const composerButtons = () =>
+    $$('flow-prompt-box button, flow-base-prompt-box button, flow-agent-panel button')
+      .filter(visible)
+      .map((b) => (b.getAttribute('aria-label') || text(b)).replace(/\s+/g, ' ').trim().slice(0, 28))
+      .filter(Boolean)
+      .slice(0, 12)
+      .join(' · ');
+
   async function openPane() {
     // ปล่อยให้ closePane ปิดเมนูรุ่นภาพเมื่อเสร็จ; ระหว่างตั้งค่ายังอ่านค่าปัจจุบันได้
     if (settingsPane()) return;
     if (!SEL.settingsTrigger()) await closeAgentChat();
-    const trigger = await waitFor(SEL.settingsTrigger, { timeout: 15000, label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }).catch(() => null);
+    let trigger = await waitFor(SEL.settingsTrigger, { timeout: 8000, label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }).catch(() => null);
+    /**
+     * เจอจริง (พ.ย. 2026 เล่ม "วาสนารักจอมใจ"): ภาพในเล่มชุดแรกหยุดที่ "ไม่พบปุ่มตั้งค่าโมเดล" ทั้งที่ปกเพิ่งสร้างผ่าน
+     * ช่องพิมพ์ยังเป็นแบบ Agent (ปุ่มรุ่นภาพหายไป) หรือมีเมนู/แผงค้างอยู่ — ปิดเมนู ปิดแชต ปิด Agent แล้วหาใหม่อีกรอบก่อนยอมแพ้
+     */
+    if (!trigger) {
+      escape();
+      await sleep(400);
+      await closeAgentChat();
+      if (agentOn() || chatPanel() || scopedAgentSettings(true)) await agentOff().catch(() => {});
+      trigger = await waitFor(SEL.settingsTrigger, { timeout: 8000, label: 'ปุ่มตั้งค่าโมเดลของช่องพิมพ์' }).catch(() => null);
+    }
     if (!trigger) {
       throw new Error(
-        'ไม่พบปุ่มตั้งค่าโมเดลของช่องพิมพ์ใน Flow — ถ้ามีแผงแชต Agent เปิดอยู่ทางขวา ให้กด ✕ ปิดแผงนั้นเองหนึ่งครั้ง แล้วกดทำต่อ',
+        `ไม่พบปุ่มตั้งค่าโมเดลของช่องพิมพ์ใน Flow (ปุ่มที่เห็นในช่องพิมพ์: ${composerButtons() || 'ไม่มี'}) — ถ้ามีแผงแชต Agent เปิดอยู่ทางขวา ให้กด ✕ ปิดแผงนั้นเองหนึ่งครั้ง แล้วกดทำต่อ`,
       );
     }
     realClick(trigger);

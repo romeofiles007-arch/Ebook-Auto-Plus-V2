@@ -39,3 +39,16 @@ test('เว้นจังหวะ Agent บอกบนจอ · ภาพค
   assert.match(idle, /quiet > 75000 \|\| \(quiet > 10000 && isDone\?\.\(\)\)/);
   assert.match(src, /waitAgentIdle\(undefined, \(\) => \[\.\.\.collectTiles\(\)\.keys\(\)\]\.filter\(\(id\) => !base\.has\(id\)\)\.length >= shots\.length\)/);
 });
+
+/** เจอจริง: ภาพในเล่มชุดแรกหยุดที่ "ไม่พบปุ่มตั้งค่าโมเดลของช่องพิมพ์" หลังสร้างปกผ่านแล้ว */
+test('หาปุ่มตั้งค่าโมเดลไม่เจอ → ปิดเมนู/แชต/Agent แล้วหาใหม่ · error บอกปุ่มที่เห็น', () => {
+  const body = src.slice(src.indexOf('async function openPane()'), src.indexOf('async function chooseRadio('));
+  const retry = body.indexOf('await agentOff().catch(() => {});');
+  const fail = body.indexOf('ไม่พบปุ่มตั้งค่าโมเดลของช่องพิมพ์ใน Flow (ปุ่มที่เห็นในช่องพิมพ์: ${composerButtons()');
+  assert.ok(retry > 0 && fail > retry, 'ลองใหม่ก่อน error');
+  assert.match(body, /escape\(\);\s*await sleep\(400\);\s*await closeAgentChat\(\);/);
+  const sel = src.slice(src.indexOf('    settingsTrigger: () =>'), src.indexOf('    editor: () =>'));
+  assert.ok(sel.includes('nano\\s*banana'), 'มีทางสำรองจากชื่อรุ่นภาพ');
+  const re = /nano\s*banana|นาโน\s*บานา|imagen|veo/i;
+  assert.ok(re.test('🍌 Nano Banana 2 Lite crop_portrait x1'));
+});

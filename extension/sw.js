@@ -328,7 +328,7 @@ async function ensureFlowTab(homeUrl = 'https://flow.google.com/', { preferTouch
 }
 
 /** รุ่นของตัวขับในหน้า Flow ที่ service worker นี้คาดหวัง — ต้องตรงกับ ADAPTER_REV ใน adapter/flow.js */
-const FLOW_ADAPTER_REV = 17;
+const FLOW_ADAPTER_REV = 18;
 
 async function ensureFlowAdapter(tabId, timeoutMs = 30000) {
   const until = Date.now() + timeoutMs;
