@@ -35,13 +35,26 @@ const compareItemId = (a, b) => {
 
 // ---------------------------------------------------------------- ส่งออก
 
-export async function buildDocx({ book, outline, sections }) {
+/**
+ * finished = เล่มเสร็จสำหรับส่งต่อ/อ่าน (ปุ่ม "Word (.docx)" ในแถวส่งออก) — ผู้ใช้: "ไหนส่งออกเป็น word"
+ *   ใส่ปกหน้าและภาพประกอบจริง หัวข้อไม่มีเลขตอนนำหน้า
+ * ไม่ส่ง finished = ต้นฉบับไว้แก้ในเวิร์ดแล้วนำกลับเข้า (ต้องมีเลขตอนไว้จับคู่ · ภาพเป็นช่องว่าง)
+ * images: Map ชื่อไฟล์ → { data: Uint8Array, ext: 'png'|'jpeg', w, h }
+ */
+export async function buildDocx({ book, outline, sections, images = new Map(), finished = false }) {
+  const media = { images, list: [], finished, widths: new Map((book.figures || []).filter((f) => f.name).map((f) => [f.name, f.widthPct])), contentW: Math.max(40, (book.trim?.widthMm || 148) - (book.typography?.marginsMm?.inner || 20) - (book.typography?.marginsMm?.outer || 15)), contentH: Math.max(60, (book.trim?.heightMm || 210) - (book.typography?.marginsMm?.top || 20) - (book.typography?.marginsMm?.bottom || 20)) };
   const t = book.typography;
   const font = t.bodyFont || 'Sarabun';
   const head = t.headFont || font;
   const size = t.sizePt || 15;
 
   const body = [];
+
+  // ปกหน้าเต็มหน้าแรก (เล่มเสร็จเท่านั้น)
+  if (finished && images.has('cover-front.png')) {
+    body.push(picture(media, 'cover-front.png', media.contentW, media.contentH));
+    body.push(pageBreak());
+  }
 
   body.push(para(esc(outline.title), { style: 'Title', font: head, size: size * 2, bold: true, align: 'center' }));
   if (outline.subtitle)
@@ -69,7 +82,7 @@ export async function buildDocx({ book, outline, sections }) {
 
     for (const s of ch.sections) {
       // ใส่เลขตอนไว้หน้าชื่อ เพื่อให้จับคู่กลับได้ตอนนำเข้า และตัดออกก่อนทำ PDF
-      body.push(para(`${s.id} ${esc(s.title)}`, { style: 'Heading2', font: head, size: size * 1.25, bold: true }));
+      body.push(para(`${finished ? '' : `${s.id} `}${esc(s.title)}`, { style: 'Heading2', font: head, size: size * 1.25, bold: true }));
       // หัวข้อของตอนถูกพิมพ์ไปแล้วบรรทัดบน เนื้อหาไม่ต้องทวนชื่อตัวเองอีก
       // เครื่องหมายภาพที่หายหรือเสียรูปซ่อมจากแผนภาพก่อน — ชุดเดียวกับ PDF ภาพจึงไม่หายเฉพาะไฟล์ Word
       const md = withFigureMarkers(book, s.id, stripZwsp(stripEchoedHeading(byId.get(s.id)?.md || '', s)));
@@ -78,7 +91,7 @@ export async function buildDocx({ book, outline, sections }) {
         continue;
       }
       for (const block of mdBlocks(md, figureByName, book.figureMode === 'prompt'))
-        body.push(blockToXml(block, { font, head, size }));
+        body.push(blockToXml(block, { font, head, size, media }));
     }
   }
 
@@ -87,7 +100,7 @@ export async function buildDocx({ book, outline, sections }) {
     for (const line of section.lines) body.push(para(esc(line), { font, size }));
   }
   const doc = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
 <w:body>
 ${body.join('\n')}
 ${sectPr(book)}
@@ -95,9 +108,14 @@ ${sectPr(book)}
 </w:document>`;
 
   const files = new Map();
-  files.set('[Content_Types].xml', CONTENT_TYPES);
+  const imageTypes = '<Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/>';
+  files.set('[Content_Types].xml', media.list.length ? CONTENT_TYPES.replace('<Default Extension="xml"', `${imageTypes}<Default Extension="xml"`) : CONTENT_TYPES);
   files.set('_rels/.rels', RELS);
-  files.set('word/_rels/document.xml.rels', DOC_RELS);
+  const imageRels = media.list
+    .map((m) => `<Relationship Id="${m.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${m.file}"/>`)
+    .join('');
+  files.set('word/_rels/document.xml.rels', media.list.length ? DOC_RELS.replace('</Relationships>', `${imageRels}</Relationships>`) : DOC_RELS);
+  for (const m of media.list) files.set(`word/media/${m.file}`, m.data);
   files.set('word/styles.xml', styles(font, head, size));
   files.set('word/document.xml', doc);
 
@@ -144,7 +162,7 @@ function richPara(parts, o = {}) {
     .map((p) => `<w:r>${runProps({ ...o, bold: p.bold, italic: p.italic })}<w:t xml:space="preserve">${esc(p.text)}</w:t></w:r>`)
     .join('');
   return `<w:p>
-<w:pPr>${o.style ? `<w:pStyle w:val="${o.style}"/>` : ''}${o.bullet ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr>' : ''}
+<w:pPr>${o.style ? `<w:pStyle w:val="${o.style}"/>` : ''}${o.bullet ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="0"/></w:numPr>' : ''}${o.align ? `<w:jc w:val="${o.align}"/>` : ''}
 <w:spacing w:line="${Math.round((o.lineHeight || 1.6) * 240)}" w:lineRule="auto" w:after="120"/></w:pPr>
 ${runs}
 </w:p>`;
@@ -168,6 +186,25 @@ ${runs}
 }
 
 const pageBreak = () => '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+
+/** ภาพหนึ่งรูปกึ่งกลางย่อหน้า — กว้างไม่เกิน maxWmm สูงไม่เกิน maxHmm คงสัดส่วนเดิม */
+function picture(media, name, maxWmm, maxHmm) {
+  const img = media.images.get(name);
+  if (!img) return '';
+  const ratio = img.h > 0 && img.w > 0 ? img.h / img.w : 0.75;
+  let wmm = maxWmm;
+  let hmm = wmm * ratio;
+  if (hmm > maxHmm) {
+    hmm = maxHmm;
+    wmm = hmm / ratio;
+  }
+  const n = media.list.length + 1;
+  const rid = `rIdImg${n}`;
+  media.list.push({ rid, file: `image${n}.${img.ext}`, data: img.data });
+  const cx = Math.round(wmm * 36000);
+  const cy = Math.round(hmm * 36000);
+  return `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="120" w:after="80"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="${esc(name)}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="${n}" name="${esc(name)}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+}
 
 /** แตก markdown เป็นบล็อกแบบง่าย ๆ เท่าที่ prompt อนุญาตให้โมเดลใช้ */
 function mdBlocks(md, figureByName = new Map(), showPrompts = false) {
@@ -228,7 +265,7 @@ function mdBlocks(md, figureByName = new Map(), showPrompts = false) {
   return out;
 }
 
-function blockToXml(b, { font, head, size }) {
+function blockToXml(b, { font, head, size, media }) {
   switch (b.kind) {
     case 'h':
       return richPara(inlineParts(b.text), {
@@ -259,6 +296,14 @@ function blockToXml(b, { font, head, size }) {
         .filter(Boolean)
         .join('\n');
     case 'figure':
+      // เล่มเสร็จ: ใส่ภาพจริง · ไม่มีไฟล์ภาพก็ข้ามช่องว่างไป เหลือแค่คำบรรยาย
+      if (media?.finished) {
+        const w = media.contentW * Math.min(100, Math.max(30, Number(media.widths?.get(b.name)) || 80)) / 100;
+        return [
+          media.images.has(b.name) ? picture(media, b.name, w, media.contentH * 0.8) : '',
+          b.caption ? richPara(inlineParts(b.caption), { font, size: size * 0.78, italic: true, align: 'center' }) : '',
+        ].filter(Boolean).join('\n');
+      }
       return [
         richPara(inlineParts(b.prompt ? `<Prompt : ${b.prompt}>` : `[พื้นที่วางภาพ: ${b.name}]`), {
           font,

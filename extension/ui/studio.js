@@ -6244,6 +6244,7 @@ async function runExport(kind) {
     else if (kind === 'book') await X.exportBookPdf(book, sections);
     else if (kind === 'screen') await X.exportScreen(book, sections);
     else if (kind === 'epub') await X.exportEpub(book, sections);
+    else if (kind === 'docx') await X.exportWordBook(book, sections);
     else if (kind === 'project') await X.exportProjectJson(book.id, book.outline?.title || book.topic);
     else if (kind === 'prompts') await X.exportCoverPrompts(book);
     else if (kind === 'cover') {

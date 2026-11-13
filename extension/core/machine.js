@@ -36,6 +36,7 @@ import { wantsAuthorRef, promptWantsAuthorRef, prepareRefImage, dataUrlToFile, e
 import { saveToLibrary } from './cast-library.js';
 import { findRepeats, repeatInstruction, removeNearDuplicates } from './repetition.js';
 import { checkKlon } from './thai-rhyme.js';
+import { wantsLetteringRef, renderTitleLettering, LETTERING_REF_RULE } from './title-lettering.js';
 import { flowAccount, flowProjectId } from './flow-account.js';
 import { flowCall, flowStatus, flowRatioFor, flowPrompt, flowPolicySafe, isFlowPolicy, flowCollectionFor, FLOW_MODELS, FLOW_RATIOS, FLOW_REF_COLLECTION, FLOW_CAST_COLLECTION, fictionCast, charRefName, castInText, castPhotoName } from './flow.js';
 
@@ -4680,6 +4681,23 @@ CHARACTER REFERENCES: ${onCover.map((c, i) => `attached image ${i + 1} = ${c.nam
         prompt = build(onCover);
         coverPlain = build([]);
         castNote = '';
+        /**
+         * ฟอนต์พู่กันจีน: แนบชื่อเรื่องที่เขียนด้วยไฟล์ฟอนต์จริงให้ Flow ลอกลายตัวอักษร (core/title-lettering.js)
+         * ผู้ใช้: "ไม่สวยเลย เราบอกไปทาง prompt ได้ไหมว่าใช้เป็นแบบพู่กันจีน"
+         */
+        if (j.name === 'cover-front.png' && textIn && wantsLetteringRef(this.book)) {
+          const title = String(this.book.outline?.title || this.book.title || this.book.topic || '').trim();
+          const lettering = await renderTitleLettering(this.book, title).catch((e) => {
+            this.log('warn', `เขียนต้นแบบตัวอักษรชื่อเรื่องไม่สำเร็จ (${e?.message || e}) — ปกจะได้คำบรรยายลายพู่กันอย่างเดียว`);
+            return null;
+          });
+          if (lettering) {
+            refs.push({ name: lettering.name, dataUrl: lettering.dataUrl });
+            prompt += `\n\n${LETTERING_REF_RULE}`;
+            coverPlain += `\n\n${LETTERING_REF_RULE}`;
+            this.log('ok', `ปกหน้า: แนบต้นแบบตัวอักษรชื่อเรื่องแบบพู่กันจีน (${lettering.lines.length} บรรทัด) ให้ Flow ลอกลาย`);
+          }
+        }
       }
       const wantsCoverRef = !authorRef && j.name !== 'cover-front.png' && ['cover', 'pattern'].includes(j.kind);
       const coverRef = wantsCoverRef ? await this.coverStyleRef() : null;

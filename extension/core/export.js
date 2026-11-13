@@ -382,6 +382,37 @@ export async function exportDocx(book, sections) {
 }
 
 /**
+ * Word เล่มเสร็จ — ปกหน้า ภาพประกอบจริงพร้อมคำบรรยาย หัวข้อไม่มีเลขตอน (ผู้ใช้: "ไหนส่งออกเป็น word")
+ * ต่างจาก exportDocx ที่เป็นต้นฉบับไว้แก้แล้วนำกลับเข้า (ไม่มีภาพ · มีเลขตอนไว้จับคู่)
+ * เวิร์ดเปิดได้แค่ PNG/JPEG — ภาพชนิดอื่น (webp) แปลงเป็น PNG ก่อนใส่
+ */
+export async function exportWordBook(book, sections) {
+  if (referenceProblem(book)) throw new Error(referenceProblem(book));
+  const images = new Map();
+  const assets = (await db.loadAssets(book.id)).filter((a) => a?.blob?.size && (a.name?.startsWith('fig-') || a.name === 'cover-front.png'));
+  for (const a of assets) {
+    try {
+      const bmp = await createImageBitmap(a.blob);
+      let blob = a.blob;
+      let ext = /jpe?g/i.test(a.blob.type) ? 'jpeg' : 'png';
+      if (!/^image\/(png|jpe?g)$/i.test(a.blob.type)) {
+        const c = new OffscreenCanvas(bmp.width, bmp.height);
+        c.getContext('2d').drawImage(bmp, 0, 0);
+        blob = await c.convertToBlob({ type: 'image/png' });
+        ext = 'png';
+      }
+      images.set(a.name, { data: new Uint8Array(await blob.arrayBuffer()), ext, w: bmp.width, h: bmp.height });
+      bmp.close?.();
+    } catch {
+      /* ภาพที่อ่านไม่ได้ข้ามไป เหลือคำบรรยายใต้ภาพ */
+    }
+  }
+  const blob = await buildDocx({ book, outline: book.outline, sections, images, finished: true });
+  await download(blob, outFile(book, 'Word', 'docx'));
+  return { size: blob.size, images: images.size };
+}
+
+/**
  * นำ .docx ที่แก้แล้วกลับเข้าระบบ
  * คืนสรุปว่าตอนไหนเปลี่ยนไปเท่าไร ให้ผู้ใช้เห็นก่อนยืนยัน
  */

@@ -12,7 +12,7 @@ import { OUTLINE_RULES, proseRules, proseBatch, proseContentDraft, proseCompose,
 import { flowGenreFor } from './flow-genres.js';
 import { sourceBlock as userSource, sourceOnlyRule, sourceReviewNote, sourceFingerprint, sourceQuery } from './source-material.js';
 import { chineseOutlineKit, chineseSceneKit, chineseIdeaNote, chineseRecipeText, CHINESE_REVIEW_CHECK } from './chinese-ancient.js';
-import { coverTypographyRule, resolveCoverTypography } from './cover-fonts.js';
+import { coverTypographyRule } from './cover-fonts.js';
 import { genreSceneKit, genreOutlineKit, genreIdeaNote, genreRecipeText, genreReviewCheck } from './genre-recipes.js';
 
 // นิยายจีนโบราณ (core/chinese-ancient.js) — ทุกจุดที่แนบคลังข้อมูลต้องถามผ่านตัวนี้ แนวอื่นจึงได้ข้อความเดิมทุกตัวอักษร
@@ -2733,12 +2733,11 @@ function coverArtworkSpec(book = {}) {
  * ผู้ใช้: "ทำไมไม่ใช้ front พู่กันจีน" — Flow ได้แค่คำบรรยาย "ให้ดูเป็นพู่กันจีน" แล้ววาดฟอนต์ไทยธรรมดา
  * ไฟล์ฟอนต์จริง (SP-Kangfu) ใช้ได้เฉพาะตอน Typst พิมพ์ชื่อทับภาพ (typeset/template.js frontMatter)
  */
-const FLOW_TYPESET_FAMILIES = new Set(['SP-Kangfu']);
+// 0.2.12 พิมพ์ทับด้วย SP-Kangfu อัตโนมัติ — ผู้ใช้: "ไม่สวยเลย" (บาง เล็ก ไม่กลืนกับภาพ)
+// ตอนนี้ให้ Flow วาดชื่อเองโดยแนบลายพู่กันจริงเป็นต้นแบบ (core/title-lettering.js) · พิมพ์ทับเฉพาะเมื่อผู้ใช้เลือกเอง
 export const coverTextBaked = (book) => {
   if (book?.imageSource !== 'flow') return (book?.coverTextMode || 'baked') === 'baked';
-  if (book?.coverTextMode === 'typeset') return false;
-  if ((book?.language || 'th') === 'th' && FLOW_TYPESET_FAMILIES.has(resolveCoverTypography(book).family)) return false;
-  return true;
+  return book?.coverTextMode !== 'typeset';
 };
 
 /**
