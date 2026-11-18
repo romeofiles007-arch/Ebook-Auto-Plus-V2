@@ -14,6 +14,7 @@ import { sourceBlock as userSource, sourceOnlyRule, sourceReviewNote, sourceFing
 import { chineseOutlineKit, chineseSceneKit, chineseIdeaNote, chineseRecipeText, CHINESE_REVIEW_CHECK } from './chinese-ancient.js';
 import { coverTypographyRule } from './cover-fonts.js';
 import { genreSceneKit, genreOutlineKit, genreIdeaNote, genreRecipeText, genreReviewCheck } from './genre-recipes.js';
+import { shortDramaOutlineKit, shortDramaSceneKit, shortDramaReviewCheck, shortDramaIdeaNote } from './short-drama.js';
 
 // นิยายจีนโบราณ (core/chinese-ancient.js) — ทุกจุดที่แนบคลังข้อมูลต้องถามผ่านตัวนี้ แนวอื่นจึงได้ข้อความเดิมทุกตัวอักษร
 const isChinese = (book) => book?.fictionGenre === 'chinese';
@@ -23,6 +24,11 @@ const genreNote = (contentMode, fictionGenre, genreStory, after = '') => {
   return note ? note + after : '';
 };
 const bookGenreStory = (book) => (book?.contentMode === 'fiction' ? book.genreStory : null);
+/** จังหวะละครแนวตั้ง (core/short-drama.js) — ไม่ได้เลือก = '' */
+const pacingNote = (contentMode, fictionPacing, after = '') => {
+  const note = shortDramaIdeaNote(contentMode, fictionPacing);
+  return note ? note + after : '';
+};
 const lineIf = (text) => (text ? text + '\n' : '');
 
 // ขั้นคิดชื่อ/เสนอสารบัญยังไม่มีเล่ม — หน้าตั้งค่าส่ง { sourceMaterial, sourceOnly, sourceName } มาแทน
@@ -84,7 +90,7 @@ const FICTION_ROMANCE = {
 export const NOVEL_TITLE_RULE =
   "รูปแบบชื่อ: สั้นแบบชื่อบนปกนิยาย 2–6 คำ (ไม่เกินราว 25 ตัวอักษร) อ่านแล้วเป็น \"ชื่อ\" ไม่ใช่ประโยค — ห้ามเป็นบทพูดของตัวละคร ห้ามลงท้ายด้วยคำพูดอย่าง เจ้าค่ะ ขอรับ นะ จ้ะ ค่ะ ครับ และห้ามเล่าเหตุการณ์ยาว ๆ ในชื่อ · มุกหรือประโยคเกี่ยวเบ็ดยาว ๆ ให้ใส่ใน subtitle แทน";
 
-export function titleIdeasPrompt({ topic, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, trendSeed = null, today = '', avoidTitles = [], source = null }) {
+export function titleIdeasPrompt({ topic, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, fictionPacing = 'classic', trendSeed = null, today = '', avoidTitles = [], source = null }) {
   const trend = (trendSeed?.trend
     ? `\nหัวข้อที่ผู้ใช้เลือกจากโหมดดูกระแส: ${trendSeed.trend}${trendSeed.why_now ? `\nทำไมน่าสนใจ: ${trendSeed.why_now}` : ''}\nชื่อที่เสนอทั้งหมดต้องเกาะหัวข้อนี้ แต่ห้ามพาดหัวเกินจริง\n`
     : '') + ideaSource(source);
@@ -96,7 +102,7 @@ export function titleIdeasPrompt({ topic, audience, tone, language = 'th', conte
 กลุ่มผู้อ่าน: ${audience || 'ผู้อ่านทั่วไป'}
 โทน: ${tone || 'มีภาพชัด มีอารมณ์ และไม่เล่าตรงเกินไป'}
 ภาษา: ${language === 'th' ? 'ไทย' : 'อังกฤษ'}
-${trend}${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) + '\n' : ''}${genreNote(contentMode, fictionGenre, genreStory, '\n')}
+${trend}${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) + '\n' : ''}${genreNote(contentMode, fictionGenre, genreStory, '\n')}${pacingNote(contentMode, fictionPacing, '\n')}
 เสนอชื่อนิยาย 8 ตัวเลือก ชื่อแต่ละอันต้องให้ภาพหรือความรู้สึก ไม่สปอยล์จุดหักมุม ไม่ใช้ชื่อแนวคู่มือ และไม่ใส่คำโปรยขายของเกินจริง
 ${NOVEL_TITLE_RULE}
 ตอบเป็น JSON ในบล็อกโค้ดเดียวชนิด json ห้ามมีข้อความนอกบล็อก:
@@ -133,9 +139,9 @@ angle ต้องบอกผู้อ่านที่เจาะจง ป�
  * "รายการหัวข้อให้เลือก" แล้วเอาไปตั้งชื่อต่อ ตอนนี้จึงเหลือคำถามเดียว คำตอบเดียว
  * หัวข้อที่ได้เป็นแค่จุดตั้งต้นของชื่อเล่ม ไม่ได้ถูกอ้างเป็นข้อเท็จจริงในเนื้อหนังสือ
  */
-export function trendIdeasPrompt({ seed = '', audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, today = '' }) {
+export function trendIdeasPrompt({ seed = '', audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, fictionPacing = 'classic', today = '' }) {
   const mode = contentMode === 'fiction'
-    ? fictionGenre === 'chinese' ? `นิยายจีนโบราณ — ${chineseRecipeText(chineseStory)}` : `นิยายแนว ${fictionGenreName(fictionGenre)}${genreStory && genreRecipeText(fictionGenre, genreStory) ? ` — ${genreRecipeText(fictionGenre, genreStory)}` : ''}`
+    ? fictionGenre === 'chinese' ? `นิยายจีนโบราณ — ${chineseRecipeText(chineseStory)}` : `นิยายแนว ${fictionGenreName(fictionGenre)}${genreStory && genreRecipeText(fictionGenre, genreStory) ? ` — ${genreRecipeText(fictionGenre, genreStory)}` : ''}${fictionPacing === 'shortdrama' ? ' · จังหวะละครแนวตั้ง (เปิดแรง ตัวตนลับ ตบหน้าถี่)' : ''}`
     : contentMode === 'items'
       ? 'หนังสือรายชิ้น (แตกเป็นหลายหมวดได้)'
       : 'หนังสือ non-fiction';
@@ -159,7 +165,7 @@ ${seed ? `ผู้ใช้สนใจแนวนี้เป็นพิเ�
 }
 
 /** เสนอ "ทางเดินของสารบัญ" หลายแบบ ก่อนสร้าง outline รายละเอียดจริง */
-export function outlineDirectionsPrompt({ title, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, targetPages = 120, genreBrief = '', trendSeed = null, source = null }) {
+export function outlineDirectionsPrompt({ title, audience, tone, language = 'th', contentMode = 'prose', fictionGenre = 'fantasy', chineseStory = null, genreStory = null, fictionPacing = 'classic', targetPages = 120, genreBrief = '', trendSeed = null, source = null }) {
   const sourceBlock = (trendSeed?.trend
     ? `\nหัวข้อตั้งต้นที่ต้องยึดเป็นบริบท:\n- ${trendSeed.trend}${trendSeed.why_now ? `\n- ทำไมน่าสนใจ: ${trendSeed.why_now}` : ''}\nหัวข้อนี้ยังไม่ได้ผ่านการตรวจแหล่งข้อมูล ถ้าสารบัญต้องพึ่งตัวเลขหรือเหตุการณ์ปัจจุบัน ให้ระบุว่าเป็น "สิ่งที่จะต้องค้นเพิ่ม"\n`
     : '') + ideaSource(source);
@@ -170,7 +176,7 @@ export function outlineDirectionsPrompt({ title, audience, tone, language = 'th'
 ผู้อ่าน: ${audience || 'ผู้อ่านทั่วไป'}
 โทน: ${tone || '-'}
 ความยาวประมาณ: ${targetPages} หน้า
-${sourceBlock}${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) + '\n' : ''}${genreNote(contentMode, fictionGenre, genreStory, '\n')}
+${sourceBlock}${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) + '\n' : ''}${genreNote(contentMode, fictionGenre, genreStory, '\n')}${pacingNote(contentMode, fictionPacing, '\n')}
 แต่ละทางต้องต่างกันที่แกนความขัดแย้ง การเปลี่ยนแปลงตัวละคร และชนิดของแรงส่ง ไม่ใช่แค่เปลี่ยนชื่อบท
 ให้เห็นสารบัญระดับบท 6-14 บทตามความยาว แต่ยังไม่ต้องแตกฉากละเอียด
 ตอบเป็น JSON ในบล็อกโค้ดเดียวชนิด json ห้ามมีข้อความนอกบล็อก:
@@ -217,6 +223,7 @@ export function outlinePolishPrompt({
   fictionGenre = 'fantasy',
   chineseStory = null,
   genreStory = null,
+  fictionPacing = 'classic',
   targetPages = 120,
   genreBrief = '',
   round = 1,
@@ -228,7 +235,7 @@ export function outlinePolishPrompt({
 
   const kindNote =
     contentMode === 'fiction'
-      ? `เป็นนิยายแนว ${fictionGenreName(fictionGenre)} — chapters คือบท และ purpose คือสิ่งที่เปลี่ยนในบทนั้น${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) : ''}${genreNote(contentMode, fictionGenre, genreStory)}`
+      ? `เป็นนิยายแนว ${fictionGenreName(fictionGenre)} — chapters คือบท และ purpose คือสิ่งที่เปลี่ยนในบทนั้น${fictionGenre === 'chinese' ? chineseIdeaNote(chineseStory) : ''}${genreNote(contentMode, fictionGenre, genreStory)}${pacingNote(contentMode, fictionPacing)}`
       : contentMode === 'items'
         ? 'เป็นหนังสือรายชิ้น — chapters คือหมวด และ purpose คือมุมของหมวดนั้น'
         : `แนวหนังสือ: ${genreBrief || 'non-fiction'}`;
@@ -545,7 +552,7 @@ function fictionOutlinePrompt(book, retryErrors = null) {
 ความยาวประมาณ: ${book.targetPages} หน้า
 มุมมอง: ${pov}
 ตอนจบ: ${ending}
-เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}${userSource(book, { stage: 'outline' })}${sourceOnlyRule(book, 'fiction')}${isChinese(book) ? chineseOutlineKit(book.chineseStory) : ''}${genreOutlineKit(book.fictionGenre, bookGenreStory(book))}
+เส้นความรัก: ${romance}${planningSeed(book)}${castSeedBlock(book)}${userSource(book, { stage: 'outline' })}${sourceOnlyRule(book, 'fiction')}${isChinese(book) ? chineseOutlineKit(book.chineseStory) : ''}${genreOutlineKit(book.fictionGenre, bookGenreStory(book))}${shortDramaOutlineKit(book)}
 
 หลักการวางเรื่อง
 1. สร้าง dramatic premise และ theme ชัด แต่ห้ามให้ตัวละครพูดธีมตรง ๆ
@@ -563,6 +570,13 @@ function fictionOutlinePrompt(book, retryErrors = null) {
 13. ให้ตัวละครอย่างน้อยหนึ่งคน (นอกจากตัวเอก) มีจุดยืนที่ขัดกับตัวเอกด้วยเหตุผลที่ฟังขึ้น ไม่ใช่ตัวร้ายกระดาษ เพื่อให้ความขัดแย้งมีมิติทางความคิดไม่ใช่แค่มิติการกระทำ
 14. ทุกฉาก แม้จะสั้นแค่ไหน ต้องมีจุดขัดแย้ง (conflict) และจุดเปลี่ยน (turn) ของตัวเอง แต่ไม่ใช่ทุกฉากต้องแรงกว่าฉากก่อนหน้าเป๊ะ ๆ — ฉากพักจังหวะ/ครุ่นคิดตามข้อ 4 ยังใช้ได้ปกติ สิ่งที่ต้อง "ยกระดับขึ้นเรื่อย ๆ ไม่ถอยหลัง" คือจุดเปลี่ยนหลักระดับบท (สิ่งที่บันทึกไว้ใน chapters[].objective/adds ของแต่ละบท) ไม่ใช่ทุกฉากย่อยในบทเดียวกัน — เรียงบันไดจุดเปลี่ยนหลักระดับบทนี้ให้พุ่งไปสู่ "ฉากพีค" (climax) หนึ่งฉากที่ระบุชัดว่าคือบท/ฉากไหน ซึ่งอยู่ใกล้ท้ายเล่ม เป็นจุดที่ความขัดแย้งหลักบีบตัวเอกให้ตัดสินใจครั้งสำคัญที่สุดและเดิมพันสูงสุด ถ้าเล่มสั้น (บทเดียวหรือไม่กี่ฉาก) ให้อัดบันไดนี้ให้ถี่และแรงขึ้นแทนที่จะตัดออก อย่างน้อยต้องมี: จุดปะทุความขัดแย้งช่วงต้น → จุดเปลี่ยนที่ยกเดิมพันอย่างน้อย 1 จุดกลางเรื่อง → ฉากพีคท้ายเรื่อง
 15. ปูเบาะแสอย่างน้อย 1 เส้นที่ทำให้ผู้อ่านคาดเดาไปทางหนึ่ง (misdirection ที่สมเหตุสมผล ไม่ใช่โกหกคนอ่านตรง ๆ) แล้วให้ฉากพีคหรือจุดเปลี่ยนสำคัญพลิกความเข้าใจนั้นด้วยเบาะแสที่ปูไว้แล้วจริง (ย้อนกลับไปตรวจได้) ไม่ใช่ข้อมูลใหม่ที่เพิ่งโผล่ตอนจบ — เป้าหมายคือให้จุดพีค "คาดไม่ถึงแต่ย้อนคิดแล้วสมเหตุสมผล"
+16. เปิดเล่มด้วยแรงดึง: ฉากแรกของบทที่ 1 ต้องเริ่มในสถานการณ์ที่มีบางอย่างกำลังเสี่ยงหรือกำลังเปลี่ยน ไม่ใช่ปูประวัติ บรรยายโลก หรือฉากตื่นนอน ข้อมูลพื้นหลังค่อยซึมเข้ามาในฉากหลัง ๆ — ความดังของวิกฤตให้เข้ากับแนวและโทน (นิยายเงียบ ๆ เปิดด้วยความผิดปกติเล็ก ๆ ได้)
+17. ความลับที่ผู้อ่านรู้ก่อนตัวละคร: วางอย่างน้อย 1 เรื่องที่ผู้อ่านรู้แต่ตัวละครสำคัญบางคนยังไม่รู้ (ตัวตนจริง ฐานะ ความสัมพันธ์ หรือแผนของใครบางคน) จดใน promises ของบทที่ปูพร้อมบทที่จะเฉลย และให้มีฉากที่ความลับนี้เกือบแตกเป็นระยะ — การรอดูว่าเมื่อไรจะรู้คือแรงดึงให้อ่านต่อ ต่างจากข้อ 15 ที่พาผู้อ่านเข้าใจผิด
+18. จุดเฉลยหรือจุดพลิกใหญ่ควรเกิดต่อหน้าคนที่มีส่วนได้เสีย ให้เห็นปฏิกิริยาของคนที่เคยเข้าใจผิดหรือเคยดูถูก ไม่ใช่รู้ลำพังหรือเล่าย้อนหลัง
+19. ผลของการกระทำต้องสมน้ำสมเนื้อ: คนที่ทำร้ายหรือเอาเปรียบตัวเอกต้องได้รับผลในเรื่อง ไม่หายไปเฉย ๆ และผลควรย้อนมาจากการกระทำหรือแผนของเขาเอง
+20. ตัวเอกต้องผ่านจุดเปลี่ยนสำคัญด้วยการตัดสินใจ ความสามารถ หรือสิ่งที่ตัวเองเตรียมหรือปูไว้ ไม่ใช่รอให้คนอื่นมาช่วยทุกครั้ง
+21. ของเรียกกลับ: วางประโยค คำสัญญา หรือสิ่งของอย่างน้อย 1 อย่างช่วงต้นเล่ม ให้กลับมามีความหมายใหม่ในฉากพีคหรือตอนจบ จดใน promises
+22. เดิมพันต้องจับต้องได้: ระบุสิ่งที่จะได้หรือเสียให้เห็นภาพ (เงินเท่าไร ตำแหน่งอะไร ใครจะเจ็บ เส้นตายเมื่อไร) แทนคำนามธรรม
 ${retryErrors ? `\nคำตอบก่อนหน้าไม่ผ่าน schema แก้ให้ครบ:\n- ${retryErrors.join('\n- ')}\n` : ''}
 
 ตอบเป็น JSON ในบล็อกโค้ดเดียว ตาม schema นี้เป๊ะ ๆ
@@ -868,7 +882,7 @@ function fictionBookContext(book, outline, bible, chapter) {
 ตอนจบที่ผู้ใช้เลือก: ${FICTION_ENDING[book.fictionEnding] || FICTION_ENDING.auto}
 เส้นเรื่องความรัก: ${FICTION_ROMANCE[book.fictionRomance] || FICTION_ROMANCE.subplot}
 โทนภาษา: ${outline.voice_card || book.tone}
-${book.trendSeed?.trend ? `แรงบันดาลใจจากกระแสที่เลือก: ${book.trendSeed.trend} — ใช้เฉพาะแกน/คำถามร่วมสมัย ห้ามคัดลอกบุคคลจริง เหตุการณ์จริง หรือเปลี่ยนนิยายให้เป็นข่าว` : ''}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}
+${book.trendSeed?.trend ? `แรงบันดาลใจจากกระแสที่เลือก: ${book.trendSeed.trend} — ใช้เฉพาะแกน/คำถามร่วมสมัย ห้ามคัดลอกบุคคลจริง เหตุการณ์จริง หรือเปลี่ยนนิยายให้เป็นข่าว` : ''}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}${shortDramaSceneKit(book)}
 
 ${cast ? `ตัวละคร canon\n${cast}\n\n` : ''}${list('กฎของโลก/ข้อเท็จจริง canon', world)}${list(H_FACTS, facts)}${list(H_TIMELINE, timeline)}${list(H_RELATIONS, relationships)}${list(H_THREADS, threads)}${done ? `${H_DONE}\n${done}\n\n` : ''}บทที่ ${chapter.n}: ${chapter.title}
 หน้าที่ของบทนี้: ${chapter.objective || '-'}
@@ -1032,11 +1046,16 @@ function fictionBatchPrompt({ book, outline, bible, chapter, sections, prevSumma
     ? `\nท้ายฉากก่อนหน้าคำต่อคำ — ต่อเวลา สถานที่ และอารมณ์จากตรงนี้ ห้ามคัดลอกหรือทวนซ้ำ (ถ้าแผนของฉากนี้ข้ามเวลาหรือเปลี่ยนสถานที่ ให้ข้ามได้ตามแผน)\n"...${String(prevTail).slice(-400)}"\n`
     : '';
   const endingChoice = FICTION_ENDING[book.fictionEnding] || FICTION_ENDING.auto;
+  // ฉากเปิดเล่มคือหน้าที่คนตัดสินใจว่าจะอ่านต่อไหม — ละครแนวตั้งทุกเรื่องที่ศึกษาเข้าวิกฤตภายใน 2 นาที
+  const firstId = outline?.chapters?.[0]?.sections?.[0]?.id;
+  const opening = firstId && sections.some((s) => s.id === firstId)
+    ? `\nฉาก ${firstId} คือฉากเปิดเล่ม — ย่อหน้าแรกต้องอยู่ในเหตุการณ์ที่มีบางอย่างกำลังเสี่ยงหรือกำลังเปลี่ยนแล้ว ห้ามเปิดด้วยการบรรยายอากาศ ประวัติตัวละคร การตื่นนอน หรือการแนะนำโลก ภายในหน้าแรกผู้อ่านต้องรู้ว่าตัวเอกต้องการอะไรและอะไรขวางอยู่\n`
+    : '';
 
   return `${fictionBookContext(book, outline, bible, chapter)}${sectionSource(book, chapter, sections)}\n\nเขียนฉากนิยาย ${sections.length} ฉากต่อไปนี้ให้ครบในคำตอบเดียว รวมราว ${total.toLocaleString()} ${u}
 
 ${blocks}
-${prevSummaries?.length ? `\nฉากก่อนหน้าเกิดอะไรขึ้น\n${prevSummaries.map((s) => `- ${s}`).join('\n')}\n` : ''}${tail}${nextSection ? `\nฉากถัดไปคือ "${nextSection.title}" — จบให้มีแรงส่งถึงฉากนั้น แต่ห้ามเขียนเหตุการณ์ของฉากถัดไปแทน\n` : sections.length > 1
+${opening}${prevSummaries?.length ? `\nฉากก่อนหน้าเกิดอะไรขึ้น\n${prevSummaries.map((s) => `- ${s}`).join('\n')}\n` : ''}${tail}${nextSection ? `\nฉากถัดไปคือ "${nextSection.title}" — จบให้มีแรงส่งถึงฉากนั้น แต่ห้ามเขียนเหตุการณ์ของฉากถัดไปแทน\n` : sections.length > 1
     ? `\nชุดนี้คือฉากสุดท้ายของทั้งเล่ม แต่มีหลายฉากในคำตอบเดียวกัน — เฉพาะฉาก "${sections[sections.length - 1].title}" (ฉากท้ายสุดในชุดนี้) เท่านั้นที่เป็นฉากพีค (climax): ความขัดแย้งหลักบีบให้ตัวเอกตัดสินใจครั้งสำคัญที่สุด เดิมพันสูงสุดในเรื่อง และพลิกด้วยเบาะแสที่ปูไว้แล้วจริงจากฉากก่อนหน้า (ไม่ใช่ข้อมูล/ความสามารถใหม่ที่เพิ่งโผล่) ให้จบแบบ "คาดไม่ถึงแต่ย้อนคิดแล้วสมเหตุสมผล" แล้วจบเรื่องให้สมบูรณ์ตามตอนจบที่ผู้ใช้เลือก (${endingChoice}) ห้ามค้างคาแบบยังไม่จบ ส่วนฉากก่อนหน้านั้นในชุดนี้ต้องยังคงไต่ระดับความเข้มข้นขึ้นไปหาฉากพีค ห้ามคลี่คลายความขัดแย้งหลักก่อนถึงฉากสุดท้าย\n`
     : `\nนี่คือฉากสุดท้ายของทั้งเล่ม — ต้องเป็นฉากพีค (climax): ความขัดแย้งหลักบีบให้ตัวเอกตัดสินใจครั้งสำคัญที่สุด เดิมพันสูงสุดในเรื่อง และพลิกด้วยเบาะแสที่ปูไว้แล้วจริงจากฉากก่อนหน้า (ไม่ใช่ข้อมูล/ความสามารถใหม่ที่เพิ่งโผล่) ให้จบแบบ "คาดไม่ถึงแต่ย้อนคิดแล้วสมเหตุสมผล" แล้วจบเรื่องให้สมบูรณ์ตามตอนจบที่ผู้ใช้เลือก (${endingChoice}) ห้ามค้างคาแบบยังไม่จบ\n`}
 กติกาการเขียนนิยาย
@@ -1050,6 +1069,10 @@ ${prevSummaries?.length ? `\nฉากก่อนหน้าเกิดอะ
 - ทุกฉากต้องมีแรงต้านและจุดเปลี่ยนตามแผน แต่ห้ามทำให้ beats ดูเหมือน checklist
 - รักษาชื่อ รูปลักษณ์ ความสามารถ บาดแผล สิ่งของ เวลา ระยะทาง และกฎโลกตาม Story Bible
 - ห้ามแก้ปัญหาด้วยความสามารถ วัตถุ หรือข้อมูลใหม่ที่ไม่เคยปู
+- ห้ามเฉลยความลับหรือตัวตนที่โครงเรื่องวางไว้ก่อนบทที่กำหนด ถ้าฉากนี้ให้ความลับเกือบแตก ให้เกือบจริงแต่ยังไม่แตก
+- เมื่อมีการพลิก การเฉลย หรือคนที่เคยดูถูกตัวเอกได้รับผล ให้เห็นปฏิกิริยาของคนที่อยู่ในเหตุการณ์ ไม่ใช่สรุปว่า "ทุกคนตกใจ"
+- เดิมพันและรางวัลให้เป็นของจับต้องได้ (ตัวเลข สิ่งของ ตำแหน่ง เวลา) ไม่ใช่คำนามธรรม
+- ห้ามจบบทหรือฉากด้วยการสรุปบทเรียน ข้อคิด หรือสิ่งที่เพิ่งเกิด ให้จบที่การกระทำ คำพูด ภาพ หรือคำถามที่ค้างอยู่
 - ห้ามใช้หัวข้อ markdown ภายในเนื้อเรื่อง เว้นแต่มีข้อความในโลกเรื่องที่จำเป็นจริง
 - เขียน markdown ล้วน ย่อหน้าตามธรรมชาติของนิยาย
 
@@ -1167,7 +1190,7 @@ function fictionRewritePrompt({ book, section, currentText, targetChars, instruc
 ${instruction ? `คำสั่งจาก editor: ${instruction}\n` : ''}ความยาวเป้าหมาย ${targetChars.toLocaleString()} ${u} (เดิม ${(section.chars || 0).toLocaleString()} ${u})
 POV: ${section.povCharacter || section.pov_character || book.fictionPov || 'ตาม Story Bible'}
 สถานที่: ${section.location || '-'} · เวลา: ${section.time || '-'}
-สิ่งที่ห้ามหาย: ${(section.takeaways || []).join(' · ') || 'เหตุการณ์และผลลัพธ์เดิมทั้งหมด'}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}
+สิ่งที่ห้ามหาย: ${(section.takeaways || []).join(' · ') || 'เหตุการณ์และผลลัพธ์เดิมทั้งหมด'}${isChinese(book) ? chineseSceneKit(book.chineseStory) : ''}${genreSceneKit(book.fictionGenre, bookGenreStory(book))}${shortDramaSceneKit(book)}
 
 ${grow ? `ขยายด้วยการเพิ่มรายละเอียดเชิงฉากเท่านั้น: ปฏิกิริยาตัวละคร การกระทำย่อย tension ประสาทสัมผัส subtext หรือผลของการตัดสินใจ ห้ามสร้าง subplot/ตัวละคร/พลัง/ข้อมูลใหม่เพื่อเติมความยาว` : `ย่อโดยตัดคำอธิบายซ้ำ การบอกอารมณ์ที่การกระทำแสดงอยู่แล้ว และจังหวะที่ไม่เปลี่ยนสถานะฉาก ห้ามตัดเหตุการณ์ เบาะแส setup/payoff หรือการเปลี่ยนความสัมพันธ์`}
 
@@ -1290,10 +1313,10 @@ ${bible.chapterSummaries?.length ? `บทก่อนหน้า\n${bible.chap
 2. POV หลุดหรือ head-hop หรือไม่
 3. เวลา สถานที่ ระยะทาง กลางวัน/กลางคืน และลำดับเหตุการณ์ขัดกันหรือไม่
 4. กฎโลก เทคโนโลยี เวทมนตร์ หรือข้อจำกัดถูกฝ่าฝืนโดยไม่มีคำอธิบายหรือไม่
-5. setup, clue, secret, promise หรือปมเปิดถูกลืม ปิดเร็วเกิน หรือ payoff โดยไม่ได้ปูหรือไม่
+5. setup, clue, secret, promise หรือปมเปิดถูกลืม ปิดเร็วเกิน หรือ payoff โดยไม่ได้ปูหรือไม่ — รวมถึงความลับที่ผู้อ่านรู้ล่วงหน้าถูกเฉลยก่อนบทที่วางไว้ และคนที่ทำร้ายตัวเอกหายไปจากเรื่องโดยไม่ได้รับผล
 6. ความสัมพันธ์เปลี่ยนเร็วเกินเหตุ หรือปฏิกิริยาทางอารมณ์ไม่ต่อเนื่องหรือไม่
-7. ฉากใดซ้ำหน้าที่เดิมหรือไม่มีการเปลี่ยนสถานะของเรื่องหรือไม่
-${isChinese(book) ? CHINESE_REVIEW_CHECK + '\n' : ''}${lineIf(genreReviewCheck(book.fictionGenre, bookGenreStory(book)))}
+7. ฉากใดซ้ำหน้าที่เดิมหรือไม่มีการเปลี่ยนสถานะของเรื่องหรือไม่ — รวมถึงฉากเปิดเล่มที่เริ่มช้าด้วยการปูพื้นหลัง หรือจุดพลิกสำคัญที่ตัวเอกรอคนอื่นมาแก้ให้
+${isChinese(book) ? CHINESE_REVIEW_CHECK + '\n' : ''}${lineIf(genreReviewCheck(book.fictionGenre, bookGenreStory(book)))}${lineIf(shortDramaReviewCheck(book))}
 ตอบเป็น JSON ในบล็อกโค้ดเดียว
 \`\`\`json
 {

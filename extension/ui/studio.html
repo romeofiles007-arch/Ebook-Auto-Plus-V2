@@ -536,6 +536,15 @@
           <option value="main">เป็นเส้นเรื่องหลัก</option>
         </select>
       </div>
+      <!-- จังหวะการเล่า (core/short-drama.js) — ค่าเริ่มต้น classic = prompt เหมือนเดิม -->
+      <div class="field">
+        <label class="settingLabel" for="fictionPacing"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg>จังหวะการเล่า</label>
+        <select id="fictionPacing">
+          <option value="classic" selected>นิยายทั่วไป — จังหวะตามแนวเรื่อง</option>
+          <option value="shortdrama">ละครแนวตั้ง — เปิดแรง ตัวตนลับ ตบหน้าถี่ อ่านติด</option>
+        </select>
+        <p class="muted">ละครแนวตั้งเหมาะกับโรแมนติก ดราม่า และจีนโบราณ — เปิดเรื่องด้วยวิกฤต ซ่อนตัวตนหลายชั้น โดนดูถูกแล้วเอาคืนในฉากเดียวกัน และเฉลยใหญ่ต่อหน้าคนทั้งงาน</p>
+      </div>
     </div>
     <!-- นิยายจีนโบราณ (core/chinese-ancient.js) — โผล่เมื่อเลือกแนว "จีนโบราณ" เท่านั้น ตัวเลือกถูกเติมจาก studio.js -->
     <div class="cnOpts" id="cnOpts" hidden>

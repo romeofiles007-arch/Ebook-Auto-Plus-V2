@@ -1561,6 +1561,7 @@ async function nameFromTopic({ box = $('trendIdeas'), fresh = false } = {}) {
         fictionGenre: val('fictionGenre', 'fantasy'),
         chineseStory: formChineseStory(),
         genreStory: formGenreStory(),
+        fictionPacing: val('fictionPacing', 'classic'),
         trendSeed,
         today: new Date().toISOString().slice(0, 10),
         avoidTitles: await previousTitles(),
@@ -1740,6 +1741,7 @@ async function generateTrendIdeas() {
         fictionGenre: val('fictionGenre', 'fantasy'),
         chineseStory: formChineseStory(),
         genreStory: formGenreStory(),
+        fictionPacing: val('fictionPacing', 'classic'),
         today: new Date().toISOString().slice(0, 10),
       }),
       { label: 'ถามหัวข้อที่น่าสนใจ' },
@@ -1789,6 +1791,7 @@ async function generateOutlineDirections() {
         fictionGenre,
         chineseStory: formChineseStory(),
         genreStory: formGenreStory(),
+        fictionPacing: val('fictionPacing', 'classic'),
         targetPages: Math.max(5, Number($('pages').value) || 120),
         genreBrief: contentMode === 'fiction' ? fictionBrief(fictionGenre) : GENRE_LABEL[genre],
         trendSeed,
@@ -1958,6 +1961,7 @@ async function polishUserOutline() {
         fictionGenre,
         chineseStory: formChineseStory(),
         genreStory: formGenreStory(),
+        fictionPacing: val('fictionPacing', 'classic'),
         targetPages: Math.max(5, Number($('pages').value) || 120),
         genreBrief: contentMode === 'fiction' ? fictionBrief(fictionGenre) : GENRE_LABEL[genre],
         round: inspirePolishRound,
@@ -2041,6 +2045,7 @@ async function generateTitleIdeas() {
         fictionGenre: val('fictionGenre', 'fantasy'),
         chineseStory: formChineseStory(),
         genreStory: formGenreStory(),
+        fictionPacing: val('fictionPacing', 'classic'),
         trendSeed,
         today: new Date().toISOString().slice(0, 10),
         avoidTitles: await previousTitles(),
@@ -2495,6 +2500,7 @@ function readForm() {
     chineseStory: formChineseStory(),
     // สูตรของแนวอื่น (core/genre-recipes.js) — ไม่ได้เลือกอะไร = null prompt จึงเหมือนเดิม
     genreStory: formGenreStory(),
+    fictionPacing: val('fictionPacing', 'classic'),
     fictionPov: val('fictionPov', 'third-limited'),
     fictionEnding: val('fictionEnding', 'auto'),
     fictionRomance: val('fictionRomance', 'subplot'),
@@ -6428,7 +6434,7 @@ function updateItemPlan() {
 ['audience', 'tone'].forEach((id) =>
   $(id).addEventListener('input', () => markOutlineStale('ผู้อ่าน/โทนเปลี่ยน')),
 );
-['genre', 'fictionGenre', 'fictionPov', 'fictionEnding', 'fictionRomance'].forEach((id) =>
+['genre', 'fictionGenre', 'fictionPov', 'fictionEnding', 'fictionRomance', 'fictionPacing'].forEach((id) =>
   $(id).addEventListener('change', () => markOutlineStale('แนวหนังสือเปลี่ยน')),
 );
 mountChineseOpts();
