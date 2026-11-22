@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 19;
+  const ADAPTER_REV = 20;
 
   /**
    * ตัวขับที่ถูกตัดขาด (กดโหลดส่วนขยายใหม่ระหว่างงาน) ยังวิ่งงานค้างต่อในหน้าเดิมได้ แล้วชนกับตัวขับใหม่ในหน้าเดียวกัน
@@ -1292,7 +1292,15 @@
   const agentBusy = () => !!byAria(AL.stop).find(visible);
   const agentSettingsTrigger = () => {
     if (!agentOn()) return null;
-    return scopedAgentSettings() || scopedAgentSettings(true);
+    /**
+     * พ.ย. 2026: ปุ่มในช่องพิมพ์เป็น button.agent-action-button aria-label="การตั้งค่า Agent" (ไอคอน settings_2)
+     * ชื่อไม่ตรง "Settings"/"การตั้งค่า" เป๊ะ ตัวหาแบบเดิมจึงไม่เจอ → "รอ ปุ่ม Settings ข้าง Agent ไม่เจอ" (เห็นจริง)
+     */
+    return (
+      $$('flow-prompt-box button.agent-action-button, flow-base-prompt-box button.agent-action-button').find(visible) ||
+      scopedAgentSettings() ||
+      scopedAgentSettings(true)
+    );
   };
   const AGENT_GAP_MS = 2 * 60000; // เว้นอย่างน้อย 2 นาทีระหว่างข้อความที่ส่งให้ Agent (ค่าเดียวกับโปรเจกต์ Youtube)
   let lastAgentPromptAt = 0;
@@ -1325,6 +1333,89 @@
     return getRoot();
   }
 
+  /**
+   * แผง "การตั้งค่า Agent" รุ่น พ.ย. 2026 (ตรวจสดกับหน้าจริง 22 พ.ย. 2026)
+   *   หน้าหลัก: ยืนยันก่อนสร้าง = button[role=radio] "ทุกครั้ง" / "ไม่เลย" · แถว button.image-defaults-row
+   *            สรุปค่า "🍌 Nano Banana 2 Lite, 4:3, 1 เอาต์พุต" · ไม่มีปุ่มบันทึก
+   *   กดแถวนั้น → หน้าย่อย "ค่าเริ่มต้นของรูปภาพ": โมเดล = label.radio-option (ตัวที่เลือกมี radio-option-selected)
+   *            สัดส่วน/จำนวน = button[role=radio] · ปุ่ม ← aria-label "กลับ"
+   *   ค่าที่กดบันทึกเองทันที (ปิดแล้วเปิดใหม่ค่ายังอยู่) — ออกด้วย ← สองชั้น
+   * ค่าตั้งต้นของ project ใหม่คือ Nano Banana 2.1 · x2 — ไม่ตั้งให้ตรง = Agent วาดด้วยรุ่นที่ไม่ใช่ 0 เครดิต
+   */
+  async function configureAgentRows(model, ratio, openPanel) {
+    const panel = () => (visible(agentPanel()) ? agentPanel() : null);
+    const radios = () => $$('button[role="radio"]', panel() ?? document);
+    const on = (b) => b?.getAttribute('aria-checked') === 'true';
+    const pick = (label) => radios().find((b) => text(b).split(' ').pop() === label);
+    const sub = () => {
+      const p = panel();
+      return p && $$('label.radio-option', p).some(visible) ? p : null;
+    };
+
+    const never = () => radios().find((b) => AL.never.test(text(b)));
+    if (!never()) throw new Error('ไม่พบตัวเลือก "ไม่เลย" ในการตั้งค่า Agent — หน้า Google Flow อาจเปลี่ยน');
+    if (!on(never())) {
+      realClick(never());
+      await waitFor(() => on(never()), { timeout: 4000, label: 'ตั้ง ยืนยันก่อนสร้าง = ไม่เลย' }).catch(() => null);
+    }
+    if (!on(never())) throw new Error('ตั้ง "ยืนยันก่อนสร้าง: ไม่เลย" ใน Agent ไม่สำเร็จ — ตั้งเองแล้วสั่งใหม่');
+
+    if (!sub()) {
+      const row = await waitFor(() => $$('button.image-defaults-row', panel() ?? document).find(visible), {
+        timeout: 5000,
+        label: 'แถวค่าเริ่มต้นของรูปภาพ',
+      });
+      realClick(row);
+      await waitFor(sub, { timeout: 5000, label: 'หน้าค่าเริ่มต้นของรูปภาพ' });
+    }
+    const read = () => {
+      const p = sub();
+      if (!p) return null;
+      const checkedRadio = (re) => text(radios().find((b) => on(b) && re.test(text(b)))).split(' ').pop();
+      return {
+        model: text($$('label.radio-option-selected', p)[0]),
+        ratio: checkedRadio(/:/),
+        count: checkedRadio(/(^|\s)x\d$/),
+      };
+    };
+    const ok = (st) => !!st && sameModel(st.model, model) && st.ratio === ratio && st.count === 'x1';
+    for (let attempt = 1; attempt <= 3 && !ok(read()); attempt++) {
+      const st = read();
+      if (!st) throw new Error('หน้าค่าเริ่มต้นของรูปภาพใน Agent ปิดไปเอง');
+      if (!sameModel(st.model, model)) {
+        const opt = $$('label.radio-option', sub()).find((l) => visible(l) && sameModel(text(l), model));
+        if (!opt) throw new Error(`ไม่พบโมเดล ${model} ในค่าเริ่มต้นของรูปภาพของ Agent`);
+        realClick(opt);
+        await sleep(500);
+      }
+      for (const label of [ratio, 'x1']) {
+        const btn = pick(label);
+        if (!btn) throw new Error(`ไม่พบตัวเลือก ${label} ในค่าเริ่มต้นของรูปภาพของ Agent`);
+        if (!on(btn)) {
+          realClick(btn);
+          await sleep(400);
+        }
+      }
+    }
+    if (!ok(read())) {
+      const st = read() ?? {};
+      throw new Error(
+        `ตั้งค่าเริ่มต้นของรูปภาพใน Agent ไม่สำเร็จ (ตอนนี้: ${st.model || '?'} · ${st.ratio || '?'} · ${st.count || '?'}) — ตั้งเองเป็น ${model} · ${ratio} · x1 แล้วสั่งใหม่`,
+      );
+    }
+
+    // Flow บันทึกเองทันทีที่เลือก — กด ← จนออกจากแผง (หน้าย่อย → หน้าหลัก → ปิด)
+    for (let i = 0; i < 3 && (sub() || openPanel()); i++) {
+      const back = byAria(AL.back, panel() ?? document).find(visible);
+      if (!back) break;
+      realClick(back);
+      await sleep(700);
+    }
+    if (sub() || openPanel()) escape();
+    await waitFor(() => !sub() && !openPanel(), { timeout: 5000, label: 'ปิดการตั้งค่า Agent' }).catch(() => null);
+    await sleep(500);
+  }
+
   async function configureAgent(model, ratio) {
     await agentOn_();
     const openPanel = () => {
@@ -1345,6 +1436,7 @@
     }
     await waitFor(openPanel, { label: 'Agent settings' });
     await waitSettled(openPanel);
+    if ($$('button.image-defaults-row', openPanel() ?? document).length) return configureAgentRows(model, ratio, openPanel);
     // query ใหม่ทุกครั้ง — แผงวาดใหม่แล้ว element เดิมหลุดจากหน้า
     const read = () => {
       const panel = openPanel();
