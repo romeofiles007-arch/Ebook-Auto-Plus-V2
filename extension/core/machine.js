@@ -4552,6 +4552,14 @@ ${multiTheme ? '- ภาพหน้าคั่นหมวด: target เป�
       const noAuthorFace = j.kind === 'interior' && this.missingAuthorFace(existing, authorFig);
       if (existing && !rejected && !coverNeedsCleanArtwork && !coverNeedsText && !staleNovelStyle && !staleCoverPrompt && !noAuthorFace && (await validatePhase2Asset(existing, j)).ok) {
         this.log('ok', `ภาพ ${index + 1}/${jobs.length} · ${j.what}: มีไฟล์ที่ผ่านตรวจแล้ว ข้ามการสร้างซ้ำ (${j.name})`);
+        /**
+         * ข้ามภาพแต่ต้องปักธงตามภาพที่มีจริงด้วย — ทางบันทึกภาพปักธงนี้ แต่ทางข้ามเดิมไม่ปัก
+         * ธงที่หายไป (core/cover-flags.js) จึงไม่เคยกลับมา แล้วปกกางเต็มพิมพ์ชื่อเรื่อง/คำโปรยซ้อนบนภาพ
+         */
+        if (j.kind === 'cover' && typeof existing.meta?.textBaked === 'boolean') {
+          if (j.name === 'cover-front.png') this.book.frontCoverTextBaked = existing.meta.textBaked;
+          if (j.name === 'cover-back.png') this.book.backCoverTextBaked = existing.meta.textBaked;
+        }
         this.emit({ type: 'image.progress', stage: 'saved', current: index + 1, total: jobs.length, name: j.name, what: j.what });
         continue;
       }

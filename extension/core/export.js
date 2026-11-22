@@ -9,6 +9,7 @@ import { syncItemEdit, isItemBook } from './item-edit.js';
 import { backMatterSections, referenceProblem } from './references.js';
 import { stripZwsp } from './thai.js';
 import { frontCoverTextInImage, backCoverTextInImage } from './prompts.js';
+import { syncCoverTextFlags } from './cover-flags.js';
 import { resolveCoverTypography } from './cover-fonts.js';
 import { authorRefSummary, authorRefFor } from './imageRef.js';
 import { coverGeometry } from './budget.js';
@@ -97,6 +98,7 @@ export const isThemeBg = (name) => /^bg-theme-[^/]+\.png$/.test(name || '');
 const interiorAsset = (a) => !!a?.blob && (a.name?.startsWith('fig-') || a.name === 'page-pattern.png' || isThemeBg(a.name));
 
 export async function exportInterior(book, sections, { withBleed = true } = {}) {
+  await syncCoverTextFlags(book); // ปกที่มีตัวหนังสือในภาพแล้ว ห้ามพิมพ์ทับซ้ำ (core/cover-flags.js)
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
   const assets = (await db.loadAssets(book.id)).filter(interiorAsset);
   const requiredImages = assertExportImages(book, assets);
@@ -114,6 +116,7 @@ export async function exportInterior(book, sections, { withBleed = true } = {}) 
 
 /** ฉบับให้คนอ่านตรวจ — ไม่มีตัดตก มีลายน้ำ */
 export async function exportScreen(book, sections) {
+  await syncCoverTextFlags(book); // ปกที่มีตัวหนังสือในภาพแล้ว ห้ามพิมพ์ทับซ้ำ (core/cover-flags.js)
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
   const b = structuredClone(book);
   b.watermark = 'DRAFT';
@@ -137,6 +140,7 @@ export async function exportScreen(book, sections) {
  * งานพิมพ์ยังใช้ interior.pdf + cover.pdf แยกเหมือนเดิม เพราะโรงพิมพ์ต้องการปกกางเต็ม
  */
 export async function exportBookPdf(book, sections) {
+  await syncCoverTextFlags(book); // ปกที่มีตัวหนังสือในภาพแล้ว ห้ามพิมพ์ทับซ้ำ (core/cover-flags.js)
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
   const all = await db.loadAssets(book.id);
   const assets = all.filter(
@@ -214,6 +218,7 @@ function dataUrlToFile(name, dataUrl) {
 }
 
 export async function exportCover(book, { frontDataUrl, backDataUrl, authorDataUrl } = {}) {
+  await syncCoverTextFlags(book); // ปกที่มีตัวหนังสือในภาพแล้ว ห้ามพิมพ์ทับซ้ำ (core/cover-flags.js)
   const pages = book.finalPages || book.lastCompile?.pages || book.targetPages;
   const geo = coverGeometry({
     trimWmm: book.trim.widthMm,
@@ -387,6 +392,7 @@ export async function exportDocx(book, sections) {
  * เวิร์ดเปิดได้แค่ PNG/JPEG — ภาพชนิดอื่น (webp) แปลงเป็น PNG ก่อนใส่
  */
 export async function exportWordBook(book, sections) {
+  await syncCoverTextFlags(book); // ปกที่มีตัวหนังสือในภาพแล้ว ห้ามพิมพ์ทับซ้ำ (core/cover-flags.js)
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
   const images = new Map();
   const assets = (await db.loadAssets(book.id)).filter((a) => a?.blob?.size && (a.name?.startsWith('fig-') || a.name === 'cover-front.png'));
@@ -469,6 +475,7 @@ const epubMedia = (name) => EPUB_MEDIA[String(name).slice(String(name).lastIndex
  * เพราะตัวแปลง markdown ของไฟล์นี้ไม่เคยรู้จักมัน — ตอนนี้ใช้ตัวแปลงตัวเดียวกับหน้าอ่านแล้ว
  */
 export async function exportEpub(book, sections) {
+  await syncCoverTextFlags(book); // ปกที่มีตัวหนังสือในภาพแล้ว ห้ามพิมพ์ทับซ้ำ (core/cover-flags.js)
   if (referenceProblem(book)) throw new Error(referenceProblem(book));
   const title = book.outline?.title || 'book';
   const files = new Map();

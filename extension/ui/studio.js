@@ -112,6 +112,7 @@ import { preflight } from '../core/preflight.js';
 import { compileBook } from '../typeset/compiler.js';
 import { pickRandomOpener } from '../typeset/template.js';
 import * as X from '../core/export.js';
+import { syncCoverTextFlags } from '../core/cover-flags.js';
 import { cleanSource, SOURCE_LIMIT } from '../core/source-material.js';
 import { keepFigureMarkers } from '../core/figure-markers.js';
 import { checkForUpdate, recentChanges, DOWNLOAD_ZIP as UPDATE_DOWNLOAD_ZIP, CHANGES_URL as UPDATE_CHANGES_URL } from '../core/update-check.js';
@@ -5552,6 +5553,8 @@ async function renderCoverPreview() {
   coverPreviewUrl = URL.createObjectURL(asset.blob);
 
   // ปกที่ ChatGPT วาดตัวหนังสือมาให้แล้ว = ภาพนี้คือปกจริง ห้ามวาดข้อความซ้อนทับในตัวอย่าง
+  // ธงบนตัวเล่มหายได้ (core/cover-flags.js) — อ่านจากบันทึกของภาพปกเองก่อนตัดสิน
+  await syncCoverTextFlags(book, (id, name) => (name === 'cover-front.png' ? asset : db.loadAsset(id, name))).catch(() => {});
   if (frontCoverTextInImage(book)) {
     $('coverPreviewImg').src = coverPreviewUrl;
     ['coverPreviewTitle', 'coverPreviewSubtitle', 'coverPreviewAuthor'].forEach((id) =>
