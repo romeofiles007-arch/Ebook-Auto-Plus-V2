@@ -57,6 +57,7 @@ test('ช่องพิมพ์ที่จัดรูป Prompt ใหม่
   const src = adapter.slice(start, adapter.indexOf('};', adapter.indexOf('const composerMatches')) + 2);
   const ctx = { box: { innerText: '' }, S: {} };
   ctx.$ = () => ctx.box;
+  ctx.composerEl = () => ctx.box; // ช่องพิมพ์ที่มองเห็น (ดู hidden-composer.test.mjs)
   // ช่องพิมพ์มีสองแบบ (ProseMirror / textarea) — ตัวอ่านข้อความในช่องอยู่ใน chatgpt.js (boxText)
   ctx.boxText = (box) => String(box?.tagName === 'TEXTAREA' ? box.value : (box?.innerText || box?.textContent || ''));
   vm.runInNewContext(`${src}\nthis.composerMatches = composerMatches;`, ctx);

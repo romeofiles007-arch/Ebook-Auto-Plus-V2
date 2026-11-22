@@ -15,7 +15,8 @@ const src = await readFile(new URL('./chatgpt.js', import.meta.url), 'utf8');
 
 test('นับไฟล์แนบเฉพาะในกรอบช่องพิมพ์ ไม่ใช่ทั้งหน้า', () => {
   const fn = src.slice(src.indexOf('const attachmentThumbs = () => {'), src.indexOf('const countAttachmentThumbs'));
-  assert.match(fn, /\$\(S\.composer\)\?\.closest\('form'\)/);
+  // ช่องพิมพ์ที่มองเห็น (composerEl) — ตัวแรกในหน้าอาจเป็นชุดที่ซ่อน (ดู hidden-composer.test.mjs)
+  assert.match(fn, /composerEl\(\)\?\.closest\('form'\)/);
   assert.match(fn, /form \? \$\$\('img\[src\^="blob:"\]', form\) : \[\]/);
   // ห้ามกลับไปกวาดทั้งเอกสารอีก
   assert.ok(!/\$\$\('img\[src\^="blob:"\]'\)\s*;/.test(src), 'ยังมีที่ที่กวาดทั้งหน้าอยู่');

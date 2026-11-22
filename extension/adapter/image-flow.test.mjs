@@ -214,7 +214,7 @@ async function imageSubmission({ ready = true } = {}) {
   const context = {
     opts: { wantImages: true, attachments: [{ dataUrl: 'data:image/png;base64,ref' }] },
     prompt: 'image prompt', turnId: 't1', userMessagesBefore: {}, completedImageTurn: null,
-    S: { composer: '#prompt-textarea' }, $: () => box,
+    S: { composer: '#prompt-textarea' }, $: () => box, composerEl: () => box,
     report() {}, setTimeout() {}, Date, napMs: async () => {}, waitComposerStable: async () => {},
     attachFiles: async () => { calls.push('attach complete'); return { attached: 1, errors: [] }; },
     imageDraftAttachmentsReady: () => { calls.push('check attachment'); return ready; },

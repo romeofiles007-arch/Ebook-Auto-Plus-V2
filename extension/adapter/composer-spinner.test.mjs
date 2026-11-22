@@ -127,7 +127,7 @@ test('ไม่มีอะไรให้กดเลย = บอกตรง �
 
 test('ปลดเองก่อน แล้วค่อยยอมแพ้เป็น composer_busy_stuck', () => {
   const send = source.slice(source.indexOf('async function clickSend'), source.indexOf('// ---------- รู้ได้อย่างไรว่าตอบจบ'));
-  assert.match(send, /if \(releaseStuckComposer\(\$\(S\.composer\)\)\) \{/);
+  assert.match(send, /if \(releaseStuckComposer\(composerEl\(\)\)\) \{/);
   assert.match(send, /btn = await waitForDom\(usableButton, \{ timeoutMs: 8000 \}\)/);
   assert.match(send, /if \(!btn\) throw new Error\('composer_busy_stuck'\)/);
 });

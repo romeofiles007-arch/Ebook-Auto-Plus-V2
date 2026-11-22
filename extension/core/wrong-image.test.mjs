@@ -25,7 +25,7 @@ test('ตัวสแกนกันเฉพาะสิ่งที่แน�
   // อยู่ในก้อนข้อความของผู้ใช้ = แน่นอน
   assert.match(scan, /i\.closest\(USER_TURN\)\) continue;/);
   // อยู่ในช่องพิมพ์ = ยังไม่ได้ส่งด้วยซ้ำ แน่นอนเช่นกัน
-  assert.match(scan, /i\.closest\('form'\)\?\.contains\(\$\(S\.composer\)\)\) continue;/);
+  assert.match(scan, /i\.closest\('form'\)\?\.contains\(composerEl\(\)\)\) continue;/);
   // ห้ามกันทั้งเทิร์น — กว้างเกินไปและตัดภาพที่เรารออยู่ทิ้ง
   // ดูที่โค้ดที่รันจริง ไม่ใช่คำอธิบาย — คอมเมนต์ที่เล่าว่าเคยพลาดยังไงต้องอยู่ต่อได้
   assert.ok(!scan.includes('[data-testid^="conversation-turn"]'), 'ห้ามตัดสินจากกล่องเทิร์นทั้งก้อน');

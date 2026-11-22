@@ -233,7 +233,7 @@
   // ต้องตรงกับ sw.js (sw.forceSend) ซึ่งใช้เกณฑ์เดียวกัน
   const loosePrompt = (text) => String(text || '').replace(/```[\w-]*/g, '').replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
   const composerMatches = (prompt) => {
-    const box = $(S.composer);
+    const box = composerEl();
     if (!box) return false;
     const got = loosePrompt(boxText(box));
     const want = loosePrompt(prompt);
@@ -292,6 +292,19 @@
   }
 
   const waitForComposer = (timeoutMs = 45000) => waitForDom(composerReady, { timeoutMs });
+
+  /**
+   * ช่องพิมพ์ที่ใช้งานอยู่จริง — ทุกจุดต้องหยิบผ่านตัวนี้ ห้ามใช้ $(S.composer) ตรง ๆ
+   *
+   * หน้าแชตของ ChatGPT (พ.ย. 2026) เก็บช่องพิมพ์ไว้สองชุด: ชุดของหน้าแรกที่ถูกซ่อน (display:none
+   * มีปุ่ม Stop ค้างอยู่ข้างใน) กับชุดของห้องแชตที่มองเห็น และชุดที่ซ่อนมาก่อนใน DOM
+   * $(S.composer) จึงได้ชุดที่ซ่อน → หาปุ่มส่งในฟอร์มที่ซ่อน เจอแต่ Stop ที่กดไม่ได้ → รอ "หน้าเว็บว่าง"
+   * 30 วินาทีแล้วจบเป็น composer_busy_stuck · ทางพิมพ์/กด Enter โฟกัสช่องที่ซ่อนไม่ได้ → ตกไปวางผ่านคลิปบอร์ด
+   * ซึ่ง ChatGPT แปลงเป็นไฟล์ "Pasted text" พอกขึ้นทุกรอบ (เห็นจริง: ทุกเทิร์นล้ม 4 ครั้งก่อนผ่าน ทั้งเล่มเสียไป 3 ชั่วโมง)
+   */
+  function composerEl() {
+    return composerReady() || $(S.composer);
+  }
 
   /** ข้อความล่าสุดที่ "เรา" ส่ง ใช้เป็นหมุดว่าอะไรคือคำตอบของเทิร์นนี้ */
   function lastUserTurn() {
@@ -685,7 +698,7 @@
     }
 
     // ทางที่ 2 — หย่อนไฟล์ลงช่องพิมพ์ เหมือนผู้ใช้ลากรูปมาวาง
-    const box = thumbsAdded() > 0 ? null : $(S.composer);
+    const box = thumbsAdded() > 0 ? null : composerEl();
     if (box) {
       try {
         const dt = new DataTransfer();
@@ -728,7 +741,7 @@
      * และ ChatGPT ที่ได้รูปเดียวกันซ้อนกันหลายใบตีความว่าเป็นงานเทียบภาพหรือแก้ภาพ
      * ไม่ใช่งานวาดใหม่ — แล้วก็หยุดคิดกลางคัน ไม่ได้ภาพสักใบ
      */
-    const form = $(S.composer)?.closest('form');
+    const form = composerEl()?.closest('form');
     return form ? $$('img[src^="blob:"]', form) : [];
   };
   const countAttachmentThumbs = () => attachmentThumbs().length;
@@ -784,7 +797,7 @@
     waitForDom(() => countAttachmentThumbs() >= want, { timeoutMs: 45000 }).then((v) => !!v);
 
   function imageDraftAttachmentsReady(want) {
-    const form = $(S.composer)?.closest('form');
+    const form = composerEl()?.closest('form');
     if (!form) return false;
     const thumbs = attachmentThumbs();
     return thumbs.length === want && thumbs.every(img => img.complete && img.naturalWidth > 0)
@@ -1117,8 +1130,32 @@
     return !stopButtonVisible();
   }
 
+  /**
+   * ไฟล์ "Pasted text" ที่ค้างในช่องพิมพ์ — ChatGPT แปลงข้อความยาวที่ถูกวางเป็นไฟล์แนบ (ปุ่ม × ชื่อ
+   * "Remove pasted text attachment") การลบข้อความในช่องไม่แตะไฟล์พวกนี้ จึงพอกขึ้นทุกรอบที่ลองใหม่
+   * แล้วถูกส่งไปพร้อมเทิร์นที่ผ่าน (เห็นจริง: Prompt เดียวกันแนบไป 8 ชุดในข้อความเดียว)
+   * ลบเฉพาะไฟล์ข้อความที่วาง — ไม่แตะรูปอ้างอิงที่ตั้งใจแนบ (รูปมีตัวล้างของตัวเองที่ clearAttachments)
+   */
+  const PASTED_REMOVE = /remove pasted|pasted text|ข้อความที่วาง/i;
+  async function clearPastedText(box) {
+    const form = box?.isConnected ? box.closest('form') : null;
+    if (!form) return 0;
+    let removed = 0;
+    for (let round = 0; round < 20; round++) {
+      const btn = [...form.querySelectorAll('button')].find(
+        (b) => !b.disabled && PASTED_REMOVE.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''}`),
+      );
+      if (!btn) break;
+      btn.click();
+      removed++;
+      await frame();
+    }
+    return removed;
+  }
+
   /** ล้างช่องพิมพ์ให้สุดความสามารถ — ผลลัพธ์ต้องไปพิสูจน์ด้วยการเทียบข้อความอีกที */
   async function clearComposer(box) {
+    await clearPastedText(box);
     for (let i = 0; i < 3; i++) {
       box.focus();
       if (isPlainField(box)) {
@@ -1392,9 +1429,9 @@
      * ปุ่มที่มีอยู่แต่กดไม่ได้ = หน้าเว็บยังไม่ว่าง ต้องรอด้วยเกณฑ์เดียวกับที่รอเทิร์นก่อนหน้าจบ
      * ไม่ใช่ล้มทันที และไม่ใช่รอไม่มีที่สิ้นสุด
      */
-    const usableButton = () => sendCandidates($(S.composer)).find(sendUsable) || null;
+    const usableButton = () => sendCandidates(composerEl()).find(sendUsable) || null;
     // ปุ่มที่มีอยู่แต่กดไม่ได้ หรือวงกลมหมุนที่มาแทนที่ปุ่ม — สองอย่างนี้คือหน้าเว็บยังไม่ว่างเหมือนกัน
-    const composerBusy = () => sendCandidates($(S.composer)).length > 0 || !!composerSpinner($(S.composer));
+    const composerBusy = () => sendCandidates(composerEl()).length > 0 || !!composerSpinner(composerEl());
     let btn = await waitForDom(usableButton, { timeoutMs: 4000 });
     if (!btn && composerBusy()) {
       report(turnId, 'sending', 'ปุ่มส่งเป็นวงกลมหมุนหรือกดไม่ได้ (หน้าเว็บยังไม่ว่างหลังเทิร์นก่อนหน้า) — รอให้ว่างก่อน');
@@ -1411,7 +1448,7 @@
        */
       if (how !== 'done') {
         // ลองปลดเองหนึ่งครั้งก่อนยอมแพ้ — ถ้าคืนช่องพิมพ์ได้ก็ส่งงานต่อได้เลยในเทิร์นนี้
-        if (releaseStuckComposer($(S.composer))) {
+        if (releaseStuckComposer(composerEl())) {
           report(turnId, 'sending', 'กดปลดวงกลมที่ค้างหนึ่งครั้ง — รอช่องพิมพ์กลับมา');
           btn = await waitForDom(usableButton, { timeoutMs: 8000 });
         }
@@ -1897,7 +1934,7 @@
        * และทำงานอยู่ในเครื่องผลิตแล้ว — ตรงนั้นปฏิเสธได้ถูกต้องโดยไม่ต้องเดาจากตำแหน่ง
        */
       // ภาพย่อในช่องพิมพ์ยังไม่ได้ถูกส่งด้วยซ้ำ ห้ามนับเด็ดขาด — อันนี้แน่นอนไม่ใช่การเดา
-      if (i.closest('form')?.contains($(S.composer))) continue;
+      if (i.closest('form')?.contains(composerEl())) continue;
       const w = i.naturalWidth || 0;
       const h = i.naturalHeight || 0;
       const src0 = i.currentSrc || i.src || i.getAttribute('src') || '';
@@ -2244,7 +2281,7 @@
     let last = null;
     let since = Date.now();
     while (Date.now() - t0 < timeoutMs) {
-      const box = $(S.composer);
+      const box = composerEl();
       if (box && box === last) {
         if (Date.now() - since >= quietMs) return box;
       } else {
@@ -2253,7 +2290,7 @@
       }
       await napMs(120);
     }
-    return $(S.composer);
+    return composerEl();
   }
 
   // ---------- เธรดใหม่ ----------
@@ -2468,7 +2505,7 @@
         composerBox = await injectText(prompt, turnId);
       } catch (e) {
         report(turnId, 'typing', `เขียนลงช่องพิมพ์ไม่สำเร็จ (${e?.message || e}) — จะลองทางสำรอง`);
-        composerBox = $(S.composer);
+        composerBox = composerEl();
       }
 
       /**
@@ -2480,7 +2517,7 @@
        */
       for (let i = 0; i < 3; i++) {
         await napMs(450);
-        const live = $(S.composer);
+        const live = composerEl();
         if (live && (live.innerText || live.textContent || '').trim()) {
           composerBox = live;
           break;
