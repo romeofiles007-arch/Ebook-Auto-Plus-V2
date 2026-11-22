@@ -22,7 +22,7 @@
    * แท็บ Flow ที่เปิดค้างไว้ก่อนรีโหลดส่วนขยายยังรันตัวขับรุ่นเก่าต่อ (เจอจริง: แก้แล้วยังขึ้นข้อความแบบเก่า)
    * service worker เห็นรุ่นไม่ตรงจะโหลดแท็บใหม่ให้เอง
    */
-  const ADAPTER_REV = 18;
+  const ADAPTER_REV = 19;
 
   /**
    * ตัวขับที่ถูกตัดขาด (กดโหลดส่วนขยายใหม่ระหว่างงาน) ยังวิ่งงานค้างต่อในหน้าเดิมได้ แล้วชนกับตัวขับใหม่ในหน้าเดียวกัน
@@ -264,7 +264,16 @@
   const SEL = {
     newProject: () =>
       $$('button').find((b) => visible(b) && /new project|โปรเจ็กต์ใหม่|โปรเจกต์ใหม่/i.test(text(b))),
-    agentChip: () => $$('button.agent-mode-chip').find(visible),
+    /**
+     * ปุ่มเปิด/ปิด Agent — พ.ย. 2026 Flow เปลี่ยนจาก chip (button.agent-mode-chip) เป็นสวิตช์
+     * button.switch aria-label="Agent จาก Flow" (ไอคอน spark / spark_off) หาไม่เจอ = ปิด Agent ไม่ได้
+     * ปุ่มรุ่นภาพไม่โผล่ → "ไม่พบปุ่มตั้งค่าโมเดล" ทุกรอบ แล้ว Phase 2 วนเปิด project ใหม่ไม่รู้จบ (เห็นจริง)
+     */
+    agentChip: () =>
+      $$('button.agent-mode-chip').find(visible) ||
+      $$('flow-prompt-box button.switch, flow-base-prompt-box button.switch').find(
+        (b) => visible(b) && /agent/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''}`),
+      ),
     settingsTrigger: () =>
       $$('button.settings-trigger-button').find(visible) ||
       $$('button[aria-label="Settings trigger"], button[aria-label="ทริกเกอร์การตั้งค่า"]').find(visible) ||
@@ -311,6 +320,16 @@
   };
   const agentOn = () => {
     const chip = SEL.agentChip();
+    /**
+     * สวิตช์รุ่นใหม่: aria-pressed / class checked ตามหลังของจริงหลายวินาที (ตรวจสด: ปิดแล้ว 4 วินาทียังเป็น true)
+     * แต่ปุ่มในช่องพิมพ์สลับภายใน 200ms — "การตั้งค่า Agent" (agent-action-button) = เปิด · ปุ่มรุ่นภาพ = ปิด
+     * ถ้าเชื่อ aria-pressed ตัว agentOff จะเห็นว่ายังไม่ดับ แล้วกดซ้ำจน Agent กลับมาเปิดอีก
+     */
+    if (chip?.matches?.('button.switch')) {
+      const box = chip.closest('flow-prompt-box, flow-base-prompt-box');
+      if (box && $$('button.agent-action-button', box).some(visible)) return true;
+      if (box && $$('button.settings-trigger-button', box).some(visible)) return false;
+    }
     return !!chip && (
       chip.getAttribute('aria-pressed') === 'true' ||
       chip.getAttribute('aria-checked') === 'true' ||
